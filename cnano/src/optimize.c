@@ -176,6 +176,8 @@ static void foldStatement(Node *node) {
   case NODE_WHILE:
     node->as.whileStmt.condition = foldExpr(node->as.whileStmt.condition);
     foldStatement(node->as.whileStmt.body);
+    if (node->as.whileStmt.increment != NULL)
+      node->as.whileStmt.increment = foldExpr(node->as.whileStmt.increment);
     break;
   case NODE_FUN:
     foldProgram(node->as.fun.body);

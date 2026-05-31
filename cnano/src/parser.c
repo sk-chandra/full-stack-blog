@@ -718,8 +718,8 @@ static Node *desugarForIn(ObjString *var, Node *coll, Node *body, int line) {
   Program *loopBody = makeProgram();
   writeProgram(loopBody, declVar);
   writeProgram(loopBody, body);
-  writeProgram(loopBody, newExprStmt(incr, line));
   Node *whileNode = newWhile(cond, newBlock(loopBody, line), line);
+  whileNode->as.whileStmt.increment = incr; // `$i = $i + 1`, so `continue` runs it
 
   Program *outer = makeProgram();
   writeProgram(outer, declSeq);
@@ -772,25 +772,14 @@ static Node *forStatement(void) {
 
   Node *body = statement();
 
-  // --- desugar into blocks + while ---
-  // If there is an update, splice it after the body inside a fresh block:
-  //   { body; update; }
-  if (update != NULL) {
-    Program *bodyBlock = malloc(sizeof(Program));
-    if (bodyBlock == NULL) {
-      fprintf(stderr, "cnano: out of memory desugaring for-loop\n");
-      exit(70);
-    }
-    initProgram(bodyBlock);
-    writeProgram(bodyBlock, body);
-    writeProgram(bodyBlock, newExprStmt(update, line));
-    body = newBlock(bodyBlock, line);
-  }
-
-  // A missing condition means "loop forever": substitute the literal `true`.
+  // --- desugar into a while with an explicit increment ---
+  // The update runs after the body each iteration, but as the while's `increment`
+  // (not appended to the body) so `continue` runs it instead of skipping it.
   if (condition == NULL)
-    condition = newBool(true, line);
-  body = newWhile(condition, body, line);
+    condition = newBool(true, line); // a missing condition means "loop forever"
+  Node *loop = newWhile(condition, body, line);
+  loop->as.whileStmt.increment = update; // may be NULL
+  body = loop;
 
   // If there is an initialiser, wrap the whole thing in a block so the loop
   // variable's scope is the loop:  { init; while (...) {...} }
@@ -860,6 +849,16 @@ static Node *statement(void) {
     return throwStatement();
   if (match(TOKEN_TRY))
     return tryStatement();
+  if (match(TOKEN_BREAK)) {
+    int line = parser.previous.line;
+    consume(TOKEN_SEMICOLON, "Expect ';' after 'break'.");
+    return newBreak(line);
+  }
+  if (match(TOKEN_CONTINUE)) {
+    int line = parser.previous.line;
+    consume(TOKEN_SEMICOLON, "Expect ';' after 'continue'.");
+    return newContinue(line);
+  }
   if (match(TOKEN_LBRACE))
     return block();
   return expressionStatement();

@@ -64,6 +64,21 @@ typedef struct CompilerState {
 
 static CompilerState *current;
 
+// A `break`/`continue` target. Loops nest, so these form a stack threaded through
+// `currentLoop`. Each records the jumps to back-patch and the scope depth at the
+// loop, so break/continue know how many body locals to discard before jumping.
+#define MAX_LOOP_EXITS 256
+typedef struct Loop {
+  struct Loop *enclosing;
+  int scopeDepth;
+  int breakJumps[MAX_LOOP_EXITS];
+  int breakCount;
+  int continueJumps[MAX_LOOP_EXITS];
+  int continueCount;
+} Loop;
+
+static Loop *currentLoop = NULL;
+
 // The chunk we are currently emitting into is always the current function's own
 // chunk. Making this a function (not a stored pointer) means switching functions
 // just needs `current` updated — the chunk follows automatically.
@@ -573,6 +588,8 @@ static void emitExpr(Node *node) {
   case NODE_STRUCT:
   case NODE_THROW:
   case NODE_TRY:
+  case NODE_BREAK:
+  case NODE_CONTINUE:
     // Statement nodes are not expressions and must never be compiled as one.
     // This case exists only to keep the switch exhaustive (so -Wall warns if a
     // future node type is forgotten).
@@ -660,26 +677,64 @@ static void emitStatement(Node *node) {
   }
 
   case NODE_WHILE: {
-    // Layout we emit:
-    //   loopStart:
-    //     <condition>
-    //     JUMP_IF_FALSE  -> end         (exitJump)
-    //     POP            (discard condition; we're entering the body)
-    //     <body>
-    //     LOOP           -> loopStart   (backward jump; re-test the condition)
-    //   end:
-    //     POP            (discard condition on the exit path)
-    // The backward LOOP is what makes it a loop. Note the symmetric POPs again,
-    // for the same reason as `if`.
+    // Layout:
+    //   loopStart: <cond> JUMP_IF_FALSE->exit  POP  <body>
+    //   continueTarget: [<increment> POP]  LOOP->loopStart
+    //   exit: POP   breakTarget:
+    // A `continue` jumps to continueTarget (so it still runs the increment); a
+    // `break` jumps to breakTarget (past the exit POP). We push a loop context so
+    // those statements know where to jump and how many locals to discard.
+    Loop loop;
+    loop.enclosing = currentLoop;
+    loop.scopeDepth = current->scopeDepth; // depth just outside the body
+    loop.breakCount = 0;
+    loop.continueCount = 0;
+    currentLoop = &loop;
+
     int loopStart = currentChunk()->count; // the condition is re-evaluated here
     emitExpr(node->as.whileStmt.condition);
     int exitJump = emitJump(OP_JUMP_IF_FALSE, node->line);
     emitByte(OP_POP, node->line); // enter body: pop condition
     emitStatement(node->as.whileStmt.body);
+
+    // continue lands here, BEFORE the increment, so it isn't skipped: patchJump
+    // targets the current position, which is exactly this point.
+    for (int i = 0; i < loop.continueCount; i++)
+      patchJump(loop.continueJumps[i]);
+    if (node->as.whileStmt.increment != NULL) {
+      emitExpr(node->as.whileStmt.increment);
+      emitByte(OP_POP, node->line); // the increment is run for effect
+    }
     emitLoop(loopStart, node->line);
 
     patchJump(exitJump);
     emitByte(OP_POP, node->line); // exit: pop condition
+    for (int i = 0; i < loop.breakCount; i++)
+      patchJump(loop.breakJumps[i]); // -> here, past the loop
+    currentLoop = loop.enclosing;
+    break;
+  }
+
+  case NODE_BREAK:
+  case NODE_CONTINUE: {
+    if (currentLoop == NULL) {
+      compileError(node->line, node->type == NODE_BREAK
+                                   ? "'break' is only valid inside a loop"
+                                   : "'continue' is only valid inside a loop");
+      break;
+    }
+    // Discard locals declared inside the loop body before jumping out of it, so
+    // the operand stack stays balanced (the block's own scope-exit POPs are
+    // skipped by the jump).
+    for (int i = current->localCount - 1;
+         i >= 0 && current->locals[i].depth > currentLoop->scopeDepth; i--)
+      emitByte(current->locals[i].isCaptured ? OP_CLOSE_UPVALUE : OP_POP,
+               node->line);
+    int jump = emitJump(OP_JUMP, node->line);
+    if (node->type == NODE_BREAK)
+      currentLoop->breakJumps[currentLoop->breakCount++] = jump;
+    else
+      currentLoop->continueJumps[currentLoop->continueCount++] = jump;
     break;
   }
 
@@ -815,6 +870,8 @@ static void emitStatement(Node *node) {
 static ObjFunction *compileFunction(Node *node, FunctionType type) {
   CompilerState state;
   initCompilerState(&state, type);
+  Loop *savedLoop = currentLoop; // a loop never spans a function boundary
+  currentLoop = NULL;
   current->function->name = node->as.fun.name;
   current->function->arity = node->as.fun.paramCount;
 
@@ -854,6 +911,7 @@ static ObjFunction *compileFunction(Node *node, FunctionType type) {
 
   // Pop this compiler off the stack, restoring the enclosing one.
   current = current->enclosing;
+  currentLoop = savedLoop;
 
   // Emit OP_CLOSURE in the enclosing chunk: the function constant, then two
   // bytes per upvalue (isLocal, index) telling the VM how to capture each one at

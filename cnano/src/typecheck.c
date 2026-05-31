@@ -573,7 +573,12 @@ static void checkStatement(Node *node) {
   case NODE_WHILE:
     checkExpr(node->as.whileStmt.condition);
     checkStatement(node->as.whileStmt.body);
+    if (node->as.whileStmt.increment != NULL)
+      checkExpr(node->as.whileStmt.increment);
     break;
+  case NODE_BREAK:
+  case NODE_CONTINUE:
+    break; // loop control carries no value to check
   case NODE_FUN:
     checkFunction(node);
     break;

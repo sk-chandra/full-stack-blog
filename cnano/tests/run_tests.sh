@@ -616,6 +616,19 @@ check_prog_err "null-wrong-inner" 'let a: int? = "no"; print a;'
 check_prog_err "null-no-narrow"  'fn f(x: int?): int { return x; } print f(1);'
 check_native_err "nat-rej-nullable" 'fn f(x: int?): int { return 0; } print f(nil);'
 
+# --- break / continue (step 26) ---
+check_prog "break-while"   'let i=0; while (true) { if (i==3) break; print i; i+=1; }' "$(printf '0\n1\n2')"
+check_prog "continue-for"  'for (let i=0; i<6; i+=1) { if (i-(i/2)*2==0) continue; print i; }' "$(printf '1\n3\n5')"
+check_prog "continue-terminates" 'let c=0; for (let i=0;i<50;i+=1){ c+=1; continue; } print c;' "50"
+check_prog "break-forin"   'for (let x in [10,20,30,40]) { if (x==30) break; print x; }' "$(printf '10\n20')"
+check_prog "continue-forin" 'let s=0; for (let x in [1,2,3,4,5]) { if (x==3) continue; s+=x; } print s;' "12"
+check_prog "break-nested"  'for (let i in [1,2]) { for (let j in [1,2,3]) { if (j==2) break; print i*10+j; } }' "$(printf '11\n21')"
+check_prog "break-locals"  'let i=0; while (i<9) { let a=i*2; if (a>5) break; print a; i+=1; } print "x";' "$(printf '0\n2\n4\nx')"
+check_prog_err "break-outside"   'break;'
+check_prog_err "continue-outside" 'continue;'
+check_prog_err "break-cross-fn"  'while (true) { fn f() { break; } }'
+check_native "nat-break" 'fn f(): int { let s: int = 0; let i: int = 0; while (i < 10) { if (i == 5) break; s += i; i += 1; } return s; } print f();' "10"
+
 # --- error handling: try / catch / throw (step 25) ---
 check_prog "try-basic"    'try { throw "boom"; print "unreached"; } catch (e) { print "caught: " + e; }' "caught: boom"
 check_prog "try-no-throw" 'try { print "ok"; } catch (e) { print "no"; }' "ok"

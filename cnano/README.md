@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (363 cases, incl. native + GC)
+make test       # run the end-to-end test suite (374 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -55,7 +55,8 @@ make run        # start the REPL
 - **Control flow** (cnano is now Turing-complete): `if`/`else`, `while`, C-style
   `for`, and **`for (let x in coll)`** iteration over arrays (elements) and maps
   (keys) — all desugared to a block + while, built from jump instructions and
-  backpatching
+  backpatching — plus **`break`** and **`continue`** (which correctly runs a
+  `for`/`for-in` step rather than skipping it, and discards loop-body locals)
 - **Short-circuiting** `and` / `or` that return the deciding operand (so
   `nil or "default"` yields `"default"` and the skipped side never runs)
 - **Error handling**: `throw EXPR;` raises any value; `try { … } catch (e) { … }`

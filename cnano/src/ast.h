@@ -56,6 +56,8 @@ typedef enum {
   NODE_STRUCT,    // `struct Name { field: T, ... }` — a struct declaration
   NODE_THROW,     // `throw EXPR;` — raise a value
   NODE_TRY,       // `try { ... } catch (e) { ... }` — guard a block
+  NODE_BREAK,     // `break;` — exit the innermost loop
+  NODE_CONTINUE,  // `continue;` — next iteration of the innermost loop
   NODE_PRINT,      // `print EXPR;` — evaluate EXPR and print it
   NODE_EXPR_STMT,  // `EXPR;` — evaluate EXPR, then discard its value
   NODE_VAR_DECL,   // `let name = EXPR;` — declare a variable (global or local)
@@ -151,10 +153,13 @@ typedef struct Node {
       struct Node *then;
       struct Node *otherwise; // NULL if there is no else
     } ifStmt;
-    // NODE_WHILE: a condition and a loop body.
+    // NODE_WHILE: a condition, a loop body, and an optional `increment` run after
+    // the body each iteration (NULL for a plain `while`; set by the `for` desugar
+    // so that `continue` runs the step rather than skipping it).
     struct {
       struct Node *condition;
       struct Node *body;
+      struct Node *increment; // an expression run each iteration; may be NULL
     } whileStmt;
     // NODE_CALL: the expression being called plus a list of argument expressions.
     struct {
@@ -288,6 +293,10 @@ Node *newStructDecl(ObjString *name, ObjString **fieldNames, Type **fieldTypes,
 // `throw EXPR;` and `try { body } catch (name) { handler }`.
 Node *newThrow(Node *value, int line);
 Node *newTry(Node *body, ObjString *catchName, Node *handler, int line);
+
+// `break;` and `continue;` — loop control (no children).
+Node *newBreak(int line);
+Node *newContinue(int line);
 
 // Deep-copy a PURE expression (literals, variable reads, and index reads built
 // from those). Returns NULL for anything that could have a side effect (calls,

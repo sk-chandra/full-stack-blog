@@ -66,6 +66,8 @@ typedef enum {
   TOKEN_TRY,       // try — begins an exception-guarded block
   TOKEN_CATCH,     // catch — handles a thrown value
   TOKEN_THROW,     // throw — raises a value to the nearest catch
+  TOKEN_BREAK,     // break — exit the innermost loop
+  TOKEN_CONTINUE,  // continue — skip to the innermost loop's next iteration
   // Bookkeeping
   TOKEN_ERROR, // lexing failed; `start`/`length` point at a human message
   TOKEN_EOF,   // end of input — lets the parser stop without special-casing

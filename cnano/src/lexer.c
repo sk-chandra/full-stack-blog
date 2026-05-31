@@ -185,6 +185,10 @@ static TokenType identifierType(void) {
     return TOKEN_CATCH;
   if (length == 5 && memcmp(s, "throw", 5) == 0)
     return TOKEN_THROW;
+  if (length == 5 && memcmp(s, "break", 5) == 0)
+    return TOKEN_BREAK;
+  if (length == 8 && memcmp(s, "continue", 8) == 0)
+    return TOKEN_CONTINUE;
   // Not a keyword: it's a user-defined identifier (a variable name).
   return TOKEN_IDENTIFIER;
 }

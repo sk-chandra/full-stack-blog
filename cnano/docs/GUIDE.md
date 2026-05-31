@@ -1441,8 +1441,17 @@ programs define their own types, and makes failure recoverable.
     discarded when a frame returns out of a `try`. **Phase C complete** — cnano is
     now a practical, object-capable, null-safe language with recoverable errors.
 
+26. ~~**`break` / `continue`.**~~ **✅ DONE** — a compiler loop-context stack
+    records break/continue jumps to back-patch and the loop's scope depth. `break`
+    jumps past the loop, `continue` to a target *before* the increment (so the
+    `for` step still runs); both first emit pops for any loop-body locals (since
+    they skip the block's scope-exit). To make `continue` correct, the `for`/
+    `for-in` desugar now carries the step in a new `NODE_WHILE.increment` field
+    rather than appending it to the body. Native supports `break` (rejects
+    `continue`). A loop can't span a function boundary.
+
 **Phase D — type-system depth**
-26. **Union types** (`int | str`) with narrowing.
+27. **Union types** (`int | str`) with narrowing.
 27. **Generics** (`fn first<T>(a: [T]): T`).
 
 **Phase E — compiler & runtime polish**

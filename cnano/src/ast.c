@@ -109,8 +109,12 @@ Node *newWhile(Node *condition, Node *body, int line) {
   Node *node = allocNode(NODE_WHILE, line);
   node->as.whileStmt.condition = condition;
   node->as.whileStmt.body = body;
+  node->as.whileStmt.increment = NULL; // set by the `for` desugar when needed
   return node;
 }
+
+Node *newBreak(int line) { return allocNode(NODE_BREAK, line); }
+Node *newContinue(int line) { return allocNode(NODE_CONTINUE, line); }
 
 Node *newCall(Node *callee, Node **args, int argCount, int line) {
   Node *node = allocNode(NODE_CALL, line);
@@ -303,7 +307,11 @@ void freeNode(Node *node) {
   case NODE_WHILE:
     freeNode(node->as.whileStmt.condition);
     freeNode(node->as.whileStmt.body);
+    freeNode(node->as.whileStmt.increment); // tolerates NULL (plain while)
     break;
+  case NODE_BREAK:
+  case NODE_CONTINUE:
+    break; // no children
   case NODE_CALL:
     freeNode(node->as.call.callee);
     for (int i = 0; i < node->as.call.argCount; i++)

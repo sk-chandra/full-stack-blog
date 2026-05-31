@@ -431,8 +431,27 @@ static void emitStmt(Node *node, int ind, bool fileScope) {
     emitExpr(node->as.whileStmt.condition);
     fprintf(out, ") {\n");
     emitStmt(node->as.whileStmt.body, ind + 1, false);
+    if (node->as.whileStmt.increment != NULL) {
+      // The `for` desugar's step: run it at the end of each iteration. (A C
+      // `continue` would skip it, but cnano lowers continue to a goto-free
+      // equivalent only on the VM; the native subset has no continue — see below.)
+      indent(ind + 1);
+      fprintf(out, "(void)(");
+      emitExpr(node->as.whileStmt.increment);
+      fprintf(out, ");\n");
+    }
     indent(ind);
     fprintf(out, "}\n");
+    break;
+  case NODE_BREAK:
+    indent(ind);
+    fprintf(out, "break;\n");
+    break;
+  case NODE_CONTINUE:
+    // A C `continue` would skip the emitted increment above (which sits inside
+    // the loop body, not in a C for-clause), changing semantics — so reject it
+    // in the native backend rather than miscompile.
+    unsupported(node->line, "continue");
     break;
   case NODE_RETURN:
     indent(ind);
