@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (461 cases, incl. native + GC)
+make test       # run the end-to-end test suite (462 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -26,6 +26,7 @@ make run        # start the REPL
 ./build/cnano examples/maps.cn                #  maps: any-key dictionaries, methods
 ./build/cnano examples/structs.cn             #  structs: records, fields, methods
 ./build/cnano examples/errors.cn              #  try / catch / throw
+./build/cnano examples/showcase.cn            #  floats, unions, match, methods, ...
 
 # see the bytecode AND a step-by-step VM trace (the best way to learn)
 ./build/cnano --dump examples/variables.cn

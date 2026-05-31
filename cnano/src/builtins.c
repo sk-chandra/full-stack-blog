@@ -117,18 +117,24 @@ static bool lenNative(int argCount, Value *args, Value *result) {
   return true;
 }
 
-// type(x) -> str : the runtime type name of any value.
+// type(x) -> str : the runtime type name of any value. A struct instance reports
+// its struct's NAME (so `type(Point(1,2))` is "Point").
 static bool typeNative(int argCount, Value *args, Value *result) {
   (void)argCount;
   Value v = args[0];
-  const char *name = IS_INT(v)     ? "int"
-                     : IS_FLOAT(v) ? "float"
-                     : IS_BOOL(v)  ? "bool"
-                     : IS_NIL(v)   ? "nil"
+  if (IS_INSTANCE(v)) {
+    *result = OBJ_VAL(AS_INSTANCE(v)->type->name);
+    return true;
+  }
+  const char *name = IS_INT(v)      ? "int"
+                     : IS_FLOAT(v)  ? "float"
+                     : IS_BOOL(v)   ? "bool"
+                     : IS_NIL(v)    ? "nil"
                      : IS_STRING(v) ? "str"
-                     : IS_ARRAY(v) ? "array"
-                     : IS_MAP(v)   ? "map"
-                                   : "fn"; // closures and natives
+                     : IS_ARRAY(v)  ? "array"
+                     : IS_MAP(v)    ? "map"
+                     : IS_STRUCT(v) ? "struct"
+                                    : "fn"; // closures and natives
   *result = OBJ_VAL(copyString(name, (int)strlen(name)));
   return true;
 }

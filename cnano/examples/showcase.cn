@@ -1,0 +1,69 @@
+// showcase.cn — a tour of cnano's higher-level features (run on the VM).
+//
+//   cnano examples/showcase.cn
+
+// --- floats & math -------------------------------------------------------
+fn hypotenuse(a: float, b: float): float {
+  return sqrt(a * a + b * b);
+}
+print "hypotenuse(3, 4) = ${hypotenuse(3.0, 4.0)}"; // 5.0
+print "2^10 = ${pow(2.0, 10.0)}, floor(3.7) = ${floor(3.7)}";
+
+// --- union types + `is` narrowing ----------------------------------------
+fn render(v: int | str | bool): str {
+  if (v is int) { return "int(${v * 2})"; }   // v is int here
+  if (v is str) { return "str(${v.upper()})"; }
+  return "bool(${v})";
+}
+for (let x in [1, "hi", true]) {
+  print render(x);
+}
+
+// --- nullable + narrowing ------------------------------------------------
+fn greet(name: str?): str {
+  if (name == nil) { return "Hello, stranger"; }
+  return "Hello, ${name}";                      // name narrowed to str
+}
+print greet("Ada");
+print greet(nil);
+
+// --- structs, methods, constructors --------------------------------------
+struct Vec {
+  x: float,
+  y: float
+  fn init(x: float, y: float) { self.x = x; self.y = y; }
+  fn length(): float { return sqrt(self.x * self.x + self.y * self.y); }
+  fn scaled(k: float): Vec { return Vec(self.x * k, self.y * k); }
+}
+let v = Vec(3.0, 4.0);
+print "len=${v.length()}, doubled len=${v.scaled(2.0).length()}";
+
+// --- match dispatch ------------------------------------------------------
+fn classify(n: int): str {
+  match (n % 3) {
+    0 => return "fizz";
+    _ => return str(n);
+  }
+}
+let out = [];
+for (let i in 1..7) { out.push(classify(i)); }
+print out.join(" ");                             // 1 2 fizz 4 5 fizz
+
+// --- higher-order + error handling ---------------------------------------
+fn isPositive(x) { return x > 0; }
+fn add(a, b) { return a + b; }
+let nums = [3, -1, 4, -1, 5, 9, -2, 6];
+let total = nums.filter(isPositive).reduce(add, 0);
+print "sum of positives = ${total}";
+
+fn safeSqrt(x: float): float {
+  try {
+    if (x < 0.0) { throw "negative input: ${x}"; }
+    return sqrt(x);
+  } catch (e) {
+    print "caught: ${e}";
+    return 0.0;
+  }
+}
+print "sqrt(2) = ${safeSqrt(2.0)}";
+print "sqrt(-1) = ${safeSqrt(-1.0)}";
