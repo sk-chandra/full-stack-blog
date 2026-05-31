@@ -69,6 +69,28 @@ Restart the API and `/api/health` will report `"provider": "amadeus"`.
 > the app serves the bundled sample data. Run it locally with the env vars above
 > to get genuinely live rates.
 
+## Deployment (public)
+
+The app is published to **GitHub Pages** by the
+[`Deploy to GitHub Pages`](.github/workflows/deploy-pages.yml) workflow on every
+push to the development branch:
+
+**Live URL:** https://sk-chandra.github.io/full-stack-blog/
+
+Because Pages serves static files only, the workflow builds the frontend in
+**static mode** (`VITE_STATIC=true`): there is no backend, so the sample
+pricing runs client-side from `shared/hotelData.js`. The same workflow captures
+UI screenshots (Playwright/Chromium) and uploads them as the **`app-screenshots`**
+artifact on the workflow run.
+
+> First run also auto-enables Pages (`actions/configure-pages` with
+> `enablement: true`). If your org restricts that, enable it once under
+> **Settings → Pages → Build and deployment → Source: GitHub Actions** and
+> re-run the workflow.
+
+To get the full stack (live Amadeus prices via the Express API) you need a host
+that runs Node — e.g. Render/Railway/Fly — using `npm run build && npm start`.
+
 ## API reference
 
 Base URL: `/api` (proxied in dev, same-origin in production).
