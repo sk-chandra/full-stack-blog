@@ -618,6 +618,15 @@ check_prog_err "init-return-val"  'struct P { x: int fn init(v: int) { self.x = 
 check_prog_err "init-arg-type"    'struct T { c: int fn init(v: int) { self.c = v; } } let t = T("hot"); print t;'
 check_prog_err "init-arity-err"   'struct T { c: int fn init(v: int) { self.c = v; } } let t = T(1, 2); print t;'
 
+# --- match / value dispatch (step 33) ---
+check_prog "match-int"   'fn n(x){ match (x) { 0 => return "zero"; 1 => return "one"; _ => return "many"; } } print n(0); print n(9);' "$(printf 'zero\nmany')"
+check_prog "match-str"   'let c = "stop"; match (c) { "go" => print 1; "stop" => print 0; _ => print -1; }' "0"
+check_prog "match-block" 'let x = 2; match (x) { 1 => print "a"; 2 => { print "two"; print "!"; } }' "$(printf 'two\n!')"
+check_prog "match-expr-subject" 'match (3 + 4) { 7 => print "seven"; _ => print "no"; }' "seven"
+check_prog "match-no-default" 'match (5) { 1 => print "x"; } print "after";' "after"
+check_prog "match-in-loop" 'for (let i in 0..5) { match (i) { 3 => break; _ => print i; } }' "$(printf '0\n1\n2')"
+check_native "nat-match" 'fn c(n: int): int { match (n) { 0 => return 100; 1 => return 200; _ => return 0; } } print c(1);' "200"
+
 # --- string interpolation (step 32) ---
 check_prog "interp-basic"  'let name = "world"; print "Hello, ${name}!";' "Hello, world!"
 check_prog "interp-expr"   'let a=3; let b=4; print "${a} + ${b} = ${a+b}";' "3 + 4 = 7"

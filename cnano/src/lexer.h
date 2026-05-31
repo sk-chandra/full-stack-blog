@@ -78,6 +78,8 @@ typedef enum {
   TOKEN_THROW,     // throw — raises a value to the nearest catch
   TOKEN_BREAK,     // break — exit the innermost loop
   TOKEN_CONTINUE,  // continue — skip to the innermost loop's next iteration
+  TOKEN_MATCH,     // match — value-dispatch over a subject
+  TOKEN_FAT_ARROW, // => — separates a match pattern from its body
   // Bookkeeping
   TOKEN_ERROR, // lexing failed; `start`/`length` point at a human message
   TOKEN_EOF,   // end of input — lets the parser stop without special-casing

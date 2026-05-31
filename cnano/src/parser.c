@@ -994,7 +994,61 @@ static Node *tryStatement(void) {
   return newTry(body, name, handler, line);
 }
 
+// `match (SUBJECT) { p1 => s1; p2 => s2; _ => sd; }` — value dispatch. Desugars
+// to evaluate SUBJECT once and run an if/else-if chain comparing it (`==`) to each
+// pattern, with `_` as the default. Patterns are ordinary expressions (usually
+// literals). Arms are statements (often blocks); no separators are needed.
+static Node *matchStatement(void) {
+  int line = parser.previous.line; // 'match'
+  consume(TOKEN_LPAREN, "Expect '(' after 'match'.");
+  Node *subject = expression();
+  consume(TOKEN_RPAREN, "Expect ')' after the match subject.");
+  consume(TOKEN_LBRACE, "Expect '{' to begin the match arms.");
+
+  Node *patterns[256];
+  Node *bodies[256];
+  int count = 0;
+  Node *defaultBody = NULL;
+  while (!check(TOKEN_RBRACE) && !check(TOKEN_EOF)) {
+    bool isDefault = check(TOKEN_IDENTIFIER) && parser.current.length == 1 &&
+                     parser.current.start[0] == '_';
+    Node *pat = NULL;
+    if (isDefault)
+      advance(); // consume '_'
+    else
+      pat = expression();
+    consume(TOKEN_FAT_ARROW, "Expect '=>' after a match pattern.");
+    Node *body = statement();
+    if (isDefault) {
+      if (defaultBody != NULL)
+        errorAt(&parser.previous, "A match can have only one '_' arm.");
+      defaultBody = body;
+    } else if (count < 256) {
+      patterns[count] = pat;
+      bodies[count] = body;
+      count++;
+    }
+  }
+  consume(TOKEN_RBRACE, "Expect '}' after the match arms.");
+
+  // { let $m = SUBJECT; if ($m == p0) b0 else if ($m == p1) b1 ... else default }
+  ObjString *mname = copyString("$m", 2);
+  Node *chain = defaultBody; // the innermost else (may be NULL)
+  for (int i = count - 1; i >= 0; i--) {
+    Node *cond =
+        newBinary(OP_NODE_EQUAL, newVarGet(mname, line), patterns[i], line);
+    chain = newIf(cond, bodies[i], chain, line);
+  }
+  Program *outer = makeProgram();
+  writeProgram(outer, newVarDecl(mname, subject, typeAny(), line));
+  if (chain != NULL)
+    writeProgram(outer, chain);
+  return newBlock(outer, line);
+}
+
 static Node *statement(void) {
+  if (match(TOKEN_MATCH))
+    return matchStatement();
   if (match(TOKEN_PRINT))
     return printStatement();
   if (match(TOKEN_IF))

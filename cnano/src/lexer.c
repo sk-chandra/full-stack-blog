@@ -218,6 +218,8 @@ static TokenType identifierType(void) {
     return TOKEN_BREAK;
   if (length == 8 && memcmp(s, "continue", 8) == 0)
     return TOKEN_CONTINUE;
+  if (length == 5 && memcmp(s, "match", 5) == 0)
+    return TOKEN_MATCH;
   // Not a keyword: it's a user-defined identifier (a variable name).
   return TOKEN_IDENTIFIER;
 }
@@ -283,8 +285,12 @@ Token scanToken(void) {
   case '!':
     return makeToken(match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
   case '=':
-    // '==' is equality; a lone '=' is now assignment.
-    return makeToken(match('=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL);
+    // '==' equality, '=>' a match arm, a lone '=' assignment.
+    if (match('='))
+      return makeToken(TOKEN_EQUAL_EQUAL);
+    if (match('>'))
+      return makeToken(TOKEN_FAT_ARROW);
+    return makeToken(TOKEN_EQUAL);
   case '<':
     if (match('<'))
       return makeToken(TOKEN_LSHIFT);

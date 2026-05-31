@@ -1492,9 +1492,11 @@ programs define their own types, and makes failure recoverable.
 37. ~~**`const` bindings.**~~ **✅ DONE** (step 30).
 38. ~~**String interpolation.**~~ **✅ DONE** (step 32).
 39. **Performance** — inline caching + a bytecode peephole pass + a benchmark.
-40. **Native-backend extensions** — closures (and/or simple arrays) lowered to C.
-41. **Pattern matching** (`match`), **modules/imports**, **floats** — larger,
-    still open.
+40. ~~**Pattern matching** (`match`).~~ **✅ DONE** (step 33) — value dispatch,
+    desugared to an evaluate-once if/else-if chain over `==` with `_` default.
+41. **Native-backend extensions** — closures (and/or simple arrays) lowered to C.
+42. **Performance** (inline caching/peephole), **modules/imports**, **floats**,
+    type-pattern arms in `match` — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
 (free online). cnano's bytecode/VM design intentionally follows the same lineage
