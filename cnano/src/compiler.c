@@ -667,6 +667,7 @@ static void emitExpr(Node *node) {
   case NODE_WHILE:
   case NODE_RETURN:
   case NODE_STRUCT:
+  case NODE_ENUM:
   case NODE_THROW:
   case NODE_TRY:
   case NODE_BREAK:
@@ -876,6 +877,31 @@ static void emitStatement(Node *node) {
     }
 
     ObjString *name = node->as.structDecl.name;
+    if (current->scopeDepth > 0) {
+      declareLocal(name, node->line);
+      markInitialized();
+    } else {
+      int nameIdx = identifierConstant(name, node->line);
+      emitByte(OP_DEFINE_GLOBAL, node->line);
+      emitByte((uint8_t)nameIdx, node->line);
+    }
+    break;
+  }
+
+  case NODE_ENUM: {
+    // Build the enum object and its member singletons NOW (GC is off during
+    // compilation), fill its members table, ride it in the constant pool, and
+    // bind it to its name — the same "build a runtime object, bind it" shape as a
+    // struct. `Enum.Member` is then just an ordinary field read at runtime.
+    ObjEnum *e = newEnum(node->as.enumDecl.name);
+    for (int i = 0; i < node->as.enumDecl.memberCount; i++) {
+      ObjString *mname = node->as.enumDecl.memberNames[i];
+      ObjEnumMember *m = newEnumMember(e, mname, i);
+      tableSet(&e->members, mname, OBJ_VAL(m));
+    }
+    emitConstant(OBJ_VAL(e), node->line); // leaves the enum object on the stack
+
+    ObjString *name = node->as.enumDecl.name;
     if (current->scopeDepth > 0) {
       declareLocal(name, node->line);
       markInitialized();

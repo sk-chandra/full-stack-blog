@@ -104,6 +104,12 @@ Type *typeStructRef(ObjString *name) {
   return t;
 }
 
+Type *typeEnum(ObjString *name) {
+  Type *t = allocType(TY_ENUM);
+  t->strct.name = name; // reuse the nominal-name slot; enums have no fields
+  return t;
+}
+
 // Whether two union members are "the same" for dedup purposes.
 static bool sameMember(Type *a, Type *b) {
   if (a == b)
@@ -200,6 +206,8 @@ const char *typeName(const Type *type) {
     return "fn";
   case TY_STRUCT:
     return type->strct.name->chars; // the declared struct name
+  case TY_ENUM:
+    return type->strct.name->chars; // the declared enum name (shares the slot)
   case TY_ARRAY: {
     char *buf = nameRing[nameSlot++ % NAME_RING];
     snprintf(buf, NAME_LEN, "[%s]", typeName(type->element));

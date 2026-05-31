@@ -29,6 +29,8 @@ typedef enum {
   OBJ_MAP,
   OBJ_STRUCT,   // a struct TYPE / constructor (e.g. Point)
   OBJ_INSTANCE, // an instance of a struct (e.g. Point(1, 2))
+  OBJ_ENUM,     // an enum TYPE (e.g. Color), a namespace of named members
+  OBJ_ENUM_MEMBER, // one member of an enum (e.g. Color.Red), a singleton value
   OBJ_UPVALUE,
   OBJ_CLOSURE,
 } ObjType;
@@ -141,6 +143,31 @@ typedef struct {
   Table fields;
 } ObjInstance;
 
+// Forward decl: a member points back at its enum, and an enum's table holds them.
+typedef struct ObjEnum ObjEnum;
+
+// An ENUM TYPE — the object a `enum Color { Red, Green }` declaration binds to the
+// name `Color`. It is a namespace: `members` maps each member name to that
+// member's singleton value, so `Color.Red` is the same field-access (OP_GET_FIELD)
+// machinery structs use. Unlike a struct it is not callable (you don't construct
+// an enum), it just hands out its pre-made members.
+struct ObjEnum {
+  Obj obj; // MUST be first
+  ObjString *name;
+  Table members; // member name -> ObjEnumMember value (built at declaration)
+};
+
+// One MEMBER of an enum (e.g. `Color.Red`). Members are SINGLETONS created once at
+// the declaration, so equality is identity (pointer comparison, which valuesEqual
+// already does for objects) — `Color.Red == Color.Red` is true, and two different
+// members are never equal. `ordinal` is the 0-based declaration position.
+typedef struct {
+  Obj obj; // MUST be first
+  ObjEnum *parent;     // the enum this belongs to (for printing + type())
+  ObjString *name;     // this member's name
+  int ordinal;         // declaration order, 0-based
+} ObjEnumMember;
+
 // An "upvalue": the runtime representation of a variable captured by a closure
 // from an enclosing function. The whole problem closures solve is that a captured
 // local lives on the stack but may OUTLIVE the frame that created it. An upvalue
@@ -180,6 +207,10 @@ typedef struct {
 #define AS_STRUCT(value) ((ObjStruct *)AS_OBJ(value))
 #define IS_INSTANCE(value) isObjType(value, OBJ_INSTANCE)
 #define AS_INSTANCE(value) ((ObjInstance *)AS_OBJ(value))
+#define IS_ENUM(value) isObjType(value, OBJ_ENUM)
+#define AS_ENUM(value) ((ObjEnum *)AS_OBJ(value))
+#define IS_ENUM_MEMBER(value) isObjType(value, OBJ_ENUM_MEMBER)
+#define AS_ENUM_MEMBER(value) ((ObjEnumMember *)AS_OBJ(value))
 #define IS_CLOSURE(value) isObjType(value, OBJ_CLOSURE)
 #define AS_CLOSURE(value) ((ObjClosure *)AS_OBJ(value))
 
@@ -222,6 +253,11 @@ ObjStruct *newStruct(ObjString *name, ObjString **fieldNames, int fieldCount);
 
 // Allocate a fresh instance of `type` with an empty field table.
 ObjInstance *newInstance(ObjStruct *type);
+
+// Create an empty enum type named `name` (members are added afterwards), and one
+// member belonging to `parent`. Both are GC-managed.
+ObjEnum *newEnum(ObjString *name);
+ObjEnumMember *newEnumMember(ObjEnum *parent, ObjString *name, int ordinal);
 
 // Whether `s` declares a field named `name` (linear search; structs are small).
 bool structHasField(ObjStruct *s, ObjString *name);

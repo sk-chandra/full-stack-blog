@@ -1,0 +1,40 @@
+// enums.cn — named constant sets, and pattern-matching over them.
+//
+//   cnano examples/enums.cn
+
+// An enum declares a nominal type whose values are its named members.
+enum Suit { Hearts, Diamonds, Clubs, Spades }
+
+// Members are singletons: equality is identity, and they print qualified.
+let s = Suit.Spades;
+print s;                       // Suit.Spades
+print s == Suit.Spades;        // true
+print s == Suit.Hearts;        // false
+print type(Suit.Clubs);        // Suit
+
+// `match` dispatches over members cleanly.
+fn isRed(s: Suit): bool {
+  match (s) {
+    Suit.Hearts => return true;
+    Suit.Diamonds => return true;
+    _ => return false;
+  }
+}
+print isRed(Suit.Hearts);      // true
+print isRed(Suit.Spades);      // false
+
+// Enums combine with the rest of the language — collections, typed functions,
+// higher-order methods.
+let deck = [Suit.Hearts, Suit.Clubs, Suit.Diamonds, Suit.Spades];
+let reds = deck.filter(fn(s) => isRed(s));
+print reds.len();              // 2
+
+// A nominal type: a value of one enum never satisfies another.
+enum Direction { North, South, East, West }
+fn describe(d: Direction): str {
+  return d == Direction.North ? "up"
+       : d == Direction.South ? "down"
+       : "sideways";
+}
+print describe(Direction.North);   // up
+print describe(Direction.East);    // sideways

@@ -55,8 +55,9 @@ static bool compatible(Type *a, Type *b) {
     return compatible(a->map.key, b->map.key) &&
            compatible(a->map.value, b->map.value);
   case TY_STRUCT:
-    // Nominal typing: two struct types match iff they are the SAME named type.
-    // Names are interned, so a pointer comparison suffices.
+  case TY_ENUM:
+    // Nominal typing: two struct/enum types match iff they are the SAME named
+    // type. Names are interned, so a pointer comparison suffices.
     return a->strct.name == b->strct.name;
   case TY_FUNCTION:
     if (a->fn.paramCount != b->fn.paramCount)
@@ -163,6 +164,35 @@ static void registerStruct(ObjString *name, Type *type) {
   }
 }
 
+// --- the enum registry -----------------------------------------------------
+// Parallel to the struct registry: enum declarations create nominal types, and a
+// `: Name` annotation or a `Name.Member` access is matched against these.
+#define MAX_ENUMS 256
+static struct {
+  ObjString *name;
+  ObjString **memberNames; // borrowed from the AST declaration
+  int memberCount;
+} enumRegistry[MAX_ENUMS];
+static int enumCount;
+
+static void registerEnum(Node *decl) {
+  if (enumCount < MAX_ENUMS) {
+    enumRegistry[enumCount].name = decl->as.enumDecl.name;
+    enumRegistry[enumCount].memberNames = decl->as.enumDecl.memberNames;
+    enumRegistry[enumCount].memberCount = decl->as.enumDecl.memberCount;
+    enumCount++;
+  }
+}
+
+// Find the registered enum named `name`, or NULL. Used to resolve `: Name`
+// annotations and `Name.Member` accesses against declared enums.
+static int findEnum(ObjString *name) {
+  for (int i = 0; i < enumCount; i++)
+    if (enumRegistry[i].name == name)
+      return i;
+  return -1;
+}
+
 // Replace an unresolved struct reference with the declared struct type. Other
 // types pass through unchanged. An unknown struct name is a type error.
 static Type *resolve(Type *t, int line) {
@@ -179,6 +209,9 @@ static Type *resolve(Type *t, int line) {
   for (int i = 0; i < structCount; i++)
     if (structRegistry[i].name == t->strct.name)
       return structRegistry[i].type;
+  // A `: Name` annotation can also name an enum (the parser can't tell them apart).
+  if (findEnum(t->strct.name) >= 0)
+    return typeEnum(t->strct.name);
   char msg[96];
   snprintf(msg, sizeof(msg), "unknown type '%s'", t->strct.name->chars);
   typeError(line, msg);
@@ -491,6 +524,23 @@ static Type *checkExpr(Node *node) {
     return val; // an index-assignment yields the assigned value
   }
   case NODE_FIELD_GET: {
+    // `Enum.Member` — when the object is a bare name that is a declared enum, the
+    // access yields that enum type. We validate the member exists here, before the
+    // generic field logic (the enum object isn't a struct instance).
+    if (node->as.field.object->type == NODE_VAR_GET) {
+      int ei = findEnum(node->as.field.object->as.name);
+      if (ei >= 0) {
+        ObjString *member = node->as.field.field;
+        for (int i = 0; i < enumRegistry[ei].memberCount; i++)
+          if (enumRegistry[ei].memberNames[i] == member)
+            return typeEnum(enumRegistry[ei].name);
+        char msg[96];
+        snprintf(msg, sizeof(msg), "enum %s has no member '%s'",
+                 enumRegistry[ei].name->chars, member->chars);
+        typeError(node->line, msg);
+        return typeAny();
+      }
+    }
     Type *obj = resolve(checkExpr(node->as.field.object), node->line);
     if (obj->kind == TY_STRUCT) {
       for (int i = 0; i < obj->strct.fieldCount; i++)
@@ -778,11 +828,13 @@ bool typecheckProgram(Program *program) {
   checker.currentReturnType = NULL;
   checker.hadError = false;
   structCount = 0;
+  enumCount = 0;
 
   // PASS 0a: register every struct's NAMED TYPE, so references to it (in field
   // types, function signatures, annotations) resolve — including forward and
   // mutually-recursive references. Field types stay as-is and are resolved
-  // lazily at use, by which point every struct name is known.
+  // lazily at use, by which point every struct name is known. Enum names are
+  // registered in the same pass so `: Color` annotations resolve too.
   for (int i = 0; i < program->count; i++) {
     Node *s = program->statements[i];
     if (s->type == NODE_STRUCT)
@@ -790,6 +842,8 @@ bool typecheckProgram(Program *program) {
                      typeStruct(s->as.structDecl.name, s->as.structDecl.fieldNames,
                                 s->as.structDecl.fieldTypes,
                                 s->as.structDecl.fieldCount));
+    else if (s->type == NODE_ENUM)
+      registerEnum(s);
   }
 
   // PASS 0b: bind each struct NAME as a constructor value — a function from its

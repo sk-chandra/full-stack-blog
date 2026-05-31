@@ -73,6 +73,7 @@ typedef enum {
   TOKEN_FN,
   TOKEN_RETURN,
   TOKEN_STRUCT,    // struct — declares a user-defined record type
+  TOKEN_ENUM,      // enum — declares a set of named constant members
   TOKEN_TRY,       // try — begins an exception-guarded block
   TOKEN_CATCH,     // catch — handles a thrown value
   TOKEN_THROW,     // throw — raises a value to the nearest catch

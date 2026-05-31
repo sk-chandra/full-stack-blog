@@ -1399,11 +1399,46 @@ static Node *importDeclaration(void) {
   return newImport(path, line);
 }
 
+// `enum Name { A, B, C }` — a comma-separated list of member names (a trailing
+// comma is allowed). Each member becomes a singleton accessible as `Name.A`.
+static Node *enumDeclaration(void) {
+  int line = parser.previous.line; // the 'enum'
+  consume(TOKEN_IDENTIFIER, "Expect enum name after 'enum'.");
+  ObjString *name = copyString(parser.previous.start, parser.previous.length);
+  consume(TOKEN_LBRACE, "Expect '{' after enum name.");
+
+  ObjString **members = NULL;
+  int count = 0, capacity = 0;
+  if (!check(TOKEN_RBRACE)) {
+    do {
+      if (check(TOKEN_RBRACE)) // tolerate a trailing comma before '}'
+        break;
+      consume(TOKEN_IDENTIFIER, "Expect a member name.");
+      if (count + 1 > capacity) {
+        capacity = capacity < 4 ? 4 : capacity * 2;
+        members = realloc(members, sizeof(ObjString *) * capacity);
+        if (members == NULL) {
+          fprintf(stderr, "cnano: out of memory parsing enum members\n");
+          exit(70);
+        }
+      }
+      members[count++] =
+          copyString(parser.previous.start, parser.previous.length);
+    } while (match(TOKEN_COMMA));
+  }
+  consume(TOKEN_RBRACE, "Expect '}' after enum members.");
+  if (count == 0)
+    errorAt(&parser.previous, "An enum must have at least one member.");
+  return newEnumDecl(name, members, count, line);
+}
+
 static Node *declaration(void) {
   if (match(TOKEN_IMPORT))
     return importDeclaration();
   if (match(TOKEN_STRUCT))
     return structDeclaration();
+  if (match(TOKEN_ENUM))
+    return enumDeclaration();
   if (match(TOKEN_FN))
     return funDeclaration();
   if (match(TOKEN_LET))

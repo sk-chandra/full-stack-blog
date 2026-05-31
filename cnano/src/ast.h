@@ -57,6 +57,7 @@ typedef enum {
   NODE_FIELD_SET, // `obj.field = v` : write a struct field, yields v
   // --- statement nodes (performed for effect, yield nothing) ---
   NODE_STRUCT,    // `struct Name { field: T, ... }` — a struct declaration
+  NODE_ENUM,      // `enum Name { A, B, C }` — a set of named constant members
   NODE_THROW,     // `throw EXPR;` — raise a value
   NODE_TRY,       // `try { ... } catch (e) { ... }` — guard a block
   NODE_BREAK,     // `break;` — exit the innermost loop
@@ -229,6 +230,13 @@ typedef struct Node {
       struct Node **methods; // NODE_FUN declarations inside the struct body
       int methodCount;
     } structDecl;
+    // NODE_ENUM: an `enum Name { A, B, C }` declaration. Just a name and the
+    // ordered list of (interned) member names — enums carry no data of their own.
+    struct {
+      ObjString *name;
+      ObjString **memberNames;
+      int memberCount;
+    } enumDecl;
     // NODE_FUN: a function declaration. params holds the parameter NAMES (interned
     // ObjStrings); paramTypes the parallel `: T` annotations (typeAny() if
     // omitted); returnType the `: T` after the parameter list (typeAny() if
@@ -312,6 +320,10 @@ Node *newFieldSet(Node *object, ObjString *field, Node *value, int line);
 // `struct Name { ... }`. Takes ownership of the fieldNames and fieldTypes arrays.
 Node *newStructDecl(ObjString *name, ObjString **fieldNames, Type **fieldTypes,
                     int fieldCount, int line);
+
+// `enum Name { A, B, ... }`. Takes ownership of the memberNames array.
+Node *newEnumDecl(ObjString *name, ObjString **memberNames, int memberCount,
+                  int line);
 
 // `throw EXPR;` and `try { body } catch (name) { handler }`.
 Node *newThrow(Node *value, int line);

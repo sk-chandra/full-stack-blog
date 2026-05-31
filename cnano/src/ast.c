@@ -217,6 +217,15 @@ Node *newStructDecl(ObjString *name, ObjString **fieldNames, Type **fieldTypes,
   return node;
 }
 
+Node *newEnumDecl(ObjString *name, ObjString **memberNames, int memberCount,
+                  int line) {
+  Node *node = allocNode(NODE_ENUM, line);
+  node->as.enumDecl.name = name;
+  node->as.enumDecl.memberNames = memberNames;
+  node->as.enumDecl.memberCount = memberCount;
+  return node;
+}
+
 Node *newThrow(Node *value, int line) {
   Node *node = allocNode(NODE_THROW, line);
   node->as.stmt.expr = value;
@@ -401,6 +410,10 @@ void freeNode(Node *node) {
     for (int i = 0; i < node->as.structDecl.methodCount; i++)
       freeNode(node->as.structDecl.methods[i]);
     free(node->as.structDecl.methods);
+    break;
+  case NODE_ENUM:
+    // Member names are interned (VM-owned); free only the array.
+    free(node->as.enumDecl.memberNames);
     break;
   case NODE_FUN:
     // name and the param ObjStrings are VM-owned (interned); free only the

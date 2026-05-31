@@ -1614,7 +1614,20 @@ programs define their own types, and makes failure recoverable.
     several lambdas coexist). Native rejects them (a heap closure has no place in
     the scalar subset). A neat demonstration that "named function" was only ever
     sugar for "a closure value plus a binding".
-48. **Performance** (inline caching/peephole), generics, native closures, and a
+48. ~~**Enums** (`enum Color { Red, Green, Blue }`).~~ **✅ DONE** (step 44) — a
+    nominal type whose values are named singleton members. It rides the struct
+    machinery: an enum declaration builds a runtime `ObjEnum` (a namespace whose
+    table maps member names to pre-made `ObjEnumMember` singletons) and binds it
+    to its name, so `Color.Red` is the *same* `OP_GET_FIELD` field access structs
+    use — the VM just looks the member up in the enum's table. Members compare by
+    identity (the object equality the VM already had), print qualified, report
+    `type()` as their enum, and slot straight into `match`. The checker mirrors
+    the struct registry: a parallel enum registry resolves `: Color` annotations
+    (a `TY_ENUM` reusing the nominal-name machinery) and types `Color.Red` as
+    `Color`, rejecting unknown members and cross-enum mixing. Native rejects them
+    (heap objects). A good lesson in *reuse*: a whole feature mostly assembled
+    from field access + object equality + the nominal-type pattern.
+49. **Performance** (inline caching/peephole), generics, native closures, and a
     per-module namespace for `import` — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom

@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (535 cases, incl. native + GC)
+make test       # run the end-to-end test suite (549 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -25,6 +25,7 @@ make run        # start the REPL
 ./build/cnano examples/arrays.cn              #  arrays: literals, indexing, methods
 ./build/cnano examples/maps.cn                #  maps: any-key dictionaries, methods
 ./build/cnano examples/structs.cn             #  structs: records, fields, methods
+./build/cnano examples/enums.cn               #  enums: named constants + match
 ./build/cnano examples/errors.cn              #  try / catch / throw
 ./build/cnano examples/showcase.cn            #  floats, unions, match, methods, ...
 
@@ -117,6 +118,13 @@ make run        # start the REPL
   (`A` ≠ `B` even with identical fields), with construction arg/arity, field-type,
   and unknown-field/type errors caught before execution (method bodies too);
   usable as `[Point]`, `{str: Point}`, function params/returns, etc.
+- **Enums**: `enum Color { Red, Green, Blue }` declares a **nominal** type whose
+  values are named singleton members, accessed as `Color.Red` (the same `.` as
+  fields). Members compare by identity (`Color.Red == Color.Red`), print
+  qualified (`Color.Red`), report `type()` as their enum name, and pair naturally
+  with `match`. A value of one enum never satisfies another, and `: Color`
+  annotations are checked (unknown members and cross-enum mixing are compile
+  errors)
 - **Optional static types** (gradual typing): annotate with `let x: int = …;`
   and `fn add(a: int, b: int): int { … }`. Types are **structured** —
   `int`/`bool`/`str`/`nil`/`any` plus the parametric `[T]` (arrays) and

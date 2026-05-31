@@ -748,6 +748,23 @@ check_prog_err "struct-unknown-ty" 'let p: Nope = 5; print p;'
 check_prog_err "struct-nominal"    'struct A { v: int } struct B { v: int } fn f(a: A): int { return a.v; } print f(B(1));'
 check_native_err "nat-rej-struct"  'struct P { x: int } let p = P(1); print p.x;'
 
+# --- enums (step 44) ---
+check_prog "enum-access"    'enum Color { Red, Green, Blue } print Color.Green;' "Color.Green"
+check_prog "enum-eq"        'enum C { A, B } print C.A == C.A; print C.A == C.B;' "$(printf 'true\nfalse')"
+check_prog "enum-distinct"  'enum X { A } enum Y { A } print X.A == Y.A;' "false"
+check_prog "enum-type"      'enum Color { Red } print type(Color.Red);' "Color"
+check_prog "enum-match"     'enum C { Red, Green, Blue } fn n(c){ match (c) { C.Red => return "r"; C.Green => return "g"; _ => return "?"; } } print n(C.Red); print n(C.Blue);' "$(printf 'r\n?')"
+check_prog "enum-typed-fn"  'enum C { Red, Blue } fn warm(c: C): bool { return c == C.Red; } print warm(C.Red); print warm(C.Blue);' "$(printf 'true\nfalse')"
+check_prog "enum-typed-let" 'enum C { Red, Blue } let c: C = C.Blue; print c;' "C.Blue"
+check_prog "enum-in-array"  'enum C { Red, Blue } let p = [C.Red, C.Blue]; print p.contains(C.Blue); print p[0];' "$(printf 'true\nC.Red')"
+check_prog "enum-trailing-comma" 'enum C { A, B, } print C.B;' "C.B"
+# Errors: unknown member (compile time), nominal mismatch, runtime unknown member.
+check_prog_err "enum-bad-member"  'enum C { A, B } print C.Z;'
+check_prog_err "enum-type-mismatch" 'enum C { A } enum D { X } let c: C = D.X; print c;'
+check_prog_err "enum-empty"       'enum C { } print 1;'
+check_prog_err "enum-as-int"      'enum C { A } let n: int = C.A; print n;'
+check_native_err "nat-rej-enum"   'enum C { A, B } fn f(): int { return 1; } print f();'
+
 # --- methods on structs (step 21) ---
 check_prog "method-self"    'struct P { x: int, y: int fn sum(): int { return self.x + self.y; } } print P(3,4).sum();' "7"
 check_prog "method-mutate"  'struct C { n: int fn inc(by: int) { self.n += by; } } let c = C(0); c.inc(5); c.inc(3); print c.n;' "8"

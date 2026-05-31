@@ -126,6 +126,11 @@ static bool typeNative(int argCount, Value *args, Value *result) {
     *result = OBJ_VAL(AS_INSTANCE(v)->type->name);
     return true;
   }
+  // An enum member reports its enum's name (like an instance reports its struct).
+  if (IS_ENUM_MEMBER(v)) {
+    *result = OBJ_VAL(AS_ENUM_MEMBER(v)->parent->name);
+    return true;
+  }
   const char *name = IS_INT(v)      ? "int"
                      : IS_FLOAT(v)  ? "float"
                      : IS_BOOL(v)   ? "bool"

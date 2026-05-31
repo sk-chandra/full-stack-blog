@@ -25,6 +25,7 @@ typedef enum {
   TY_NULLABLE, // `T?` — T or nil; the inner T is stored in Type.element
   TY_MAP,      // a dictionary; carries key + value types (see Type.map)
   TY_STRUCT,   // a user-defined record type, by name (see Type.strct)
+  TY_ENUM,     // a user-defined enum type, by name (reuses Type.strct.name)
   TY_UNION,    // `A | B | ...` — one of several member types (see Type.uni)
   TY_FUNCTION, // a callable; carries param/return types (see Type.fn)
 } TypeKind;
@@ -81,6 +82,10 @@ Type *typeStruct(ObjString *name, ObjString **fieldNames, Type **fieldTypes,
 // An unresolved struct reference — just a name, as produced by a `: Name`
 // annotation before the checker has matched it to a declaration.
 Type *typeStructRef(ObjString *name);
+
+// A nominal enum type, identified by name (reuses the `strct.name` slot). Like a
+// struct, two enum types are equal iff they share a name.
+Type *typeEnum(ObjString *name);
 
 // Combine two types into a union (`a | b`), normalising: `any` absorbs, duplicate
 // members collapse, and a 1-member union degrades to that member.

@@ -113,6 +113,20 @@ static void blackenObject(Obj *object) {
     markTable(&s->methods);
     break;
   }
+  case OBJ_ENUM: {
+    // Keep the enum's name and every member alive (the table marks names+values).
+    ObjEnum *e = (ObjEnum *)object;
+    markObject((Obj *)e->name);
+    markTable(&e->members);
+    break;
+  }
+  case OBJ_ENUM_MEMBER: {
+    // Keep the parent enum and this member's own name alive.
+    ObjEnumMember *m = (ObjEnumMember *)object;
+    markObject((Obj *)m->parent);
+    markObject((Obj *)m->name);
+    break;
+  }
   case OBJ_INSTANCE: {
     // Keep the struct type and every field (the table marks names + values).
     ObjInstance *inst = (ObjInstance *)object;

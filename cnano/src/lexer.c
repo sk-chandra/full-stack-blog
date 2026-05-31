@@ -223,6 +223,8 @@ static TokenType identifierType(void) {
     return TOKEN_RETURN;
   if (length == 6 && memcmp(s, "struct", 6) == 0)
     return TOKEN_STRUCT;
+  if (length == 4 && memcmp(s, "enum", 4) == 0)
+    return TOKEN_ENUM;
   if (length == 3 && memcmp(s, "try", 3) == 0)
     return TOKEN_TRY;
   if (length == 5 && memcmp(s, "catch", 5) == 0)

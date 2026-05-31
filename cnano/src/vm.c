@@ -793,6 +793,17 @@ static InterpretResult run(bool trace, int stopFrame) {
     case OP_GET_FIELD: {
       ObjString *name = READ_STRING();
       Value obj = pop();
+      // `Enum.Member` reuses field-access: look the member up in the enum's table.
+      if (IS_ENUM(obj)) {
+        Value member;
+        if (!tableGet(&AS_ENUM(obj)->members, name, &member)) {
+          runtimeError("enum %s has no member '%s'", AS_ENUM(obj)->name->chars,
+                       name->chars);
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        push(member);
+        break;
+      }
       if (!IS_INSTANCE(obj)) {
         runtimeError("only struct instances have fields");
         return INTERPRET_RUNTIME_ERROR;

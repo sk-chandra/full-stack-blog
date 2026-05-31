@@ -263,6 +263,22 @@ ObjInstance *newInstance(ObjStruct *type) {
   return instance;
 }
 
+ObjEnum *newEnum(ObjString *name) {
+  ObjEnum *e = (ObjEnum *)allocateObject(sizeof(ObjEnum), OBJ_ENUM);
+  e->name = name;
+  initTable(&e->members);
+  return e;
+}
+
+ObjEnumMember *newEnumMember(ObjEnum *parent, ObjString *name, int ordinal) {
+  ObjEnumMember *m =
+      (ObjEnumMember *)allocateObject(sizeof(ObjEnumMember), OBJ_ENUM_MEMBER);
+  m->parent = parent;
+  m->name = name;
+  m->ordinal = ordinal;
+  return m;
+}
+
 bool structHasField(ObjStruct *s, ObjString *name) {
   for (int i = 0; i < s->fieldCount; i++)
     if (s->fieldNames[i] == name) // interned: pointer comparison
@@ -339,6 +355,15 @@ void printObject(Value value) {
   case OBJ_STRUCT:
     printf("<struct %s>", AS_STRUCT(value)->name->chars);
     break;
+  case OBJ_ENUM:
+    printf("<enum %s>", AS_ENUM(value)->name->chars);
+    break;
+  case OBJ_ENUM_MEMBER: {
+    // Print qualified, e.g. "Color.Red" — unambiguous and matches the source.
+    ObjEnumMember *m = AS_ENUM_MEMBER(value);
+    printf("%s.%s", m->parent->name->chars, m->name->chars);
+    break;
+  }
   case OBJ_INSTANCE: {
     // Print like the constructor call would read: Point{x: 1, y: 2}, in the
     // struct's declared field order.
@@ -417,6 +442,16 @@ void freeObject(Obj *object) {
     reallocate(s, sizeof(ObjStruct), 0);
     break;
   }
+  case OBJ_ENUM: {
+    ObjEnum *e = (ObjEnum *)object;
+    freeTable(&e->members); // member names/values are separate GC objects
+    reallocate(e, sizeof(ObjEnum), 0);
+    break;
+  }
+  case OBJ_ENUM_MEMBER:
+    // Its parent and name are separate GC objects; only the struct is ours.
+    reallocate(object, sizeof(ObjEnumMember), 0);
+    break;
   case OBJ_INSTANCE: {
     ObjInstance *inst = (ObjInstance *)object;
     freeTable(&inst->fields); // field names/values are separate GC objects
