@@ -102,9 +102,63 @@ Type *typeStructRef(ObjString *name) {
   return t;
 }
 
+// Whether two union members are "the same" for dedup purposes.
+static bool sameMember(Type *a, Type *b) {
+  if (a == b)
+    return true;
+  if (a->kind != b->kind)
+    return false;
+  if (a->kind == TY_STRUCT)
+    return a->strct.name == b->strct.name;
+  // Primitive kinds (int/bool/str/nil) are singletons, so equal-kind == same.
+  // Composite members (array/map/...) only dedup when pointer-identical (above).
+  return a->kind == TY_INT || a->kind == TY_BOOL || a->kind == TY_STR ||
+         a->kind == TY_NIL;
+}
+
+#define MAX_UNION_MEMBERS 32
+
+Type *typeUnite(Type *a, Type *b) {
+  if (a->kind == TY_ANY || b->kind == TY_ANY)
+    return typeAny(); // `any` already covers everything
+  Type *tmp[MAX_UNION_MEMBERS];
+  int n = 0;
+  Type *srcs[2] = {a, b};
+  for (int s = 0; s < 2; s++) {
+    // Flatten a nested union into its members; otherwise add the type itself.
+    int mc = srcs[s]->kind == TY_UNION ? srcs[s]->uni.count : 1;
+    for (int i = 0; i < mc; i++) {
+      Type *m = srcs[s]->kind == TY_UNION ? srcs[s]->uni.members[i] : srcs[s];
+      bool dup = false;
+      for (int j = 0; j < n; j++)
+        if (sameMember(tmp[j], m)) {
+          dup = true;
+          break;
+        }
+      if (!dup && n < MAX_UNION_MEMBERS)
+        tmp[n++] = m;
+    }
+  }
+  if (n == 1)
+    return tmp[0]; // a union of one is just that type
+  Type **members = (Type **)malloc(sizeof(Type *) * n);
+  if (members == NULL) {
+    fprintf(stderr, "cnano: out of memory building a union type\n");
+    exit(70);
+  }
+  for (int i = 0; i < n; i++)
+    members[i] = tmp[i];
+  Type *u = allocType(TY_UNION);
+  u->uni.members = members;
+  u->uni.count = n;
+  return u;
+}
+
 void freeTypes(void) {
   for (int i = 0; i < arenaCount; i++) {
     free(arena[i]->fn.params); // NULL for non-function types — free(NULL) is ok
+    if (arena[i]->kind == TY_UNION)
+      free(arena[i]->uni.members);
     free(arena[i]);
   }
   free(arena);
@@ -151,6 +205,19 @@ const char *typeName(const Type *type) {
     const char *inner = typeName(type->element);
     char *buf = nameRing[nameSlot++ % NAME_RING];
     snprintf(buf, NAME_LEN, "%s?", inner);
+    return buf;
+  }
+  case TY_UNION: {
+    // Build into a local first (member typeName calls churn the ring), then take
+    // a ring slot at the very end — so the result survives one more typeName call.
+    char local[NAME_LEN];
+    int off = 0;
+    for (int i = 0; i < type->uni.count && off < NAME_LEN - 1; i++) {
+      const char *m = typeName(type->uni.members[i]);
+      off += snprintf(local + off, NAME_LEN - off, "%s%s", i ? " | " : "", m);
+    }
+    char *buf = nameRing[nameSlot++ % NAME_RING];
+    snprintf(buf, NAME_LEN, "%s", local);
     return buf;
   }
   case TY_MAP: {

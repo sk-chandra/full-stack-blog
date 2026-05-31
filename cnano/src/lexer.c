@@ -171,6 +171,8 @@ static TokenType identifierType(void) {
     return TOKEN_FOR;
   if (length == 2 && memcmp(s, "in", 2) == 0)
     return TOKEN_IN;
+  if (length == 2 && memcmp(s, "is", 2) == 0)
+    return TOKEN_IS;
   if (length == 3 && memcmp(s, "and", 3) == 0)
     return TOKEN_AND;
   if (length == 2 && memcmp(s, "or", 2) == 0)

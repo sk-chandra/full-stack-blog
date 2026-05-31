@@ -24,6 +24,7 @@ typedef enum {
   TY_NULLABLE, // `T?` — T or nil; the inner T is stored in Type.element
   TY_MAP,      // a dictionary; carries key + value types (see Type.map)
   TY_STRUCT,   // a user-defined record type, by name (see Type.strct)
+  TY_UNION,    // `A | B | ...` — one of several member types (see Type.uni)
   TY_FUNCTION, // a callable; carries param/return types (see Type.fn)
 } TypeKind;
 
@@ -50,6 +51,10 @@ typedef struct Type {
     struct Type **fieldTypes; // parallel; borrowed from the AST
     int fieldCount;           // -1 means an UNRESOLVED reference (just a name)
   } strct; // valid only when kind == TY_STRUCT
+  struct {
+    struct Type **members; // the alternatives (heap array, arena-owned)
+    int count;
+  } uni; // valid only when kind == TY_UNION
 } Type;
 
 // --- type constructors -----------------------------------------------------
@@ -74,6 +79,10 @@ Type *typeStruct(ObjString *name, ObjString **fieldNames, Type **fieldTypes,
 // An unresolved struct reference — just a name, as produced by a `: Name`
 // annotation before the checker has matched it to a declaration.
 Type *typeStructRef(ObjString *name);
+
+// Combine two types into a union (`a | b`), normalising: `any` absorbs, duplicate
+// members collapse, and a 1-member union degrades to that member.
+Type *typeUnite(Type *a, Type *b);
 
 // Free every parametric type allocated since the last call. Primitive singletons
 // are untouched. Called once after all type-consuming passes (check + codegen).

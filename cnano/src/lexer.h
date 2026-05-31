@@ -67,6 +67,7 @@ typedef enum {
   TOKEN_WHILE,
   TOKEN_FOR,
   TOKEN_IN,        // in — used by for-in iteration: `for (let x in coll)`
+  TOKEN_IS,        // is — runtime type test: `x is int` (also narrows unions)
   TOKEN_AND,
   TOKEN_OR,
   TOKEN_FN,

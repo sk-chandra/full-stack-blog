@@ -117,6 +117,11 @@ typedef enum {
   OP_BEGIN_TRY,   // [opcode][hi][lo] : push a handler whose catch is at offset
   OP_END_TRY,     // [opcode]         : pop the current handler (no exception)
   OP_THROW,       // [opcode]         : pop a value and raise it
+  // Runtime type tests for `expr is TYPE`. IS_KIND tests a primitive/collection
+  // kind given by a tag byte; IS_STRUCT pops a struct type then a value and tests
+  // whether the value is an instance of it.
+  OP_IS_KIND,     // [opcode][tag]    : pop v; push (v has kind `tag`)
+  OP_IS_STRUCT,   // [opcode]         : pop struct, pop v; push (v instanceof struct)
   // Create a closure from the function constant at [idx], then read 2 bytes per
   // upvalue describing where each capture comes from: [isLocal][index]. This is
   // our only VARIABLE-LENGTH instruction — its size depends on the function's
@@ -127,6 +132,16 @@ typedef enum {
   OP_CLOSE_UPVALUE, // [opcode]   : close the upvalue for the top stack slot, pop
   OP_RETURN,   // [opcode]        : return top-of-stack from the current function
 } OpCode;
+
+// Tag bytes for OP_IS_KIND (which primitive/collection kind to test for).
+enum {
+  IS_TAG_INT,
+  IS_TAG_BOOL,
+  IS_TAG_STR,
+  IS_TAG_NIL,
+  IS_TAG_ARRAY,
+  IS_TAG_MAP,
+};
 
 typedef struct {
   int count;          // number of bytes used

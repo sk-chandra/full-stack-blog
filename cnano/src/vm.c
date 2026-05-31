@@ -698,6 +698,28 @@ static InterpretResult run(bool trace, int stopFrame) {
       pop(); // the closure; the struct stays for the next method / define
       break;
     }
+    case OP_IS_KIND: {
+      uint8_t tag = READ_BYTE();
+      Value v = pop();
+      bool r = false;
+      switch (tag) {
+      case IS_TAG_INT: r = IS_INT(v); break;
+      case IS_TAG_BOOL: r = IS_BOOL(v); break;
+      case IS_TAG_STR: r = IS_STRING(v); break;
+      case IS_TAG_NIL: r = IS_NIL(v); break;
+      case IS_TAG_ARRAY: r = IS_ARRAY(v); break;
+      case IS_TAG_MAP: r = IS_MAP(v); break;
+      }
+      push(BOOL_VAL(r));
+      break;
+    }
+    case OP_IS_STRUCT: {
+      Value structVal = pop();
+      Value v = pop();
+      push(BOOL_VAL(IS_STRUCT(structVal) && IS_INSTANCE(v) &&
+                    AS_INSTANCE(v)->type == AS_STRUCT(structVal)));
+      break;
+    }
     case OP_BEGIN_TRY: {
       // Register a handler: where the catch code is, and the stack/frame depth to
       // restore when unwinding to it.

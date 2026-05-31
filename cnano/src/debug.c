@@ -164,6 +164,10 @@ int disassembleInstruction(Chunk *chunk, int offset) {
     return simpleInstruction("OP_END_TRY", offset);
   case OP_THROW:
     return simpleInstruction("OP_THROW", offset);
+  case OP_IS_KIND:
+    return byteInstruction("OP_IS_KIND", chunk, offset);
+  case OP_IS_STRUCT:
+    return simpleInstruction("OP_IS_STRUCT", offset);
   case OP_CLOSURE: {
     // Variable-length: the function constant, then 2 bytes per upvalue. We print
     // the function and one line per captured upvalue describing its source.

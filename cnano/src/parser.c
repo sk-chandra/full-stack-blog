@@ -148,6 +148,7 @@ static Node *term(void);
 static Node *factor(void);
 static Node *unary(void);
 static Node *primary(void);
+static Type *parseType(void); // `is TYPE` and annotations both need this early
 
 static Node *expression(void) { return assignment(); }
 
@@ -325,8 +326,14 @@ static Node *bitAnd(void) {
 
 static Node *equality(void) {
   Node *node = comparison();
-  while (check(TOKEN_EQUAL_EQUAL) || check(TOKEN_BANG_EQUAL)) {
+  while (check(TOKEN_EQUAL_EQUAL) || check(TOKEN_BANG_EQUAL) || check(TOKEN_IS)) {
     int line = parser.current.line;
+    if (check(TOKEN_IS)) {
+      // `expr is TYPE` — the right side is a TYPE, not an expression.
+      advance();
+      node = newIs(node, parseType(), line);
+      continue;
+    }
     bool negate = check(TOKEN_BANG_EQUAL); // remember before consuming
     advance();
     Node *right = comparison();
@@ -987,12 +994,20 @@ static Type *parseTypeBase(void) {
   return typeAny();
 }
 
-// A type is a base type followed by zero or more `?` nullable markers (`int?`,
-// `[int]?`). Postfix `?` is the cnano spelling of "T or nil".
-static Type *parseType(void) {
+// A base type with zero or more `?` nullable markers (`int?`, `[int]?`).
+static Type *parseNullable(void) {
   Type *t = parseTypeBase();
   while (match(TOKEN_QUESTION))
     t = typeNullable(t);
+  return t;
+}
+
+// A type is a `|`-separated union of nullable base types (`int | str`,
+// `Circle | Square | nil`). A single alternative is just that type.
+static Type *parseType(void) {
+  Type *t = parseNullable();
+  while (match(TOKEN_PIPE))
+    t = typeUnite(t, parseNullable());
   return t;
 }
 

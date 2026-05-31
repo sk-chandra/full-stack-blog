@@ -20,6 +20,20 @@
 static bool compatible(Type *a, Type *b) {
   if (a->kind == TY_ANY || b->kind == TY_ANY)
     return true;
+  // Unions: a value of a union type b fits where a is expected only if EVERY
+  // member of b fits; a value fits a union target a if it fits SOME member.
+  if (b->kind == TY_UNION) {
+    for (int i = 0; i < b->uni.count; i++)
+      if (!compatible(a, b->uni.members[i]))
+        return false;
+    return true;
+  }
+  if (a->kind == TY_UNION) {
+    for (int i = 0; i < a->uni.count; i++)
+      if (compatible(a->uni.members[i], b))
+        return true;
+    return false;
+  }
   // Nullable target `a = T?` accepts nil, a plain T (widening), or another U?.
   // (compatible(a, b) reads "a value of type b fits where a is expected".)
   if (a->kind == TY_NULLABLE) {
@@ -152,6 +166,12 @@ static void registerStruct(ObjString *name, Type *type) {
 // Replace an unresolved struct reference with the declared struct type. Other
 // types pass through unchanged. An unknown struct name is a type error.
 static Type *resolve(Type *t, int line) {
+  if (t->kind == TY_UNION) { // resolve each member (struct refs inside a union)
+    Type *acc = resolve(t->uni.members[0], line);
+    for (int i = 1; i < t->uni.count; i++)
+      acc = typeUnite(acc, resolve(t->uni.members[i], line));
+    return acc;
+  }
   if (t->kind == TY_NULLABLE) // resolve inside `T?` (e.g. `Point?`)
     return typeNullable(resolve(t->element, line));
   if (t->kind != TY_STRUCT || t->strct.fieldCount >= 0)
@@ -315,6 +335,10 @@ static Type *checkExpr(Node *node) {
     return typeAny();
   case NODE_CALL:
     return checkCall(node);
+  case NODE_IS:
+    checkExpr(node->as.isTest.expr);
+    resolve(node->as.isTest.type, node->line); // validate a struct ref names a type
+    return typeBool();
   case NODE_INVOKE:
     // Builtin methods aren't part of the gradual type system (their signatures
     // live in C), so a method call is `any`: we walk the receiver and arguments
@@ -510,18 +534,54 @@ static void checkMethod(Type *structType, Node *m) {
   checker.currentReturnType = savedReturn;
 }
 
-// FLOW NARROWING: if `cond` is a nil-guard on a nullable variable, return that
-// variable's symbol slot and set *nonNilInThen to which branch proves it non-nil
-// (`x != nil` -> then; `x == nil` -> else). Recall `!=` desugars to `!(==)`. This
-// lets the checker treat a `T?` as `T` inside the guarded branch — the key to
-// using optionals without casts. Returns -1 when no such guard applies.
-static int nilGuardSlot(Node *cond, bool *nonNilInThen) {
+// Find the innermost symbol-table slot for `name`, or -1.
+static int symbolSlot(ObjString *name) {
+  for (int i = checker.symbolCount - 1; i >= 0; i--)
+    if (checker.symbols[i].name == name)
+      return i;
+  return -1;
+}
+
+// `t` with nil removed: `T?` -> T, a union -> its non-nil members, else `t`.
+static Type *withoutNil(Type *t) {
+  if (t->kind == TY_NULLABLE)
+    return t->element;
+  if (t->kind == TY_UNION) {
+    Type *acc = NULL;
+    for (int i = 0; i < t->uni.count; i++)
+      if (t->uni.members[i]->kind != TY_NIL)
+        acc = acc ? typeUnite(acc, t->uni.members[i]) : t->uni.members[i];
+    return acc ? acc : t;
+  }
+  return t;
+}
+
+// FLOW NARROWING. If `cond` proves something about a variable's type in one
+// branch, return its slot and the type to give it in the then/else branch (NULL =
+// unchanged). Handles two guards on a variable `x`:
+//   `x is T`              -> then: x has type T
+//   `x != nil`/`x == nil` -> then/else: x has its non-nil type
+// `!=` desugars to `!(==)`, so we look through that. Returns -1 if no guard fits.
+static int findNarrowing(Node *cond, Type **thenT, Type **elseT) {
+  *thenT = NULL;
+  *elseT = NULL;
+
+  // `x is T`
+  if (cond->type == NODE_IS && cond->as.isTest.expr->type == NODE_VAR_GET) {
+    int slot = symbolSlot(cond->as.isTest.expr->as.name);
+    if (slot < 0)
+      return -1;
+    *thenT = resolve(cond->as.isTest.type, cond->line);
+    return slot;
+  }
+
+  // `x != nil` / `x == nil`
   Node *eq = NULL;
   bool inThen = false;
   if (cond->type == NODE_UNARY && cond->as.unary.op == OP_NODE_NOT &&
       cond->as.unary.operand->type == NODE_BINARY &&
       cond->as.unary.operand->as.binary.op == OP_NODE_EQUAL) {
-    eq = cond->as.unary.operand; // x != nil  (i.e. !(x == nil))
+    eq = cond->as.unary.operand; // x != nil
     inThen = true;
   } else if (cond->type == NODE_BINARY && cond->as.binary.op == OP_NODE_EQUAL) {
     eq = cond; // x == nil
@@ -535,14 +595,15 @@ static int nilGuardSlot(Node *cond, bool *nonNilInThen) {
                                                                  : NULL;
   if (var == NULL)
     return -1;
-  for (int i = checker.symbolCount - 1; i >= 0; i--)
-    if (checker.symbols[i].name == var->as.name) {
-      if (checker.symbols[i].type->kind != TY_NULLABLE)
-        return -1; // only narrowing a nullable means anything
-      *nonNilInThen = inThen;
-      return i;
-    }
-  return -1;
+  int slot = symbolSlot(var->as.name);
+  if (slot < 0)
+    return -1;
+  Type *nonNil = withoutNil(checker.symbols[slot].type);
+  if (inThen)
+    *thenT = nonNil;
+  else
+    *elseT = nonNil;
+  return slot;
 }
 
 static void checkStatement(Node *node) {
@@ -577,22 +638,21 @@ static void checkStatement(Node *node) {
   }
   case NODE_IF: {
     checkExpr(node->as.ifStmt.condition);
-    // Narrow a nullable variable inside whichever branch proves it non-nil,
+    // Narrow a guarded variable inside whichever branch the guard proves, by
     // temporarily overriding its symbol type and restoring it afterwards.
-    bool inThen = false;
-    int slot = nilGuardSlot(node->as.ifStmt.condition, &inThen);
+    Type *thenT, *elseT;
+    int slot = findNarrowing(node->as.ifStmt.condition, &thenT, &elseT);
     Type *saved = slot >= 0 ? checker.symbols[slot].type : NULL;
-    Type *inner = saved ? saved->element : NULL;
 
-    if (slot >= 0 && inThen)
-      checker.symbols[slot].type = inner;
+    if (slot >= 0 && thenT != NULL)
+      checker.symbols[slot].type = thenT;
     checkStatement(node->as.ifStmt.then);
     if (slot >= 0)
       checker.symbols[slot].type = saved;
 
     if (node->as.ifStmt.otherwise != NULL) {
-      if (slot >= 0 && !inThen)
-        checker.symbols[slot].type = inner;
+      if (slot >= 0 && elseT != NULL)
+        checker.symbols[slot].type = elseT;
       checkStatement(node->as.ifStmt.otherwise);
       if (slot >= 0)
         checker.symbols[slot].type = saved;

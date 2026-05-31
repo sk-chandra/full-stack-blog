@@ -46,6 +46,7 @@ typedef enum {
   NODE_LOGICAL, // `a and b` / `a or b` : SHORT-CIRCUITS, so not a plain binary
   NODE_CALL,    // `callee(arg, arg, ...)` : call a function, yields its result
   NODE_INVOKE,  // `receiver.method(arg, ...)` : call a builtin method, yields result
+  NODE_IS,      // `expr is TYPE` : runtime type test, yields bool
   NODE_ARRAY,   // `[a, b, c]` : an array literal, yields a new array
   NODE_MAP,     // `{k: v, ...}` : a map literal, yields a new map
   NODE_INDEX_GET, // `obj[i]` : read element i of obj
@@ -209,6 +210,11 @@ typedef struct Node {
       ObjString *field;   // interned field name
       struct Node *value; // NODE_FIELD_SET only; NULL for the get form
     } field;
+    // NODE_IS: `expr is type` — a runtime test of expr's type.
+    struct {
+      struct Node *expr;
+      Type *type;
+    } isTest;
     // NODE_STRUCT: a `struct` declaration. Field names are interned; field types
     // are full Type* (typeAny() if a field is unannotated).
     struct {
@@ -281,6 +287,8 @@ Node *newCall(Node *callee, Node **args, int argCount, int line);
 // `receiver.method(args)`. Takes ownership of the `args` array.
 Node *newInvoke(Node *receiver, ObjString *method, Node **args, int argCount,
                 int line);
+// `expr is type` — a runtime type test.
+Node *newIs(Node *expr, Type *type, int line);
 // `[e0, e1, ...]`. Takes ownership of the `elements` array.
 Node *newArray(Node **elements, int count, int line);
 // `{k0: v0, ...}`. Takes ownership of both the `keys` and `values` arrays.

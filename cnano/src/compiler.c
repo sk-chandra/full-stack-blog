@@ -464,6 +464,38 @@ static void emitExpr(Node *node) {
     break;
   }
 
+  case NODE_IS: {
+    emitExpr(node->as.isTest.expr); // the value to test, on the stack
+    Type *t = node->as.isTest.type;
+    int tag = -1;
+    switch (t->kind) {
+    case TY_INT: tag = IS_TAG_INT; break;
+    case TY_BOOL: tag = IS_TAG_BOOL; break;
+    case TY_STR: tag = IS_TAG_STR; break;
+    case TY_NIL: tag = IS_TAG_NIL; break;
+    case TY_ARRAY: tag = IS_TAG_ARRAY; break;
+    case TY_MAP: tag = IS_TAG_MAP; break;
+    case TY_STRUCT: {
+      // Push the named struct, then test instance-of.
+      int nameIdx = identifierConstant(t->strct.name, node->line);
+      emitByte(OP_GET_GLOBAL, node->line);
+      emitByte((uint8_t)nameIdx, node->line);
+      emitByte(OP_IS_STRUCT, node->line);
+      break;
+    }
+    default:
+      compileError(node->line,
+                   "`is` needs a concrete type (int, bool, str, nil, array, "
+                   "map, or a struct name)");
+      break;
+    }
+    if (tag >= 0) {
+      emitByte(OP_IS_KIND, node->line);
+      emitByte((uint8_t)tag, node->line);
+    }
+    break;
+  }
+
   case NODE_INVOKE: {
     // Like a call, but the "callee" is a method NAME resolved on the receiver at
     // runtime. Push the receiver, then the arguments, then OP_INVOKE with the

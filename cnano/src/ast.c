@@ -135,6 +135,13 @@ Node *newInvoke(Node *receiver, ObjString *method, Node **args, int argCount,
   return node;
 }
 
+Node *newIs(Node *expr, Type *type, int line) {
+  Node *node = allocNode(NODE_IS, line);
+  node->as.isTest.expr = expr;
+  node->as.isTest.type = type;
+  return node;
+}
+
 Node *newArray(Node **elements, int count, int line) {
   Node *node = allocNode(NODE_ARRAY, line);
   node->as.array.elements = elements;
@@ -318,6 +325,9 @@ void freeNode(Node *node) {
     for (int i = 0; i < node->as.call.argCount; i++)
       freeNode(node->as.call.args[i]);
     free(node->as.call.args); // free the heap array of arg pointers
+    break;
+  case NODE_IS:
+    freeNode(node->as.isTest.expr); // type is arena-owned, not freed here
     break;
   case NODE_INVOKE:
     // method name is VM-owned (interned); free the receiver, args, and the array.

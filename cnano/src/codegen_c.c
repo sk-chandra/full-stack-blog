@@ -169,6 +169,9 @@ static TypeKind annotationKind(Type *t, int line) {
   case TY_NULLABLE:
     unsupported(line, "a nullable-typed value");
     return TY_ANY;
+  case TY_UNION:
+    unsupported(line, "a union-typed value");
+    return TY_ANY;
   case TY_MAP:
     unsupported(line, "a map-typed value");
     return TY_ANY;
@@ -323,6 +326,9 @@ static void emitExpr(Node *node) {
   case NODE_FIELD_GET:
   case NODE_FIELD_SET:
     unsupported(node->line, "a struct field access");
+    break;
+  case NODE_IS:
+    unsupported(node->line, "an `is` type test");
     break;
   default:
     unsupported(node->line, "this expression");

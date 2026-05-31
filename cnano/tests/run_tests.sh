@@ -618,6 +618,19 @@ check_prog_err "init-return-val"  'struct P { x: int fn init(v: int) { self.x = 
 check_prog_err "init-arg-type"    'struct T { c: int fn init(v: int) { self.c = v; } } let t = T("hot"); print t;'
 check_prog_err "init-arity-err"   'struct T { c: int fn init(v: int) { self.c = v; } } let t = T(1, 2); print t;'
 
+# --- union types + `is` narrowing (step 31) ---
+check "is-int"          '5 is int'                 "true"
+check "is-str-false"    '5 is str'                 "false"
+check "is-array"        '[1,2] is [any]'           "true"
+check "is-map"          '{"a":1} is {str:int}'     "true"
+check_prog "is-struct"  'struct P { x: int } struct Q { y: int } let p = P(1); print p is P; print p is Q;' "$(printf 'true\nfalse')"
+check_prog "union-assign" 'let x: int | str = 5; print x; let y: int | str = "hi"; print y;' "$(printf '5\nhi')"
+check_prog "union-narrow" 'fn d(v: int | str): str { if (v is int) { return "i:" + str(v*2); } return "s:" + v; } print d(21); print d("hi");' "$(printf 'i:42\ns:hi')"
+check_prog "union-nil-narrow" 'fn g(v: int | nil): int { if (v is int) { return v; } return -1; } print g(7); print g(nil);' "$(printf '7\n-1')"
+check_prog_err "union-bad-assign" 'let x: int | str = true; print x;'
+check_prog_err "union-no-narrow"  'fn f(v: int | str): int { return v * 2; } print f(5);'
+check_native_err "nat-rej-union"  'fn f(v: int | str): int { return 0; } print f(5);'
+
 # --- nullable / optional types (step 24) ---
 check_prog "null-assign"   'let a: int? = nil; let b: int? = 5; print b;' "5"
 check_prog "null-narrow-then" 'fn f(x: int?): int { if (x != nil) { return x; } return -1; } print f(7); print f(nil);' "$(printf '7\n-1')"

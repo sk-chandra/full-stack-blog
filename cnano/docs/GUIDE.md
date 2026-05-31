@@ -1474,7 +1474,14 @@ programs define their own types, and makes failure recoverable.
     fine). Works for globals, locals, and the native subset.
 
 **Phase D — type-system depth**
-31. **Union types** (`int | str`) with narrowing.
+31. ~~**Union types** (`int | str`) with narrowing.~~ **✅ DONE** — a `TY_UNION`
+    of normalised members (`typeUnite` flattens/dedups/absorbs `any`); `|` in type
+    annotations builds them. Compatibility: a value fits a union target if it
+    matches SOME member, and a union value fits a target only if ALL its members
+    do. A runtime `expr is T` test (`OP_IS_KIND` for primitives/collections,
+    `OP_IS_STRUCT` for instances) doubles as the narrowing guard: `if (x is int)`
+    retypes `x` to `int` in that branch (unified with the nil-guard narrowing, now
+    also union-nil-aware). Native rejects unions/`is`.
 27. **Generics** (`fn first<T>(a: [T]): T`).
 
 **Phase E — compiler & runtime polish**

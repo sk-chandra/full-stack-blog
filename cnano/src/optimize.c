@@ -134,6 +134,9 @@ static Node *foldExpr(Node *node) {
     for (int i = 0; i < node->as.invoke.argCount; i++)
       node->as.invoke.args[i] = foldExpr(node->as.invoke.args[i]);
     return node;
+  case NODE_IS:
+    node->as.isTest.expr = foldExpr(node->as.isTest.expr);
+    return node;
   case NODE_ARRAY:
     for (int i = 0; i < node->as.array.count; i++)
       node->as.array.elements[i] = foldExpr(node->as.array.elements[i]);
