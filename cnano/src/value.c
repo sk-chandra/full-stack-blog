@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -5,6 +6,11 @@
 #include "value.h"
 
 int formatFloat(char *buf, int size, double v) {
+  // Normalise the non-finite cases (which %g spells inconsistently, e.g. "-nan").
+  if (isnan(v))
+    return snprintf(buf, size, "nan");
+  if (isinf(v))
+    return snprintf(buf, size, v < 0 ? "-inf" : "inf");
   // %g is compact, but prints whole values without a point (3.0 -> "3"); append
   // ".0" so a float always reads as a float and never looks like an int.
   int n = snprintf(buf, size, "%g", v);

@@ -114,19 +114,35 @@ bool isHashableKey(Value key) {
   return !IS_OBJ(key) || IS_STRING(key);
 }
 
-// Hash a hashable value. Strings reuse their cached FNV hash; integers get a
-// 64->32 bit mix (SplitMix64's finaliser) so nearby keys scatter across buckets.
+// SplitMix64's finaliser: a 64->32 bit mix so nearby keys scatter across buckets.
+static uint32_t hashInt64(int64_t v) {
+  uint64_t x = (uint64_t)v;
+  x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+  x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+  return (uint32_t)(x ^ (x >> 31));
+}
+
+// Hash a hashable value. CRITICAL invariant: equal keys (valuesEqual) must hash
+// equal — and valuesEqual compares numbers across int/float (1 == 1.0). So an
+// integer-valued float hashes like the equivalent int; other floats hash their
+// bits; strings reuse their cached FNV hash.
 static uint32_t hashValue(Value key) {
   switch (key.type) {
   case VAL_NIL:
     return 0;
   case VAL_BOOL:
     return AS_BOOL(key) ? 1u : 2u;
-  case VAL_INT: {
-    uint64_t x = (uint64_t)AS_INT(key);
-    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
-    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
-    return (uint32_t)(x ^ (x >> 31));
+  case VAL_INT:
+    return hashInt64(AS_INT(key));
+  case VAL_FLOAT: {
+    double d = AS_FLOAT(key);
+    // Canonicalise an integral float to its int hash (guard the cast against
+    // inf/nan/out-of-range, which would be undefined). Otherwise hash the bits.
+    if (d >= -9.2e18 && d <= 9.2e18 && d == (double)(int64_t)d)
+      return hashInt64((int64_t)d);
+    uint64_t bits;
+    memcpy(&bits, &d, sizeof(bits));
+    return hashInt64((int64_t)bits);
   }
   case VAL_OBJ:
     return AS_STRING(key)->hash; // guaranteed a string by isHashableKey
