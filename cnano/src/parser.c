@@ -600,6 +600,7 @@ static Node *block(void) {
 }
 
 static Node *varDeclaration(void); // used by forStatement's initialiser clause
+static Type *parseType(void);      // used by forStatement's let-init clause
 
 // `if (cond) thenStmt [else elseStmt]`. The parens are required (cnano follows
 // the C family here). The branches are ordinary statements, so `if (c) { ... }`
@@ -640,16 +641,91 @@ static Node *whileStatement(void) {
 // loop). This is the same trick step 1 used for `!=`/`<=`: keep the core tiny,
 // express conveniences by lowering them to it. Desugaring a whole statement form
 // (not just an operator) is a powerful demonstration of the idea.
+// Allocate a Program (a growable node list) on the heap — the container a block
+// node owns. Small helper so the desugars below read cleanly.
+static Program *makeProgram(void) {
+  Program *p = malloc(sizeof(Program));
+  if (p == NULL) {
+    fprintf(stderr, "cnano: out of memory desugaring a loop\n");
+    exit(70);
+  }
+  initProgram(p);
+  return p;
+}
+
+// Desugar `for (let VAR in COLL) BODY` into an index loop over a hidden sequence:
+//
+//   { let $seq = $for_iter(COLL); let $i = 0;
+//     while ($i < $seq.len()) { let VAR = $seq[$i]; BODY; $i = $i + 1; } }
+//
+// $for_iter (a hidden builtin) yields the array to walk — the array itself, or a
+// map's keys — so this one shape covers both, even when COLL's type is dynamic.
+// The synthesised names use a leading '$' (unlexable), so they cannot collide
+// with user variables; block scoping makes nested for-in loops independent.
+static Node *desugarForIn(ObjString *var, Node *coll, Node *body, int line) {
+  ObjString *seq = copyString("$seq", 4);
+  ObjString *idx = copyString("$i", 2);
+
+  // let $seq = $for_iter(COLL);
+  Node **iterArgs = malloc(sizeof(Node *));
+  if (iterArgs == NULL) {
+    fprintf(stderr, "cnano: out of memory desugaring for-in\n");
+    exit(70);
+  }
+  iterArgs[0] = coll;
+  Node *iterCall =
+      newCall(newVarGet(copyString("$for_iter", 9), line), iterArgs, 1, line);
+  Node *declSeq = newVarDecl(seq, iterCall, typeAny(), line);
+  Node *declIdx = newVarDecl(idx, newInt(0, line), typeAny(), line);
+
+  // while ($i < $seq.len()) { ... }
+  Node *lenCall = newInvoke(newVarGet(seq, line), copyString("len", 3), NULL, 0, line);
+  Node *cond = newBinary(OP_NODE_LESS, newVarGet(idx, line), lenCall, line);
+
+  Node *element = newIndexGet(newVarGet(seq, line), newVarGet(idx, line), line);
+  Node *declVar = newVarDecl(var, element, typeAny(), line);
+  Node *incr = newAssign(
+      idx, newBinary(OP_NODE_ADD, newVarGet(idx, line), newInt(1, line), line),
+      line);
+  Program *loopBody = makeProgram();
+  writeProgram(loopBody, declVar);
+  writeProgram(loopBody, body);
+  writeProgram(loopBody, newExprStmt(incr, line));
+  Node *whileNode = newWhile(cond, newBlock(loopBody, line), line);
+
+  Program *outer = makeProgram();
+  writeProgram(outer, declSeq);
+  writeProgram(outer, declIdx);
+  writeProgram(outer, whileNode);
+  return newBlock(outer, line);
+}
+
 static Node *forStatement(void) {
   int line = parser.previous.line; // the 'for'
   consume(TOKEN_LPAREN, "Expect '(' after 'for'.");
 
-  // --- initialiser clause ---
+  // --- initialiser clause (also the for-in fork) ---
   Node *initializer = NULL;
   if (match(TOKEN_SEMICOLON)) {
     initializer = NULL; // no initialiser
   } else if (match(TOKEN_LET)) {
-    initializer = varDeclaration(); // consumes its own trailing ';'
+    // After `let NAME`, one token of lookahead distinguishes the two loops:
+    //   `in`  -> for-in;   `:` or `=` -> a C-style let-initialiser.
+    consume(TOKEN_IDENTIFIER, "Expect a variable name after 'let'.");
+    ObjString *name = copyString(parser.previous.start, parser.previous.length);
+    if (match(TOKEN_IN)) {
+      Node *coll = expression();
+      consume(TOKEN_RPAREN, "Expect ')' after the for-in collection.");
+      Node *body = statement();
+      return desugarForIn(name, coll, body, line);
+    }
+    // C-style let-initialiser: finish parsing `[: TYPE] = EXPR ;` by hand (we have
+    // already consumed `let NAME`, so we can't call varDeclaration here).
+    Type *declaredType = match(TOKEN_COLON) ? parseType() : typeAny();
+    consume(TOKEN_EQUAL, "Expect '=' after the loop variable name.");
+    Node *init = expression();
+    consume(TOKEN_SEMICOLON, "Expect ';' after the loop initialiser.");
+    initializer = newVarDecl(name, init, declaredType, line);
   } else {
     initializer = expressionStatement(); // consumes its own trailing ';'
   }

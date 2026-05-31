@@ -53,6 +53,31 @@ static bool strNative(int argCount, Value *args, Value *result) {
   return true;
 }
 
+// $for_iter(coll) -> array : the sequence a `for (let x in coll)` loop walks.
+// Arrays iterate their elements (the array itself); maps iterate their keys. This
+// hidden builtin lets for-in desugar to one index loop regardless of the
+// collection's (possibly dynamic) type. Its name is unlexable ($), so user code
+// can neither call nor shadow it.
+static bool forIterNative(int argCount, Value *args, Value *result) {
+  (void)argCount;
+  Value coll = args[0];
+  if (IS_ARRAY(coll)) {
+    *result = coll; // iterate the elements directly
+    return true;
+  }
+  if (IS_MAP(coll)) {
+    ObjMap *map = AS_MAP(coll);
+    ObjArray *keys = newArrayObject(); // coll is rooted on the stack; GC-safe
+    for (int i = 0; i < map->capacity; i++)
+      if (map->entries[i].occupied)
+        writeValueArray(&keys->elements, map->entries[i].key);
+    *result = OBJ_VAL(keys);
+    return true;
+  }
+  runtimeError("can only iterate over arrays and maps");
+  return false;
+}
+
 void defineBuiltins(void) {
   struct {
     const char *name;
@@ -61,6 +86,7 @@ void defineBuiltins(void) {
   } table[] = {
       {"clock", clockNative, 0},
       {"str", strNative, 1},
+      {"$for_iter", forIterNative, 1}, // internal: backs for-in (unlexable name)
   };
   for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
     ObjString *name = copyString(table[i].name, (int)strlen(table[i].name));

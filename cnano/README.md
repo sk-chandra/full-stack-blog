@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (275 cases, incl. native + GC)
+make test       # run the end-to-end test suite (284 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -50,8 +50,9 @@ make run        # start the REPL
   a *local*, resolved to a stack slot at compile time (no runtime lookup, unlike
   globals). Supports **shadowing**; flags redeclaration and self-referential
   initialisers at compile time
-- **Control flow** (cnano is now Turing-complete): `if`/`else`, `while`, and
-  `for` (which desugars to a block + while), built from jump instructions and
+- **Control flow** (cnano is now Turing-complete): `if`/`else`, `while`, C-style
+  `for`, and **`for (let x in coll)`** iteration over arrays (elements) and maps
+  (keys) — all desugared to a block + while, built from jump instructions and
   backpatching
 - **Short-circuiting** `and` / `or` that return the deciding operand (so
   `nil or "default"` yields `"default"` and the skipped side never runs)

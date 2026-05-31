@@ -1381,7 +1381,11 @@ programs define their own types, and makes failure recoverable.
     parser desugaring (`x OP= e` → `x = x OP e`) for variable AND index targets,
     using a `cloneExpr` of the pure target so `a[i] += 1` neither double-frees nor
     double-evaluates; no new opcodes.
-17. **`for-in` iteration** over arrays and maps.
+17. ~~**`for-in` iteration**.~~ **✅ DONE** — `for (let x in coll)` desugars (in
+    the parser) to a block + index `while` over a hidden `$for_iter(coll)` that
+    yields the array to walk (arrays → elements, maps → keys), so one shape covers
+    both even when the type is dynamic. Disambiguated from C-style `for` with one
+    token of lookahead after `let NAME`; added the `in` keyword.
 18. **Standard-library builtins & string/array methods** (`len`, `assert`,
     `.split`, `.contains`, `.sort`, …).
 19. **Higher-order collection methods** (`.map`/`.filter`/`.reduce`).

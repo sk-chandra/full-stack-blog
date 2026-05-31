@@ -56,6 +56,7 @@ typedef enum {
   TOKEN_ELSE,
   TOKEN_WHILE,
   TOKEN_FOR,
+  TOKEN_IN,        // in — used by for-in iteration: `for (let x in coll)`
   TOKEN_AND,
   TOKEN_OR,
   TOKEN_FN,

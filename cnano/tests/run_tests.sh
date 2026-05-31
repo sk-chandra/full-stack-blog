@@ -444,6 +444,18 @@ check_prog_err "m-on-int"    'print (5).len();'
 check_prog_err "m-bad-arity" 'print "hi".len(1);'
 check_prog_err "bi-bad-arity" 'print str();'
 
+# --- for-in iteration (step 17) ---
+check_prog "forin-array"  'let s = 0; for (let x in [10,20,30]) { s += x; } print s;' "60"
+check_prog "forin-print"  'for (let x in [1,2,3]) print x*x;' "$(printf '1\n4\n9')"
+check_prog "forin-map"    'let m = {"a":1,"b":2,"c":3}; let t = 0; for (let k in m) { t += m[k]; } print t;' "6"
+check_prog "forin-nested" 'let g = [[1,2],[3,4]]; let s = 0; for (let r in g) { for (let v in r) { s += v; } } print s;' "10"
+check_prog "forin-empty"  'let n = 0; for (let x in []) { n += 1; } print n;' "0"
+check_prog "forin-string-arr" 'let out = ""; for (let w in ["a","b","c"]) { out += w; } print out;' "abc"
+check_prog_err "forin-noncoll" 'for (let x in 5) print x;'
+# C-style for must still work after the for-in fork (regression guard).
+check_prog "for-cstyle-still" 'let s = 0; for (let i = 0; i < 5; i = i + 1) { s += i; } print s;' "10"
+check_prog "for-cstyle-typed" 'let s = 0; for (let i: int = 0; i < 4; i += 1) { s += i; } print s;' "6"
+
 # --- compound assignment (step 16) ---
 check_prog "cmpd-var"    'let x = 10; x += 5; x -= 3; x *= 2; print x;' "24"
 check_prog "cmpd-mod"    'let x = 17; x %= 5; print x;' "2"

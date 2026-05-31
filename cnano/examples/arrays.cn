@@ -47,3 +47,10 @@ print sum([10, 20, 30, 40]);  // 100
 let mixed: [any] = [1, "two", true, [3, 4]];
 print mixed[1];         // two
 print mixed[3];         // [3, 4]
+
+// for-in walks an array's elements directly (no manual index).
+let total = 0;
+for (let v in [4, 8, 15, 16, 23, 42]) {
+  total += v;
+}
+print total;            // 108
