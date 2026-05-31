@@ -117,6 +117,19 @@ static Node *foldExpr(Node *node) {
     for (int i = 0; i < node->as.invoke.argCount; i++)
       node->as.invoke.args[i] = foldExpr(node->as.invoke.args[i]);
     return node;
+  case NODE_ARRAY:
+    for (int i = 0; i < node->as.array.count; i++)
+      node->as.array.elements[i] = foldExpr(node->as.array.elements[i]);
+    return node;
+  case NODE_INDEX_GET:
+    node->as.index.object = foldExpr(node->as.index.object);
+    node->as.index.index = foldExpr(node->as.index.index);
+    return node;
+  case NODE_INDEX_SET:
+    node->as.index.object = foldExpr(node->as.index.object);
+    node->as.index.index = foldExpr(node->as.index.index);
+    node->as.index.value = foldExpr(node->as.index.value);
+    return node;
   default:
     return node; // literals, var reads: nothing to fold
   }

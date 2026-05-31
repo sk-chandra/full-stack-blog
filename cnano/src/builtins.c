@@ -94,12 +94,54 @@ static Method stringMethods[] = {
     {NULL, 0, NULL},
 };
 
+// array.len() -> int : the number of elements.
+static bool arrayLen(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount;
+  (void)args;
+  *result = INT_VAL(AS_ARRAY(receiver)->elements.count);
+  return true;
+}
+
+// array.push(x) -> nil : append x to the end (mutates the array).
+static bool arrayPush(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount;
+  // The receiver and arg are on the VM stack (rooted); writeValueArray grows with
+  // plain realloc and never collects, so this is GC-safe.
+  writeValueArray(&AS_ARRAY(receiver)->elements, args[0]);
+  *result = NIL_VAL;
+  return true;
+}
+
+// array.pop() -> any : remove and return the last element (error if empty).
+static bool arrayPop(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount;
+  (void)args;
+  ValueArray *e = &AS_ARRAY(receiver)->elements;
+  if (e->count == 0) {
+    runtimeError("pop() from an empty array");
+    return false;
+  }
+  *result = e->values[--e->count];
+  return true;
+}
+
+static Method arrayMethods[] = {
+    {"len", 0, arrayLen},
+    {"push", 1, arrayPush},
+    {"pop", 0, arrayPop},
+    {NULL, 0, NULL},
+};
+
 // Find the method table for a receiver's type, plus a human-readable type name
 // for error messages. Returns NULL if the type has no methods.
 static Method *methodsFor(Value receiver, const char **typeName) {
   if (IS_STRING(receiver)) {
     *typeName = "str";
     return stringMethods;
+  }
+  if (IS_ARRAY(receiver)) {
+    *typeName = "array";
+    return arrayMethods;
   }
   *typeName = NULL;
   return NULL;

@@ -83,6 +83,13 @@ typedef enum {
   // A fused get-property-then-call, like clox's OP_INVOKE — but for built-in
   // types (strings, and later arrays/maps) since cnano has no user-defined ones.
   OP_INVOKE,   // [opcode][nameIdx][argc] : call builtin method `name` on a receiver
+  // Aggregate data. OP_BUILD_ARRAY pops `count` values (pushed left-to-right) and
+  // pushes a new array of them. OP_INDEX_GET pops an index then an object and
+  // pushes object[index]; OP_INDEX_SET expects [.. object index value], stores
+  // value at object[index], pops all three and pushes value (assignment's result).
+  OP_BUILD_ARRAY, // [opcode][count] : push a new array of the top `count` values
+  OP_INDEX_GET,   // [opcode]        : push object[index]   (bounds-checked)
+  OP_INDEX_SET,   // [opcode]        : object[index] = value; push value
   // Create a closure from the function constant at [idx], then read 2 bytes per
   // upvalue describing where each capture comes from: [isLocal][index]. This is
   // our only VARIABLE-LENGTH instruction — its size depends on the function's

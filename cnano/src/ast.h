@@ -46,6 +46,9 @@ typedef enum {
   NODE_LOGICAL, // `a and b` / `a or b` : SHORT-CIRCUITS, so not a plain binary
   NODE_CALL,    // `callee(arg, arg, ...)` : call a function, yields its result
   NODE_INVOKE,  // `receiver.method(arg, ...)` : call a builtin method, yields result
+  NODE_ARRAY,   // `[a, b, c]` : an array literal, yields a new array
+  NODE_INDEX_GET, // `obj[i]` : read element i of obj
+  NODE_INDEX_SET, // `obj[i] = v` : store v at element i, yields v
   // --- statement nodes (performed for effect, yield nothing) ---
   NODE_PRINT,      // `print EXPR;` — evaluate EXPR and print it
   NODE_EXPR_STMT,  // `EXPR;` — evaluate EXPR, then discard its value
@@ -160,6 +163,20 @@ typedef struct Node {
       struct Node **args;
       int argCount;
     } invoke;
+    // NODE_ARRAY: an array literal `[e0, e1, ...]`, built at runtime into a fresh
+    // array object. Same heap-array-of-children shape as a call's arguments.
+    struct {
+      struct Node **elements;
+      int count;
+    } array;
+    // NODE_INDEX_GET (`obj[index]`) and NODE_INDEX_SET (`obj[index] = value`).
+    // Index-set is produced by assignment() when an index expression is the
+    // l-value; its `value` is NULL for the get form.
+    struct {
+      struct Node *object;
+      struct Node *index;
+      struct Node *value; // NODE_INDEX_SET only; NULL for NODE_INDEX_GET
+    } index;
     // NODE_FUN: a function declaration. params holds the parameter NAMES (interned
     // ObjStrings); paramTypes the parallel `: T` annotations (typeAny() if
     // omitted); returnType the `: T` after the parameter list (typeAny() if
@@ -216,6 +233,11 @@ Node *newCall(Node *callee, Node **args, int argCount, int line);
 // `receiver.method(args)`. Takes ownership of the `args` array.
 Node *newInvoke(Node *receiver, ObjString *method, Node **args, int argCount,
                 int line);
+// `[e0, e1, ...]`. Takes ownership of the `elements` array.
+Node *newArray(Node **elements, int count, int line);
+// `obj[index]` (a read) and `obj[index] = value` (a write).
+Node *newIndexGet(Node *object, Node *index, int line);
+Node *newIndexSet(Node *object, Node *index, Node *value, int line);
 // Takes ownership of `params`, `paramTypes`, and `body`.
 Node *newFun(ObjString *name, ObjString **params, Type **paramTypes,
              int paramCount, Type *returnType, Program *body, int line);

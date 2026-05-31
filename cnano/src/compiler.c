@@ -456,6 +456,28 @@ static void emitExpr(Node *node) {
     break;
   }
 
+  case NODE_ARRAY: {
+    // Push each element left-to-right, then build the array from the top `count`.
+    for (int i = 0; i < node->as.array.count; i++)
+      emitExpr(node->as.array.elements[i]);
+    emitByte(OP_BUILD_ARRAY, node->line);
+    emitByte((uint8_t)node->as.array.count, node->line);
+    break;
+  }
+
+  case NODE_INDEX_GET:
+    emitExpr(node->as.index.object); // [.. object]
+    emitExpr(node->as.index.index);  // [.. object index]
+    emitByte(OP_INDEX_GET, node->line);
+    break;
+
+  case NODE_INDEX_SET:
+    emitExpr(node->as.index.object); // [.. object]
+    emitExpr(node->as.index.index);  // [.. object index]
+    emitExpr(node->as.index.value);  // [.. object index value]
+    emitByte(OP_INDEX_SET, node->line);
+    break;
+
   case NODE_UNARY:
     emitExpr(node->as.unary.operand); // operand value now on stack
     switch (node->as.unary.op) {

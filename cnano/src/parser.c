@@ -166,6 +166,17 @@ static Node *assignment(void) {
       return newAssign(name, value, line);
     }
 
+    if (node->type == NODE_INDEX_GET) {
+      // `obj[i] = value`: salvage the object and index out of the get node (NULL
+      // them so freeing the wrapper leaves them intact) and rebuild as a set.
+      Node *object = node->as.index.object;
+      Node *index = node->as.index.index;
+      node->as.index.object = NULL;
+      node->as.index.index = NULL;
+      freeNode(node);
+      return newIndexSet(object, index, value, line);
+    }
+
     // Invalid l-value, e.g. `1 + 2 = 3` or `(a) = 3`. Report but don't abort the
     // whole parse. We still free what we built to avoid a leak.
     errorAt(&parser.current, "Invalid assignment target.");
@@ -346,7 +357,12 @@ static Node *call(void) {
       node = finishCall(node);
     else if (match(TOKEN_DOT))
       node = finishInvoke(node);
-    else
+    else if (match(TOKEN_LBRACKET)) {
+      int line = parser.previous.line; // the '['
+      Node *index = expression();
+      consume(TOKEN_RBRACKET, "Expect ']' after index.");
+      node = newIndexGet(node, index, line); // assignment() may rewrite to a set
+    } else
       break;
   }
   return node;
@@ -382,6 +398,32 @@ static Node *primary(void) {
     Node *node = expression();
     consume(TOKEN_RPAREN, "Expect ')' after expression.");
     return node;
+  }
+  if (match(TOKEN_LBRACKET)) {
+    // Array literal: `[e0, e1, ...]`. Same growable-list parse as an argument
+    // list, but delimited by ']'.
+    int line = parser.previous.line;
+    Node **elements = NULL;
+    int count = 0, capacity = 0;
+    if (!check(TOKEN_RBRACKET)) {
+      do {
+        if (count == 255) {
+          errorAt(&parser.current, "Cannot have more than 255 array elements.");
+          break;
+        }
+        if (count + 1 > capacity) {
+          capacity = capacity < 4 ? 4 : capacity * 2;
+          elements = realloc(elements, sizeof(Node *) * capacity);
+          if (elements == NULL) {
+            fprintf(stderr, "cnano: out of memory parsing array literal\n");
+            exit(70);
+          }
+        }
+        elements[count++] = expression();
+      } while (match(TOKEN_COMMA));
+    }
+    consume(TOKEN_RBRACKET, "Expect ']' after array elements.");
+    return newArray(elements, count, line);
   }
   errorAt(&parser.current, "Expect a value or '('.");
   // CRITICAL for error recovery: consume the offending token so the parser

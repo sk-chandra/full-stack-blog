@@ -24,6 +24,7 @@ typedef enum {
   OBJ_STRING,
   OBJ_FUNCTION,
   OBJ_NATIVE,
+  OBJ_ARRAY,
   OBJ_UPVALUE,
   OBJ_CLOSURE,
 } ObjType;
@@ -78,6 +79,16 @@ typedef struct {
   int arity;
 } ObjNative;
 
+// An ARRAY: a growable, ordered list of values. It reuses ValueArray — the same
+// dynamic-array (count/capacity/double-on-full) the constant pool uses — so the
+// only new code is the object wrapper, indexing, and methods. Elements are
+// arbitrary Values, so an array is heterogeneous at runtime (the [T] type is a
+// compile-time promise the checker enforces, then erases).
+typedef struct {
+  Obj obj; // MUST be first
+  ValueArray elements;
+} ObjArray;
+
 // An "upvalue": the runtime representation of a variable captured by a closure
 // from an enclosing function. The whole problem closures solve is that a captured
 // local lives on the stack but may OUTLIVE the frame that created it. An upvalue
@@ -109,6 +120,8 @@ typedef struct {
 #define AS_FUNCTION(value) ((ObjFunction *)AS_OBJ(value))
 #define IS_NATIVE(value) isObjType(value, OBJ_NATIVE)
 #define AS_NATIVE(value) ((ObjNative *)AS_OBJ(value))
+#define IS_ARRAY(value) isObjType(value, OBJ_ARRAY)
+#define AS_ARRAY(value) ((ObjArray *)AS_OBJ(value))
 #define IS_CLOSURE(value) isObjType(value, OBJ_CLOSURE)
 #define AS_CLOSURE(value) ((ObjClosure *)AS_OBJ(value))
 
@@ -139,6 +152,9 @@ ObjClosure *newClosure(ObjFunction *function);
 // Allocate a native-function object wrapping the C function `fn`. `name` must be
 // a string literal / static string (it is borrowed, not copied or freed).
 ObjNative *newNative(NativeFn fn, const char *name, int arity);
+
+// Allocate a fresh, empty array. The VM appends elements (e.g. from a literal).
+ObjArray *newArrayObject(void);
 
 // Allocate a fresh open upvalue pointing at the stack `slot`.
 ObjUpvalue *newUpvalue(Value *slot);

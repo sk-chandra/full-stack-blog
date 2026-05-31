@@ -130,6 +130,29 @@ Node *newInvoke(Node *receiver, ObjString *method, Node **args, int argCount,
   return node;
 }
 
+Node *newArray(Node **elements, int count, int line) {
+  Node *node = allocNode(NODE_ARRAY, line);
+  node->as.array.elements = elements;
+  node->as.array.count = count;
+  return node;
+}
+
+Node *newIndexGet(Node *object, Node *index, int line) {
+  Node *node = allocNode(NODE_INDEX_GET, line);
+  node->as.index.object = object;
+  node->as.index.index = index;
+  node->as.index.value = NULL;
+  return node;
+}
+
+Node *newIndexSet(Node *object, Node *index, Node *value, int line) {
+  Node *node = allocNode(NODE_INDEX_SET, line);
+  node->as.index.object = object;
+  node->as.index.index = index;
+  node->as.index.value = value;
+  return node;
+}
+
 Node *newFun(ObjString *name, ObjString **params, Type **paramTypes,
              int paramCount, Type *returnType, Program *body, int line) {
   Node *node = allocNode(NODE_FUN, line);
@@ -210,6 +233,17 @@ void freeNode(Node *node) {
     for (int i = 0; i < node->as.invoke.argCount; i++)
       freeNode(node->as.invoke.args[i]);
     free(node->as.invoke.args);
+    break;
+  case NODE_ARRAY:
+    for (int i = 0; i < node->as.array.count; i++)
+      freeNode(node->as.array.elements[i]);
+    free(node->as.array.elements);
+    break;
+  case NODE_INDEX_GET:
+  case NODE_INDEX_SET:
+    freeNode(node->as.index.object);
+    freeNode(node->as.index.index);
+    freeNode(node->as.index.value); // tolerates NULL (the get form)
     break;
   case NODE_FUN:
     // name and the param ObjStrings are VM-owned (interned); free only the

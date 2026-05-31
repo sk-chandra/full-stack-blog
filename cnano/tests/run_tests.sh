@@ -439,6 +439,36 @@ check_prog_err "m-on-int"    'print (5).len();'
 check_prog_err "m-bad-arity" 'print "hi".len(1);'
 check_prog_err "bi-bad-arity" 'print str();'
 
+# --- arrays (step 13) ---
+check "arr-index"        '[10, 20, 30][1]'        "20"
+check "arr-len-literal"  '[1, 2, 3].len()'        "3"
+check "arr-empty-len"    '[].len()'               "0"
+check_prog "arr-print"   'print [1, 2, 3];'       "[1, 2, 3]"
+check_prog "arr-set"     'let a = [1,2,3]; a[1] = 99; print a;' "[1, 99, 3]"
+check_prog "arr-push-pop" 'let a = [1]; a.push(2); a.push(3); print a.pop(); print a;' "$(printf '3\n[1, 2]')"
+check_prog "arr-nested"  'let m = [[1,2],[3,4]]; print m[1][0];' "3"
+check_prog "arr-computed" 'let a = [5,6,7]; let i = 1+1; print a[i];' "7"
+check_prog "arr-build-loop" 'let a = []; let i = 0; while (i<3) { a.push(i*i); i=i+1; } print a;' "[0, 1, 4]"
+check_prog "arr-heterogeneous" 'let a: [any] = [1, "two", true]; print a[1];' "two"
+# Typed arrays: element types are checked structurally.
+check_prog "arr-typed-ok" 'let a: [int] = [1,2,3]; print a.len();' "3"
+check_prog "arr-fn-arg"  'fn n(a: [int]): int { return a.len(); } print n([4,5]);' "2"
+check_prog_err "arr-elem-bad"   'let a: [int] = ["x"]; print 1;'
+check_prog_err "arr-store-bad"  'let a: [int] = [1]; a[0] = "x"; print 1;'
+check_prog_err "arr-idx-type"   'let a: [int] = [1]; print a[true];'
+check_prog_err "arr-idx-nonarr" 'let x = 5; print x[0];'
+check_prog_err "arr-elem-out"   'let b: bool = [1,2][0]; print b;'
+# Runtime errors (non-zero exit).
+check_prog_err "arr-oob"        'let a = [1,2]; print a[5];'
+check_prog_err "arr-pop-empty"  'let a = []; print a.pop();'
+# GC: churn 2000 short-lived arrays while one live array grows to 2000 elements.
+# The collector must reclaim the junk yet keep `live` and all its elements — the
+# real test that arrays are traced correctly (run under `make gcstress` too).
+check_prog "gc-array-live" \
+  'let live = []; let i = 0;
+   while (i < 2000) { let junk = [i, i+1, i+2]; live.push(i); i = i + 1; }
+   print live.len(); print live[1999];' "$(printf '2000\n1999')"
+
 # --- native backend: compile to C -> a real executable (step 9) ---
 # Each program is the typed first-order subset; its native output must match.
 check_native "nat-arith"    'print 2 + 3 * 4;'                          "14"
@@ -461,6 +491,8 @@ check_native_err "nat-rej-dynparam" 'fn f(x) { return x; } print f(1);'
 check_native_err "nat-rej-array"   'fn id(a: [int]): [int] { return a; } print 1;'
 # Method calls dispatch through the runtime — also outside the native subset.
 check_native_err "nat-rej-method"  'fn f(): int { return "x".len(); } print f();'
+# Arrays are heap/GC values — outside the scalar native subset.
+check_native_err "nat-rej-arrlit"  'let a = [1, 2, 3]; print a[0];'
 
 rm -f "$tmp" "${tmp}.native" "${tmp}.native.c" 2>/dev/null
 echo "-----------------------------------------"

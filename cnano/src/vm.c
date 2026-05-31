@@ -486,6 +486,64 @@ static InterpretResult run(bool trace) {
       push(result);
       break;
     }
+    case OP_BUILD_ARRAY: {
+      int count = READ_BYTE();
+      // Allocate the array while its elements are still on the stack (so a GC
+      // triggered by this allocation keeps them alive), then copy them in.
+      // writeValueArray grows with plain realloc and never collects, so the new
+      // (not-yet-rooted) array can't be reclaimed before we push it.
+      ObjArray *array = newArrayObject();
+      for (int i = 0; i < count; i++)
+        writeValueArray(&array->elements, vm.stackTop[-count + i]);
+      vm.stackTop -= count;     // pop the elements
+      push(OBJ_VAL(array));     // push the finished array
+      break;
+    }
+    case OP_INDEX_GET: {
+      Value index = pop();
+      Value object = pop();
+      if (!IS_ARRAY(object)) {
+        runtimeError("can only index into arrays");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      if (!IS_INT(index)) {
+        runtimeError("array index must be an int");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      ObjArray *array = AS_ARRAY(object);
+      int64_t i = AS_INT(index);
+      if (i < 0 || i >= array->elements.count) {
+        runtimeError("array index %lld out of range (length %d)", (long long)i,
+                     array->elements.count);
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      push(array->elements.values[i]);
+      break;
+    }
+    case OP_INDEX_SET: {
+      // Stack: [.. object index value]. Store, then leave `value` as the result.
+      Value value = pop();
+      Value index = pop();
+      Value object = pop();
+      if (!IS_ARRAY(object)) {
+        runtimeError("can only index into arrays");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      if (!IS_INT(index)) {
+        runtimeError("array index must be an int");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      ObjArray *array = AS_ARRAY(object);
+      int64_t i = AS_INT(index);
+      if (i < 0 || i >= array->elements.count) {
+        runtimeError("array index %lld out of range (length %d)", (long long)i,
+                     array->elements.count);
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      array->elements.values[i] = value;
+      push(value);
+      break;
+    }
     case OP_CLOSURE: {
       // Build a closure from a function constant, then capture each upvalue as
       // described by the trailing operand pairs. For a LOCAL capture we grab the

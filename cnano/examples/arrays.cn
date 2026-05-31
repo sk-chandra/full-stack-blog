@@ -1,0 +1,49 @@
+// Arrays — cnano's first aggregate data type. They are heap objects managed by
+// the garbage collector, indexed with [], and carry methods via OP_INVOKE.
+//
+//   cnano examples/arrays.cn
+//
+// (Arrays need the dynamic runtime, so they run on the VM, not the --native path.)
+
+// A literal, indexing, and the .len() method.
+let primes = [2, 3, 5, 7, 11];
+print primes[0];        // 2
+print primes[4];        // 11
+print primes.len();     // 5
+
+// Indexed assignment.
+primes[0] = 13;
+print primes;           // [13, 3, 5, 7, 11]
+
+// Build an array imperatively with .push(), then .pop() off the end.
+let squares = [];
+let i = 1;
+while (i <= 5) {
+  squares.push(i * i);
+  i = i + 1;
+}
+print squares;          // [1, 4, 9, 16, 25]
+print squares.pop();    // 25
+print squares.len();    // 4
+
+// Nested arrays — a little matrix. Indexing chains: m[row][col].
+let m = [[1, 2, 3], [4, 5, 6]];
+print m[1][2];          // 6
+
+// Typed arrays: the annotation is checked structurally before anything runs.
+// (Try changing an element's type to see the checker reject it.)
+fn sum(xs: [int]): int {
+  let total: int = 0;
+  let k: int = 0;
+  while (k < xs.len()) {
+    total = total + xs[k];
+    k = k + 1;
+  }
+  return total;
+}
+print sum([10, 20, 30, 40]);  // 100
+
+// `[any]` opts back into fully dynamic, heterogeneous contents.
+let mixed: [any] = [1, "two", true, [3, 4]];
+print mixed[1];         // two
+print mixed[3];         // [3, 4]

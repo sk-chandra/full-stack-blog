@@ -130,6 +130,12 @@ int disassembleInstruction(Chunk *chunk, int offset) {
     return byteInstruction("OP_CALL", chunk, offset);
   case OP_INVOKE:
     return invokeInstruction("OP_INVOKE", chunk, offset);
+  case OP_BUILD_ARRAY:
+    return byteInstruction("OP_BUILD_ARRAY", chunk, offset);
+  case OP_INDEX_GET:
+    return simpleInstruction("OP_INDEX_GET", offset);
+  case OP_INDEX_SET:
+    return simpleInstruction("OP_INDEX_SET", offset);
   case OP_CLOSURE: {
     // Variable-length: the function constant, then 2 bytes per upvalue. We print
     // the function and one line per captured upvalue describing its source.

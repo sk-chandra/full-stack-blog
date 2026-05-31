@@ -1200,7 +1200,59 @@ and the dispatch machinery is now in place — so the array and map steps are mo
 
 ---
 
-## 22. Roadmap: where to go next
+## 22. Case study: arrays — the first aggregate type
+
+With GC, structured types, and method dispatch all in place, the first real
+collection is mostly *assembly*. An array is a new heap object, `ObjArray`, that
+wraps the very same `ValueArray` (count/capacity/double-on-full) the constant pool
+has used since step 0 — so the only genuinely new code is a literal, indexing, and
+three methods.
+
+### 22.1 Three small opcodes
+
+- `OP_BUILD_ARRAY count` turns the top `count` stack values into a fresh array.
+- `OP_INDEX_GET` pops an index and an object and pushes `object[index]`.
+- `OP_INDEX_SET` takes `[.. object index value]`, stores, and leaves `value` (so
+  `a[i] = x` is an expression yielding `x`, like every other assignment).
+
+Indexing is **bounds-checked** in the VM: an out-of-range or non-int index is a
+clean runtime error, never a memory stomp. That guarantee — the interpreter
+refuses to read outside the array — is exactly what a language buys you over raw
+C, and it costs two comparisons.
+
+### 22.2 The l-value twist in the parser
+
+`a[i]` is parsed as a postfix `OP_INDEX_GET`, the same as a read. Only when a `=`
+follows does `assignment()` *rewrite* that get node into an `OP_INDEX_SET`,
+salvaging the object and index subtrees. This is the identical trick the parser
+already used to turn a variable read into a variable assignment — generalised to
+indexed targets. One mechanism, two l-value shapes.
+
+### 22.3 GC has to trace elements — and building is the tricky moment
+
+An array keeps its elements alive, so the collector's `blackenObject` marks every
+element. The subtle moment is *constructing* an array: the object is allocated
+while its elements are still on the stack (so a GC triggered by that very
+allocation can see them), and only then copied in — the elements are never
+orphaned in the window between "allocated" and "rooted". The `gc-array-live` test
+(2000 throwaway arrays churned while one live array grows to 2000 elements, run
+under `make gcstress`) is what proves the tracing is right.
+
+### 22.4 Types, methods, and the dynamic escape
+
+The `[T]` types from step 20 finally carry values: a literal's element type is
+*inferred* (`[1,2,3]` is `[int]`), indexing a `[T]` yields a `T`, and storing the
+wrong type is caught before the program runs — all by reusing the structural
+`compatible()`. The three methods (`.len()`, `.push()`, `.pop()`) are just rows in
+a table `invokeMethod` already knew how to search. And because the element type is
+*inferred*, `let a = [1,2,3]` makes `a` an `[int]` (just as `let x = 5` makes `x`
+an `int`); `[any]` is the deliberate opt-out back to heterogeneous, fully dynamic
+arrays. Capability that took a whole language's worth of machinery to enable, added
+in one focused step.
+
+---
+
+## 23. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -1255,7 +1307,10 @@ With the collector in place, cnano is growing real aggregate data on top of it:
     `OBJ_NATIVE` builtins (`clock`, `str`) as globals, plus postfix
     `a.method(args)` compiled to a fused `OP_INVOKE` that dispatches on the
     receiver's type via per-type method tables (strings: `.len()`).
-13. **Arrays** (`[T]`): literals, indexing, `.len()/.push()/.pop()`, GC-managed.
+13. ~~**Arrays** (`[T]`).~~ **✅ DONE** — see §22 above. `ObjArray` over the
+    existing ValueArray; `OP_BUILD_ARRAY`/`OP_INDEX_GET`/`OP_INDEX_SET`
+    (bounds-checked); `.len()/.push()/.pop()`; inferred element types, structural
+    `[T]` checking, GC-traced elements.
 14. **Maps** (`{K: V}`): general value-keyed hashing, literals, indexing,
     `.keys()/.has()`, GC-managed.
 

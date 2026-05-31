@@ -98,6 +98,12 @@ ObjNative *newNative(NativeFn fn, const char *name, int arity) {
   return native;
 }
 
+ObjArray *newArrayObject(void) {
+  ObjArray *array = (ObjArray *)allocateObject(sizeof(ObjArray), OBJ_ARRAY);
+  initValueArray(&array->elements);
+  return array;
+}
+
 ObjUpvalue *newUpvalue(Value *slot) {
   ObjUpvalue *upvalue =
       (ObjUpvalue *)allocateObject(sizeof(ObjUpvalue), OBJ_UPVALUE);
@@ -133,6 +139,18 @@ void printObject(Value value) {
   case OBJ_NATIVE:
     printf("<native fn %s>", AS_NATIVE(value)->name);
     break;
+  case OBJ_ARRAY: {
+    // Print like the literal that built it: [e0, e1, ...].
+    ObjArray *array = AS_ARRAY(value);
+    printf("[");
+    for (int i = 0; i < array->elements.count; i++) {
+      if (i > 0)
+        printf(", ");
+      printValue(array->elements.values[i]);
+    }
+    printf("]");
+    break;
+  }
   case OBJ_UPVALUE:
     // Upvalues never appear as first-class values; this is here for completeness.
     printf("<upvalue>");
@@ -172,6 +190,13 @@ void freeObject(Obj *object) {
     // The wrapped C function and its name are static; only the struct is ours.
     reallocate(object, sizeof(ObjNative), 0);
     break;
+  case OBJ_ARRAY: {
+    // Free the backing element storage, then the struct.
+    ObjArray *array = (ObjArray *)object;
+    freeValueArray(&array->elements);
+    reallocate(array, sizeof(ObjArray), 0);
+    break;
+  }
   case OBJ_UPVALUE:
     // The upvalue does not own the value it points at; just free the struct.
     reallocate(object, sizeof(ObjUpvalue), 0);

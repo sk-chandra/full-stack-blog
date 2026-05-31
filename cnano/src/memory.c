@@ -89,6 +89,10 @@ static void blackenObject(Obj *object) {
   case OBJ_STRING:
   case OBJ_NATIVE:
     break; // these reference no other heap objects
+  case OBJ_ARRAY:
+    // An array keeps every element reachable.
+    markArray(&((ObjArray *)object)->elements);
+    break;
   case OBJ_UPVALUE:
     // A closed upvalue owns a heap value; keep whatever it holds alive.
     markValue(((ObjUpvalue *)object)->closed);

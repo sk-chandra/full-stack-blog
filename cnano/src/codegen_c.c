@@ -294,6 +294,13 @@ static void emitExpr(Node *node) {
     // native backend doesn't have.
     unsupported(node->line, "a method call");
     break;
+  case NODE_ARRAY:
+    unsupported(node->line, "an array literal");
+    break;
+  case NODE_INDEX_GET:
+  case NODE_INDEX_SET:
+    unsupported(node->line, "an array index");
+    break;
   default:
     unsupported(node->line, "this expression");
     break;

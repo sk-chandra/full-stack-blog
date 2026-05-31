@@ -241,6 +241,54 @@ static Type *checkExpr(Node *node) {
     for (int i = 0; i < node->as.invoke.argCount; i++)
       checkExpr(node->as.invoke.args[i]);
     return typeAny();
+  case NODE_ARRAY: {
+    // Infer the element type from the literal: if every element shares one kind,
+    // that is the element type; a mix (or any) makes it `[any]`. We still check
+    // every element for inner errors. An empty literal is `[any]`.
+    int n = node->as.array.count;
+    Type *elem = n > 0 ? checkExpr(node->as.array.elements[0]) : typeAny();
+    for (int i = 1; i < n; i++) {
+      Type *t = checkExpr(node->as.array.elements[i]);
+      if (t->kind != elem->kind)
+        elem = typeAny();
+    }
+    return typeArray(elem);
+  }
+  case NODE_INDEX_GET: {
+    Type *obj = checkExpr(node->as.index.object);
+    Type *idx = checkExpr(node->as.index.index);
+    if (obj->kind == TY_ARRAY) {
+      if (idx->kind != TY_INT && idx->kind != TY_ANY)
+        typeError(node->line, "array index must be int");
+      return obj->element; // a known element type — real static information
+    }
+    if (obj->kind != TY_ANY) {
+      char msg[96];
+      snprintf(msg, sizeof(msg), "cannot index a value of type %s", typeName(obj));
+      typeError(node->line, msg);
+    }
+    return typeAny();
+  }
+  case NODE_INDEX_SET: {
+    Type *obj = checkExpr(node->as.index.object);
+    Type *idx = checkExpr(node->as.index.index);
+    Type *val = checkExpr(node->as.index.value);
+    if (obj->kind == TY_ARRAY) {
+      if (idx->kind != TY_INT && idx->kind != TY_ANY)
+        typeError(node->line, "array index must be int");
+      if (!compatible(obj->element, val)) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "cannot store %s into an array of %s",
+                 typeName(val), typeName(obj->element));
+        typeError(node->line, msg);
+      }
+    } else if (obj->kind != TY_ANY) {
+      char msg[96];
+      snprintf(msg, sizeof(msg), "cannot index a value of type %s", typeName(obj));
+      typeError(node->line, msg);
+    }
+    return val; // an index-assignment yields the assigned value
+  }
   default:
     return typeAny(); // statement nodes shouldn't appear in expression position
   }
