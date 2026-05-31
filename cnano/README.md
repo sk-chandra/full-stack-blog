@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (314 cases, incl. native + GC)
+make test       # run the end-to-end test suite (331 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -24,6 +24,7 @@ make run        # start the REPL
 ./build/cnano examples/closures.cn            #  counters, adders, an account
 ./build/cnano examples/arrays.cn              #  arrays: literals, indexing, methods
 ./build/cnano examples/maps.cn                #  maps: any-key dictionaries, methods
+./build/cnano examples/structs.cn             #  structs: records, fields, methods
 
 # see the bytecode AND a step-by-step VM trace (the best way to learn)
 ./build/cnano --dump examples/variables.cn
@@ -79,8 +80,14 @@ make run        # start the REPL
   checked structurally, or `[any]` to stay fully dynamic/heterogeneous
 - **Maps**: `{"a": 1, "b": 2}` literals with **any hashable key** (int, bool,
   nil, str — its own value-keyed hash table), `m[k]` get/set sharing the array
-  index opcodes, and methods `.len()`/`.has(k)`/`.keys()`. GC-traced keys *and*
-  values; typed as `{K: V}` and checked structurally
+  index opcodes, and methods `.len()`/`.has(k)`/`.keys()`/`.values()`. GC-traced
+  keys *and* values; typed as `{K: V}` and checked structurally
+- **Structs**: `struct Point { x: int, y: int }` declares a record type;
+  `Point(1, 2)` constructs an instance, `p.x` / `p.x = v` access fields (the same
+  `.` that calls methods). GC-managed instances. Statically **nominal** (`A` ≠ `B`
+  even with identical fields), with construction arg/arity, field-type, and
+  unknown-field/type errors all caught before execution; usable as `[Point]`,
+  `{str: Point}`, function params/returns, etc.
 - **Optional static types** (gradual typing): annotate with `let x: int = …;`
   and `fn add(a: int, b: int): int { … }`. Types are **structured** —
   `int`/`bool`/`str`/`nil`/`any` plus the parametric `[T]` (arrays) and

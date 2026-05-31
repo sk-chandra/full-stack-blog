@@ -489,6 +489,23 @@ static void emitExpr(Node *node) {
     emitByte(OP_INDEX_SET, node->line);
     break;
 
+  case NODE_FIELD_GET: {
+    emitExpr(node->as.field.object); // [.. object]
+    int nameIdx = identifierConstant(node->as.field.field, node->line);
+    emitByte(OP_GET_FIELD, node->line);
+    emitByte((uint8_t)nameIdx, node->line);
+    break;
+  }
+
+  case NODE_FIELD_SET: {
+    emitExpr(node->as.field.object); // [.. object]
+    emitExpr(node->as.field.value);  // [.. object value]
+    int nameIdx = identifierConstant(node->as.field.field, node->line);
+    emitByte(OP_SET_FIELD, node->line);
+    emitByte((uint8_t)nameIdx, node->line);
+    break;
+  }
+
   case NODE_UNARY:
     emitExpr(node->as.unary.operand); // operand value now on stack
     switch (node->as.unary.op) {
@@ -546,6 +563,7 @@ static void emitExpr(Node *node) {
   case NODE_WHILE:
   case NODE_FUN:
   case NODE_RETURN:
+  case NODE_STRUCT:
     // Statement nodes are not expressions and must never be compiled as one.
     // This case exists only to keep the switch exhaustive (so -Wall warns if a
     // future node type is forgotten).
@@ -666,6 +684,38 @@ static void emitStatement(Node *node) {
     if (current->scopeDepth > 0) {
       // Local function: it now sits on the stack at the next slot. Register it as
       // an initialised local — no store opcode needed (its stack slot is it).
+      declareLocal(name, node->line);
+      markInitialized();
+    } else {
+      int nameIdx = identifierConstant(name, node->line);
+      emitByte(OP_DEFINE_GLOBAL, node->line);
+      emitByte((uint8_t)nameIdx, node->line);
+    }
+    break;
+  }
+
+  case NODE_STRUCT: {
+    // Build the runtime struct object now — field names are known at compile
+    // time — and ride it in the constant pool, then bind it to its name like any
+    // declaration. The AST owns its own field-name array, so copy it (the
+    // ObjStruct, freed by the GC, will own this copy). GC is off during
+    // compilation, so the fresh object survives until it is a rooted constant.
+    int n = node->as.structDecl.fieldCount;
+    ObjString **names = NULL;
+    if (n > 0) {
+      names = malloc(sizeof(ObjString *) * n);
+      if (names == NULL) {
+        fprintf(stderr, "cnano: out of memory compiling struct\n");
+        exit(70);
+      }
+      for (int i = 0; i < n; i++)
+        names[i] = node->as.structDecl.fieldNames[i];
+    }
+    ObjStruct *s = newStruct(node->as.structDecl.name, names, n);
+    emitConstant(OBJ_VAL(s), node->line); // pushes the struct object
+
+    ObjString *name = node->as.structDecl.name;
+    if (current->scopeDepth > 0) {
       declareLocal(name, node->line);
       markInitialized();
     } else {

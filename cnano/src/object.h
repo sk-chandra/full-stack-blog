@@ -18,6 +18,7 @@
 
 #include "chunk.h"
 #include "common.h"
+#include "table.h" // instances store their fields in a Table
 #include "value.h"
 
 typedef enum {
@@ -26,6 +27,8 @@ typedef enum {
   OBJ_NATIVE,
   OBJ_ARRAY,
   OBJ_MAP,
+  OBJ_STRUCT,   // a struct TYPE / constructor (e.g. Point)
+  OBJ_INSTANCE, // an instance of a struct (e.g. Point(1, 2))
   OBJ_UPVALUE,
   OBJ_CLOSURE,
 } ObjType;
@@ -110,6 +113,27 @@ typedef struct {
   MapEntry *entries;
 } ObjMap;
 
+// A STRUCT type — the runtime object a `struct Point { ... }` declaration binds
+// to the name `Point`. It is callable: `Point(1, 2)` constructs an instance. It
+// stores the field names in declaration order, which is all the runtime needs
+// (field TYPES are a compile-time concern, checked then erased).
+typedef struct {
+  Obj obj; // MUST be first
+  ObjString *name;
+  ObjString **fieldNames; // declaration order; positional construction
+  int fieldCount;
+} ObjStruct;
+
+// An INSTANCE of a struct. Fields live in a Table keyed by interned field name —
+// the same hash table that backs globals — so field get/set is a table lookup.
+// `type` points back to the struct it was built from (for printing and for
+// rejecting writes to undeclared fields).
+typedef struct {
+  Obj obj; // MUST be first
+  ObjStruct *type;
+  Table fields;
+} ObjInstance;
+
 // An "upvalue": the runtime representation of a variable captured by a closure
 // from an enclosing function. The whole problem closures solve is that a captured
 // local lives on the stack but may OUTLIVE the frame that created it. An upvalue
@@ -145,6 +169,10 @@ typedef struct {
 #define AS_ARRAY(value) ((ObjArray *)AS_OBJ(value))
 #define IS_MAP(value) isObjType(value, OBJ_MAP)
 #define AS_MAP(value) ((ObjMap *)AS_OBJ(value))
+#define IS_STRUCT(value) isObjType(value, OBJ_STRUCT)
+#define AS_STRUCT(value) ((ObjStruct *)AS_OBJ(value))
+#define IS_INSTANCE(value) isObjType(value, OBJ_INSTANCE)
+#define AS_INSTANCE(value) ((ObjInstance *)AS_OBJ(value))
 #define IS_CLOSURE(value) isObjType(value, OBJ_CLOSURE)
 #define AS_CLOSURE(value) ((ObjClosure *)AS_OBJ(value))
 
@@ -181,6 +209,15 @@ ObjArray *newArrayObject(void);
 
 // Allocate a fresh, empty map.
 ObjMap *newMapObject(void);
+
+// Allocate a struct type. Takes ownership of the `fieldNames` array.
+ObjStruct *newStruct(ObjString *name, ObjString **fieldNames, int fieldCount);
+
+// Allocate a fresh instance of `type` with an empty field table.
+ObjInstance *newInstance(ObjStruct *type);
+
+// Whether `s` declares a field named `name` (linear search; structs are small).
+bool structHasField(ObjStruct *s, ObjString *name);
 
 // Map operations. mapGet copies the value for `key` into *out and returns true if
 // present. mapSet inserts or overwrites, growing as needed. Both assume the key

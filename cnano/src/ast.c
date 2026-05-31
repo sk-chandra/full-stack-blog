@@ -161,6 +161,32 @@ Node *newIndexSet(Node *object, Node *index, Node *value, int line) {
   return node;
 }
 
+Node *newFieldGet(Node *object, ObjString *field, int line) {
+  Node *node = allocNode(NODE_FIELD_GET, line);
+  node->as.field.object = object;
+  node->as.field.field = field;
+  node->as.field.value = NULL;
+  return node;
+}
+
+Node *newFieldSet(Node *object, ObjString *field, Node *value, int line) {
+  Node *node = allocNode(NODE_FIELD_SET, line);
+  node->as.field.object = object;
+  node->as.field.field = field;
+  node->as.field.value = value;
+  return node;
+}
+
+Node *newStructDecl(ObjString *name, ObjString **fieldNames, Type **fieldTypes,
+                    int fieldCount, int line) {
+  Node *node = allocNode(NODE_STRUCT, line);
+  node->as.structDecl.name = name;
+  node->as.structDecl.fieldNames = fieldNames;
+  node->as.structDecl.fieldTypes = fieldTypes;
+  node->as.structDecl.fieldCount = fieldCount;
+  return node;
+}
+
 Node *cloneExpr(Node *node) {
   switch (node->type) {
   case NODE_INT:
@@ -182,6 +208,12 @@ Node *cloneExpr(Node *node) {
       return NULL;
     }
     return newIndexGet(object, index, node->line);
+  }
+  case NODE_FIELD_GET: {
+    Node *object = cloneExpr(node->as.field.object);
+    if (object == NULL)
+      return NULL;
+    return newFieldGet(object, node->as.field.field, node->line);
   }
   default:
     return NULL; // not a pure, safely-duplicable target sub-expression
@@ -287,6 +319,17 @@ void freeNode(Node *node) {
     freeNode(node->as.index.object);
     freeNode(node->as.index.index);
     freeNode(node->as.index.value); // tolerates NULL (the get form)
+    break;
+  case NODE_FIELD_GET:
+  case NODE_FIELD_SET:
+    // field name is VM-owned (interned); free the object and (set form) value.
+    freeNode(node->as.field.object);
+    freeNode(node->as.field.value); // tolerates NULL (the get form)
+    break;
+  case NODE_STRUCT:
+    // name and field names are interned (VM-owned); free only the arrays.
+    free(node->as.structDecl.fieldNames);
+    free(node->as.structDecl.fieldTypes);
     break;
   case NODE_FUN:
     // name and the param ObjStrings are VM-owned (interned); free only the

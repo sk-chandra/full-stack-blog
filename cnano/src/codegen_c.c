@@ -304,6 +304,10 @@ static void emitExpr(Node *node) {
   case NODE_INDEX_SET:
     unsupported(node->line, "an index expression");
     break;
+  case NODE_FIELD_GET:
+  case NODE_FIELD_SET:
+    unsupported(node->line, "a struct field access");
+    break;
   default:
     unsupported(node->line, "this expression");
     break;

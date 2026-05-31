@@ -177,6 +177,8 @@ static TokenType identifierType(void) {
     return TOKEN_FN;
   if (length == 6 && memcmp(s, "return", 6) == 0)
     return TOKEN_RETURN;
+  if (length == 6 && memcmp(s, "struct", 6) == 0)
+    return TOKEN_STRUCT;
   // Not a keyword: it's a user-defined identifier (a variable name).
   return TOKEN_IDENTIFIER;
 }

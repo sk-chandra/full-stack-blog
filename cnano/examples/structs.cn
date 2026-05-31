@@ -1,0 +1,45 @@
+// Structs — user-defined record types. A `struct` declaration creates a callable
+// type: `Point(1, 2)` constructs an instance, and `p.x` reads/writes a field.
+// Instances are heap objects managed by the garbage collector.
+//
+//   cnano examples/structs.cn
+//
+// (Structs need the dynamic runtime, so they run on the VM, not --native.)
+
+struct Point { x: int, y: int }
+
+let origin = Point(0, 0);
+let p = Point(3, 4);
+print p.x;              // 3
+print p;                // Point{x: 3, y: 4}
+
+// Fields are mutable, and compound assignment works on them.
+p.x += 10;
+print p.x;              // 13
+
+// Functions take and return structs; field types are checked structurally.
+fn distanceSquared(a: Point, b: Point): int {
+  let dx: int = a.x - b.x;
+  let dy: int = a.y - b.y;
+  return dx * dx + dy * dy;
+}
+print distanceSquared(origin, Point(3, 4)); // 25
+
+// Structs compose: fields can be other structs, arrays, or maps.
+struct Line { from: Point, to: Point }
+let seg = Line(Point(0, 0), Point(6, 8));
+print distanceSquared(seg.from, seg.to);     // 100
+
+// Arrays of structs, iterated with for-in.
+let pts = [Point(1, 1), Point(2, 2), Point(3, 3)];
+let sum = 0;
+for (let pt in pts) {
+  sum += pt.x + pt.y;
+}
+print sum;              // 12
+
+// A struct modelling a small record, updated in place.
+struct Account { owner: str, balance: int }
+let acct = Account("alice", 100);
+acct.balance -= 30;
+print acct.owner + " has " + str(acct.balance); // alice has 70

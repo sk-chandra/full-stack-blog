@@ -200,6 +200,22 @@ static Node *assignment(void) {
       return newIndexSet(objClone, idxClone, combined, line);
     }
 
+    if (node->type == NODE_FIELD_GET) {
+      // a.f OP= rhs  ->  a.f = (a.f OP rhs). Clone the (pure) object for the
+      // store; reuse the original field-get node as the read in the binary.
+      Node *objClone = cloneExpr(node->as.field.object);
+      if (objClone == NULL) {
+        errorAt(&parser.previous,
+                "compound-assignment target is too complex; write it out as "
+                "`a.f = a.f + x`.");
+        freeNode(rhs);
+        return node;
+      }
+      ObjString *field = node->as.field.field;
+      Node *combined = newBinary(cop, node, rhs, line); // `node` is the read
+      return newFieldSet(objClone, field, combined, line);
+    }
+
     errorAt(&parser.previous, "Invalid assignment target.");
     freeNode(rhs);
     return node;
@@ -227,6 +243,15 @@ static Node *assignment(void) {
       node->as.index.index = NULL;
       freeNode(node);
       return newIndexSet(object, index, value, line);
+    }
+
+    if (node->type == NODE_FIELD_GET) {
+      // `obj.field = value`: salvage the object, rebuild as a field set.
+      Node *object = node->as.field.object;
+      ObjString *field = node->as.field.field;
+      node->as.field.object = NULL;
+      freeNode(node);
+      return newFieldSet(object, field, value, line);
     }
 
     // Invalid l-value, e.g. `1 + 2 = 3` or `(a) = 3`. Report but don't abort the
@@ -395,28 +420,31 @@ static Node *finishCall(Node *callee) {
   return newCall(callee, args, argCount, line);
 }
 
-// `receiver.method(args)` — a method invocation. The '.' has just been consumed.
-static Node *finishInvoke(Node *receiver) {
+// After a '.', a NAME is either a METHOD call (`a.m(args)`) or a FIELD access
+// (`a.field`) — distinguished by whether a '(' follows. The '.' has just been
+// consumed.
+static Node *finishDot(Node *object) {
   int line = parser.previous.line; // the '.'
-  consume(TOKEN_IDENTIFIER, "Expect a method name after '.'.");
-  ObjString *method = copyString(parser.previous.start, parser.previous.length);
-  consume(TOKEN_LPAREN, "Expect '(' after method name.");
-  int argCount = 0;
-  Node **args = parseArgList(&argCount);
-  return newInvoke(receiver, method, args, argCount, line);
+  consume(TOKEN_IDENTIFIER, "Expect a property or method name after '.'.");
+  ObjString *name = copyString(parser.previous.start, parser.previous.length);
+  if (match(TOKEN_LPAREN)) {
+    int argCount = 0;
+    Node **args = parseArgList(&argCount);
+    return newInvoke(object, name, args, argCount, line);
+  }
+  return newFieldGet(object, name, line); // assignment() may rewrite to a set
 }
 
-// `call -> primary ( "(" arguments? ")" | "." NAME "(" arguments? ")" )*` — a
-// primary followed by zero or more call / method-invoke suffixes. Looping lets
-// `f()()` and `a.b().c()` chain, which is why these are parsed as postfix here
-// rather than baked into primary.
+// `call -> primary ( "(" args ")" | "." NAME [ "(" args ")" ] | "[" expr "]" )*`
+// — a primary followed by zero or more call / method / field / index suffixes.
+// Looping lets `f()()`, `a.b().c`, and `m["k"].x` chain.
 static Node *call(void) {
   Node *node = primary();
   for (;;) {
     if (match(TOKEN_LPAREN))
       node = finishCall(node);
     else if (match(TOKEN_DOT))
-      node = finishInvoke(node);
+      node = finishDot(node);
     else if (match(TOKEN_LBRACKET)) {
       int line = parser.previous.line; // the '['
       Node *index = expression();
@@ -842,9 +870,10 @@ static Type *parseType(void) {
       return typeStr();
     if (len == 3 && memcmp(s, "any", 3) == 0)
       return typeAny();
-    errorAt(&parser.previous,
-            "Unknown type name (expected int, bool, str, nil, any, [T], or {K: V}).");
-    return typeAny();
+    // Any other identifier names a (user-defined) struct type. We can't resolve
+    // it here — the parser doesn't know the declarations — so we record it as an
+    // unresolved reference; the type checker matches it to a `struct` by name.
+    return typeStructRef(copyString(s, len));
   }
   errorAt(&parser.current, "Expect a type after ':'.");
   return typeAny();
@@ -916,9 +945,46 @@ static Node *funDeclaration(void) {
   return newFun(name, params, paramTypes, paramCount, returnType, body, line);
 }
 
-// One level above statement(): a declaration is a `fn`, a `let`, or any
-// statement. This is the natural synchronisation point for errors.
+// `struct NAME { field [: TYPE] (, field [: TYPE])* }` — a record-type
+// declaration. Binds NAME to a callable struct object; `NAME(args)` constructs an
+// instance with the fields in declaration order.
+static Node *structDeclaration(void) {
+  int line = parser.previous.line; // the 'struct'
+  consume(TOKEN_IDENTIFIER, "Expect a struct name after 'struct'.");
+  ObjString *name = copyString(parser.previous.start, parser.previous.length);
+  consume(TOKEN_LBRACE, "Expect '{' after the struct name.");
+
+  ObjString **fieldNames = NULL;
+  Type **fieldTypes = NULL;
+  int count = 0, capacity = 0;
+  while (!check(TOKEN_RBRACE) && !check(TOKEN_EOF)) {
+    consume(TOKEN_IDENTIFIER, "Expect a field name.");
+    ObjString *fname = copyString(parser.previous.start, parser.previous.length);
+    Type *ftype = match(TOKEN_COLON) ? parseType() : typeAny();
+    if (count + 1 > capacity) {
+      capacity = capacity < 4 ? 4 : capacity * 2;
+      fieldNames = realloc(fieldNames, sizeof(ObjString *) * capacity);
+      fieldTypes = realloc(fieldTypes, sizeof(Type *) * capacity);
+      if (fieldNames == NULL || fieldTypes == NULL) {
+        fprintf(stderr, "cnano: out of memory parsing struct fields\n");
+        exit(70);
+      }
+    }
+    fieldNames[count] = fname;
+    fieldTypes[count] = ftype;
+    count++;
+    if (!match(TOKEN_COMMA))
+      break; // a trailing comma is allowed (the loop re-checks for '}')
+  }
+  consume(TOKEN_RBRACE, "Expect '}' after the struct fields.");
+  return newStructDecl(name, fieldNames, fieldTypes, count, line);
+}
+
+// One level above statement(): a declaration is a `struct`, a `fn`, a `let`, or
+// any statement. This is the natural synchronisation point for errors.
 static Node *declaration(void) {
+  if (match(TOKEN_STRUCT))
+    return structDeclaration();
   if (match(TOKEN_FN))
     return funDeclaration();
   if (match(TOKEN_LET))

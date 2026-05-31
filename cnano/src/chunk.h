@@ -95,6 +95,11 @@ typedef enum {
   OP_BUILD_MAP,   // [opcode][pairs] : push a new map of the top 2*`pairs` values
   OP_INDEX_GET,   // [opcode]        : push object[index]   (arrays + maps)
   OP_INDEX_SET,   // [opcode]        : object[index] = value; push value
+  // Struct field access on an instance. [nameIdx] is the field name in the
+  // constant pool. GET pops the instance, pushes the field; SET expects
+  // [.. instance value], stores, pops both and pushes value.
+  OP_GET_FIELD,   // [opcode][nameIdx] : push instance.field
+  OP_SET_FIELD,   // [opcode][nameIdx] : instance.field = value; push value
   // Create a closure from the function constant at [idx], then read 2 bytes per
   // upvalue describing where each capture comes from: [isLocal][index]. This is
   // our only VARIABLE-LENGTH instruction — its size depends on the function's

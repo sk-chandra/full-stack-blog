@@ -50,7 +50,10 @@ typedef enum {
   NODE_MAP,     // `{k: v, ...}` : a map literal, yields a new map
   NODE_INDEX_GET, // `obj[i]` : read element i of obj
   NODE_INDEX_SET, // `obj[i] = v` : store v at element i, yields v
+  NODE_FIELD_GET, // `obj.field` : read a struct field
+  NODE_FIELD_SET, // `obj.field = v` : write a struct field, yields v
   // --- statement nodes (performed for effect, yield nothing) ---
+  NODE_STRUCT,    // `struct Name { field: T, ... }` — a struct declaration
   NODE_PRINT,      // `print EXPR;` — evaluate EXPR and print it
   NODE_EXPR_STMT,  // `EXPR;` — evaluate EXPR, then discard its value
   NODE_VAR_DECL,   // `let name = EXPR;` — declare a variable (global or local)
@@ -186,6 +189,20 @@ typedef struct Node {
       struct Node *index;
       struct Node *value; // NODE_INDEX_SET only; NULL for NODE_INDEX_GET
     } index;
+    // NODE_FIELD_GET (`obj.field`) and NODE_FIELD_SET (`obj.field = value`).
+    struct {
+      struct Node *object;
+      ObjString *field;   // interned field name
+      struct Node *value; // NODE_FIELD_SET only; NULL for the get form
+    } field;
+    // NODE_STRUCT: a `struct` declaration. Field names are interned; field types
+    // are full Type* (typeAny() if a field is unannotated).
+    struct {
+      ObjString *name;
+      ObjString **fieldNames;
+      Type **fieldTypes;
+      int fieldCount;
+    } structDecl;
     // NODE_FUN: a function declaration. params holds the parameter NAMES (interned
     // ObjStrings); paramTypes the parallel `: T` annotations (typeAny() if
     // omitted); returnType the `: T` after the parameter list (typeAny() if
@@ -249,6 +266,14 @@ Node *newMap(Node **keys, Node **values, int count, int line);
 // `obj[index]` (a read) and `obj[index] = value` (a write).
 Node *newIndexGet(Node *object, Node *index, int line);
 Node *newIndexSet(Node *object, Node *index, Node *value, int line);
+
+// `obj.field` (a read) and `obj.field = value` (a write).
+Node *newFieldGet(Node *object, ObjString *field, int line);
+Node *newFieldSet(Node *object, ObjString *field, Node *value, int line);
+
+// `struct Name { ... }`. Takes ownership of the fieldNames and fieldTypes arrays.
+Node *newStructDecl(ObjString *name, ObjString **fieldNames, Type **fieldTypes,
+                    int fieldCount, int line);
 
 // Deep-copy a PURE expression (literals, variable reads, and index reads built
 // from those). Returns NULL for anything that could have a side effect (calls,

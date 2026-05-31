@@ -28,6 +28,10 @@ static bool compatible(Type *a, Type *b) {
   case TY_MAP:
     return compatible(a->map.key, b->map.key) &&
            compatible(a->map.value, b->map.value);
+  case TY_STRUCT:
+    // Nominal typing: two struct types match iff they are the SAME named type.
+    // Names are interned, so a pointer comparison suffices.
+    return a->strct.name == b->strct.name;
   case TY_FUNCTION:
     if (a->fn.paramCount != b->fn.paramCount)
       return false;
@@ -97,6 +101,41 @@ static Type *lookupSymbol(ObjString *name) {
     if (checker.symbols[i].name == name)
       return checker.symbols[i].type;
   return typeAny();
+}
+
+// --- the struct registry ---------------------------------------------------
+//
+// Struct declarations create NAMED types. A `: Name` annotation parses to an
+// unresolved reference (just the name); the checker matches it here, against the
+// structs registered in a pre-pass, so forward references work.
+
+#define MAX_STRUCTS 256
+static struct {
+  ObjString *name;
+  Type *type; // a fully-resolved TY_STRUCT
+} structRegistry[MAX_STRUCTS];
+static int structCount;
+
+static void registerStruct(ObjString *name, Type *type) {
+  if (structCount < MAX_STRUCTS) {
+    structRegistry[structCount].name = name;
+    structRegistry[structCount].type = type;
+    structCount++;
+  }
+}
+
+// Replace an unresolved struct reference with the declared struct type. Other
+// types pass through unchanged. An unknown struct name is a type error.
+static Type *resolve(Type *t, int line) {
+  if (t->kind != TY_STRUCT || t->strct.fieldCount >= 0)
+    return t; // not a reference (primitive, collection, or already resolved)
+  for (int i = 0; i < structCount; i++)
+    if (structRegistry[i].name == t->strct.name)
+      return structRegistry[i].type;
+  char msg[96];
+  snprintf(msg, sizeof(msg), "unknown type '%s'", t->strct.name->chars);
+  typeError(line, msg);
+  return typeAny(); // treat the unknown type as dynamic so checking continues
 }
 
 // --- the walk --------------------------------------------------------------
@@ -326,6 +365,51 @@ static Type *checkExpr(Node *node) {
     }
     return val; // an index-assignment yields the assigned value
   }
+  case NODE_FIELD_GET: {
+    Type *obj = resolve(checkExpr(node->as.field.object), node->line);
+    if (obj->kind == TY_STRUCT) {
+      for (int i = 0; i < obj->strct.fieldCount; i++)
+        if (obj->strct.fieldNames[i] == node->as.field.field)
+          return resolve(obj->strct.fieldTypes[i], node->line);
+      char msg[96];
+      snprintf(msg, sizeof(msg), "%s has no field '%s'", typeName(obj),
+               node->as.field.field->chars);
+      typeError(node->line, msg);
+      return typeAny();
+    }
+    if (obj->kind != TY_ANY) {
+      char msg[96];
+      snprintf(msg, sizeof(msg), "cannot read a field of type %s", typeName(obj));
+      typeError(node->line, msg);
+    }
+    return typeAny();
+  }
+  case NODE_FIELD_SET: {
+    Type *obj = resolve(checkExpr(node->as.field.object), node->line);
+    Type *val = checkExpr(node->as.field.value);
+    if (obj->kind == TY_STRUCT) {
+      for (int i = 0; i < obj->strct.fieldCount; i++)
+        if (obj->strct.fieldNames[i] == node->as.field.field) {
+          Type *ft = resolve(obj->strct.fieldTypes[i], node->line);
+          if (!compatible(ft, val)) {
+            char msg[128];
+            snprintf(msg, sizeof(msg), "cannot store %s into field '%s' of type %s",
+                     typeName(val), node->as.field.field->chars, typeName(ft));
+            typeError(node->line, msg);
+          }
+          return val;
+        }
+      char msg[96];
+      snprintf(msg, sizeof(msg), "%s has no field '%s'", typeName(obj),
+               node->as.field.field->chars);
+      typeError(node->line, msg);
+    } else if (obj->kind != TY_ANY) {
+      char msg[96];
+      snprintf(msg, sizeof(msg), "cannot set a field of type %s", typeName(obj));
+      typeError(node->line, msg);
+    }
+    return val;
+  }
   default:
     return typeAny(); // statement nodes shouldn't appear in expression position
   }
@@ -343,8 +427,8 @@ static Type *functionTypeOf(Node *fun) {
     exit(70);
   }
   for (int i = 0; i < n; i++)
-    params[i] = fun->as.fun.paramTypes[i];
-  return typeFunction(params, n, fun->as.fun.returnType);
+    params[i] = resolve(fun->as.fun.paramTypes[i], fun->line);
+  return typeFunction(params, n, resolve(fun->as.fun.returnType, fun->line));
 }
 
 static void checkFunction(Node *node) {
@@ -356,10 +440,11 @@ static void checkFunction(Node *node) {
   // Check the body in a fresh scope, with parameters bound to their types and the
   // expected return type recorded for `return` validation.
   Type *savedReturn = checker.currentReturnType;
-  checker.currentReturnType = node->as.fun.returnType;
+  checker.currentReturnType = resolve(node->as.fun.returnType, node->line);
   beginScope();
   for (int i = 0; i < node->as.fun.paramCount; i++)
-    declareSymbol(node->as.fun.params[i], node->as.fun.paramTypes[i]);
+    declareSymbol(node->as.fun.params[i],
+                  resolve(node->as.fun.paramTypes[i], node->line));
   Program *body = node->as.fun.body;
   for (int i = 0; i < body->count; i++)
     checkStatement(body->statements[i]);
@@ -375,7 +460,7 @@ static void checkStatement(Node *node) {
     break;
   case NODE_VAR_DECL: {
     Type *valueType = checkExpr(node->as.var.value);
-    Type *declared = node->as.var.declaredType; // a full Type* (typeAny if omitted)
+    Type *declared = resolve(node->as.var.declaredType, node->line);
     if (declared->kind != TY_ANY && !compatible(declared, valueType)) {
       char msg[128];
       snprintf(msg, sizeof(msg), "initialiser is %s but variable is declared %s",
@@ -409,6 +494,12 @@ static void checkStatement(Node *node) {
   case NODE_FUN:
     checkFunction(node);
     break;
+  case NODE_STRUCT:
+    // Registered in the pre-pass; here just validate that each field's annotated
+    // type names a real type (resolve reports unknown struct references).
+    for (int i = 0; i < node->as.structDecl.fieldCount; i++)
+      resolve(node->as.structDecl.fieldTypes[i], node->line);
+    break;
   case NODE_RETURN: {
     Type *retType = node->as.ret.value ? checkExpr(node->as.ret.value) : typeNil();
     if (checker.currentReturnType != NULL &&
@@ -430,6 +521,40 @@ bool typecheckProgram(Program *program) {
   checker.scopeDepth = 0;
   checker.currentReturnType = NULL;
   checker.hadError = false;
+  structCount = 0;
+
+  // PASS 0a: register every struct's NAMED TYPE, so references to it (in field
+  // types, function signatures, annotations) resolve — including forward and
+  // mutually-recursive references. Field types stay as-is and are resolved
+  // lazily at use, by which point every struct name is known.
+  for (int i = 0; i < program->count; i++) {
+    Node *s = program->statements[i];
+    if (s->type == NODE_STRUCT)
+      registerStruct(s->as.structDecl.name,
+                     typeStruct(s->as.structDecl.name, s->as.structDecl.fieldNames,
+                                s->as.structDecl.fieldTypes,
+                                s->as.structDecl.fieldCount));
+  }
+
+  // PASS 0b: bind each struct NAME as a constructor value — a function from its
+  // (resolved) field types to an instance of the struct. This is what makes
+  // `Point(1, 2)` type-check (arity + argument types) and yield a `Point`. All
+  // struct names are registered now, so field-type references resolve here.
+  for (int i = 0; i < program->count; i++) {
+    Node *s = program->statements[i];
+    if (s->type != NODE_STRUCT)
+      continue;
+    int n = s->as.structDecl.fieldCount;
+    Type **params = n > 0 ? malloc(sizeof(Type *) * n) : NULL;
+    if (n > 0 && params == NULL) {
+      fprintf(stderr, "cnano: out of memory building a constructor type\n");
+      exit(70);
+    }
+    for (int f = 0; f < n; f++)
+      params[f] = resolve(s->as.structDecl.fieldTypes[f], s->line);
+    Type *structType = resolve(typeStructRef(s->as.structDecl.name), s->line);
+    declareSymbol(s->as.structDecl.name, typeFunction(params, n, structType));
+  }
 
   // PASS 1: register every top-level function's TYPE before checking any bodies.
   // This is what lets a function call another that is declared LATER, and lets

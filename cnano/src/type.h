@@ -12,6 +12,8 @@
 
 #include "common.h"
 
+typedef struct ObjString ObjString; // forward decl; full type in object.h
+
 typedef enum {
   TY_ANY,  // unknown / dynamic — compatible with every type (the gradual escape hatch)
   TY_INT,
@@ -20,6 +22,7 @@ typedef enum {
   TY_NIL,
   TY_ARRAY,    // a homogeneous list; carries an element type (see Type.element)
   TY_MAP,      // a dictionary; carries key + value types (see Type.map)
+  TY_STRUCT,   // a user-defined record type, by name (see Type.strct)
   TY_FUNCTION, // a callable; carries param/return types (see Type.fn)
 } TypeKind;
 
@@ -40,6 +43,12 @@ typedef struct Type {
     int paramCount;
     struct Type *returnType;
   } fn; // valid only when kind == TY_FUNCTION
+  struct {
+    ObjString *name;          // the struct's name (interned; nominal identity)
+    ObjString **fieldNames;   // borrowed from the AST declaration
+    struct Type **fieldTypes; // parallel; borrowed from the AST
+    int fieldCount;           // -1 means an UNRESOLVED reference (just a name)
+  } strct; // valid only when kind == TY_STRUCT
 } Type;
 
 // --- type constructors -----------------------------------------------------
@@ -55,6 +64,13 @@ Type *typeNil(void);
 Type *typeArray(Type *element);
 Type *typeMap(Type *key, Type *value);
 Type *typeFunction(Type **params, int paramCount, Type *returnType);
+
+// A fully-resolved struct type (fieldNames/fieldTypes are borrowed, not owned).
+Type *typeStruct(ObjString *name, ObjString **fieldNames, Type **fieldTypes,
+                 int fieldCount);
+// An unresolved struct reference — just a name, as produced by a `: Name`
+// annotation before the checker has matched it to a declaration.
+Type *typeStructRef(ObjString *name);
 
 // Free every parametric type allocated since the last call. Primitive singletons
 // are untouched. Called once after all type-consuming passes (check + codegen).

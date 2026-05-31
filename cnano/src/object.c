@@ -202,6 +202,29 @@ ObjMap *newMapObject(void) {
   return map;
 }
 
+ObjStruct *newStruct(ObjString *name, ObjString **fieldNames, int fieldCount) {
+  ObjStruct *s = (ObjStruct *)allocateObject(sizeof(ObjStruct), OBJ_STRUCT);
+  s->name = name;
+  s->fieldNames = fieldNames;
+  s->fieldCount = fieldCount;
+  return s;
+}
+
+ObjInstance *newInstance(ObjStruct *type) {
+  ObjInstance *instance =
+      (ObjInstance *)allocateObject(sizeof(ObjInstance), OBJ_INSTANCE);
+  instance->type = type;
+  initTable(&instance->fields);
+  return instance;
+}
+
+bool structHasField(ObjStruct *s, ObjString *name) {
+  for (int i = 0; i < s->fieldCount; i++)
+    if (s->fieldNames[i] == name) // interned: pointer comparison
+      return true;
+  return false;
+}
+
 ObjUpvalue *newUpvalue(Value *slot) {
   ObjUpvalue *upvalue =
       (ObjUpvalue *)allocateObject(sizeof(ObjUpvalue), OBJ_UPVALUE);
@@ -268,6 +291,26 @@ void printObject(Value value) {
     printf("}");
     break;
   }
+  case OBJ_STRUCT:
+    printf("<struct %s>", AS_STRUCT(value)->name->chars);
+    break;
+  case OBJ_INSTANCE: {
+    // Print like the constructor call would read: Point{x: 1, y: 2}, in the
+    // struct's declared field order.
+    ObjInstance *inst = AS_INSTANCE(value);
+    printf("%s{", inst->type->name->chars);
+    for (int i = 0; i < inst->type->fieldCount; i++) {
+      if (i > 0)
+        printf(", ");
+      ObjString *field = inst->type->fieldNames[i];
+      Value fv;
+      tableGet(&inst->fields, field, &fv);
+      printf("%s: ", field->chars);
+      printValue(fv);
+    }
+    printf("}");
+    break;
+  }
   case OBJ_UPVALUE:
     // Upvalues never appear as first-class values; this is here for completeness.
     printf("<upvalue>");
@@ -320,6 +363,18 @@ void freeObject(Obj *object) {
     ObjMap *map = (ObjMap *)object;
     free(map->entries);
     reallocate(map, sizeof(ObjMap), 0);
+    break;
+  }
+  case OBJ_STRUCT: {
+    ObjStruct *s = (ObjStruct *)object;
+    free(s->fieldNames); // plain malloc'd by the compiler; not GC-accounted
+    reallocate(s, sizeof(ObjStruct), 0);
+    break;
+  }
+  case OBJ_INSTANCE: {
+    ObjInstance *inst = (ObjInstance *)object;
+    freeTable(&inst->fields); // field names/values are separate GC objects
+    reallocate(inst, sizeof(ObjInstance), 0);
     break;
   }
   case OBJ_UPVALUE:

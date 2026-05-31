@@ -10,15 +10,16 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "object.h" // for ObjString->chars in typeName
 #include "type.h"
 
 // --- primitive singletons --------------------------------------------------
 
-static Type anyType = {TY_ANY, NULL, {NULL, NULL}, {NULL, 0, NULL}};
-static Type intType = {TY_INT, NULL, {NULL, NULL}, {NULL, 0, NULL}};
-static Type boolType = {TY_BOOL, NULL, {NULL, NULL}, {NULL, 0, NULL}};
-static Type strType = {TY_STR, NULL, {NULL, NULL}, {NULL, 0, NULL}};
-static Type nilType = {TY_NIL, NULL, {NULL, NULL}, {NULL, 0, NULL}};
+static Type anyType = {.kind = TY_ANY};
+static Type intType = {.kind = TY_INT};
+static Type boolType = {.kind = TY_BOOL};
+static Type strType = {.kind = TY_STR};
+static Type nilType = {.kind = TY_NIL};
 
 Type *typeAny(void) { return &anyType; }
 Type *typeInt(void) { return &intType; }
@@ -72,6 +73,25 @@ Type *typeFunction(Type **params, int paramCount, Type *returnType) {
   return t;
 }
 
+Type *typeStruct(ObjString *name, ObjString **fieldNames, Type **fieldTypes,
+                 int fieldCount) {
+  Type *t = allocType(TY_STRUCT);
+  t->strct.name = name;
+  t->strct.fieldNames = fieldNames; // borrowed from the AST; not freed here
+  t->strct.fieldTypes = fieldTypes;
+  t->strct.fieldCount = fieldCount;
+  return t;
+}
+
+Type *typeStructRef(ObjString *name) {
+  Type *t = allocType(TY_STRUCT);
+  t->strct.name = name;
+  t->strct.fieldNames = NULL;
+  t->strct.fieldTypes = NULL;
+  t->strct.fieldCount = -1; // unresolved: the checker will match it by name
+  return t;
+}
+
 void freeTypes(void) {
   for (int i = 0; i < arenaCount; i++) {
     free(arena[i]->fn.params); // NULL for non-function types — free(NULL) is ok
@@ -110,6 +130,8 @@ const char *typeName(const Type *type) {
     return "nil";
   case TY_FUNCTION:
     return "fn";
+  case TY_STRUCT:
+    return type->strct.name->chars; // the declared struct name
   case TY_ARRAY: {
     char *buf = nameRing[nameSlot++ % NAME_RING];
     snprintf(buf, NAME_LEN, "[%s]", typeName(type->element));

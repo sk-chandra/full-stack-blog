@@ -61,6 +61,7 @@ typedef enum {
   TOKEN_OR,
   TOKEN_FN,
   TOKEN_RETURN,
+  TOKEN_STRUCT,    // struct — declares a user-defined record type
   // Bookkeeping
   TOKEN_ERROR, // lexing failed; `start`/`length` point at a human message
   TOKEN_EOF,   // end of input — lets the parser stop without special-casing

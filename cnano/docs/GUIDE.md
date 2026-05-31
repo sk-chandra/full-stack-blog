@@ -1399,7 +1399,15 @@ programs define their own types, and makes failure recoverable.
     (ergonomics) complete.**
 
 **Phase B — user-defined types**
-20. **Structs / records** — named fields, `.` get/set, `ObjInstance`, named types.
+20. ~~**Structs / records.**~~ **✅ DONE** — `struct Point { x: int, y: int }`
+    binds a callable `ObjStruct`; `Point(1,2)` constructs an `ObjInstance` (fields
+    in a per-instance Table, GC-traced); `p.x`/`p.x = v` via `OP_GET_FIELD`/
+    `OP_SET_FIELD` (the same `.` that calls methods — a `(` after the name picks
+    invoke vs field). Types: a new `TY_STRUCT` (nominal, by interned name);
+    `: Name` annotations parse to an unresolved ref the checker matches against a
+    struct registry (so forward references work); construction is a function type
+    `fn(fields)→Struct` (arity + arg types checked); field gets/sets are
+    type-checked; native backend rejects instances.
 21. **Methods on user types** — `OP_INVOKE` extended to instances; `self`.
 22. **Constructors / initializers.**
 23. *(optional)* **single inheritance + `super`.**

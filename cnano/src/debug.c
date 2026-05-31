@@ -140,6 +140,10 @@ int disassembleInstruction(Chunk *chunk, int offset) {
     return simpleInstruction("OP_INDEX_GET", offset);
   case OP_INDEX_SET:
     return simpleInstruction("OP_INDEX_SET", offset);
+  case OP_GET_FIELD:
+    return constantInstruction("OP_GET_FIELD", chunk, offset);
+  case OP_SET_FIELD:
+    return constantInstruction("OP_SET_FIELD", chunk, offset);
   case OP_CLOSURE: {
     // Variable-length: the function constant, then 2 bytes per upvalue. We print
     // the function and one line per captured upvalue describing its source.

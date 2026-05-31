@@ -104,6 +104,21 @@ static void blackenObject(Obj *object) {
     }
     break;
   }
+  case OBJ_STRUCT: {
+    // Keep the struct's name and every field name alive.
+    ObjStruct *s = (ObjStruct *)object;
+    markObject((Obj *)s->name);
+    for (int i = 0; i < s->fieldCount; i++)
+      markObject((Obj *)s->fieldNames[i]);
+    break;
+  }
+  case OBJ_INSTANCE: {
+    // Keep the struct type and every field (the table marks names + values).
+    ObjInstance *inst = (ObjInstance *)object;
+    markObject((Obj *)inst->type);
+    markTable(&inst->fields);
+    break;
+  }
   case OBJ_UPVALUE:
     // A closed upvalue owns a heap value; keep whatever it holds alive.
     markValue(((ObjUpvalue *)object)->closed);

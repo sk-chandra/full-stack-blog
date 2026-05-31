@@ -566,6 +566,27 @@ check_prog "gc-map-live" \
    while (i < 2000) { let junk = {i: i * 2}; live[i] = i; i = i + 1; }
    print live.len(); print live[1999];' "$(printf '2000\n1999')"
 
+# --- structs / records (step 20) ---
+check_prog "struct-basic"   'struct Point { x: int, y: int } let p = Point(3, 4); print p.x + p.y;' "7"
+check_prog "struct-print"   'struct P { x: int, y: int } print P(1, 2);' "P{x: 1, y: 2}"
+check_prog "struct-set"     'struct C { n: int } let c = C(0); c.n = 10; c.n += 5; print c.n;' "15"
+check_prog "struct-nested"  'struct I { v: int } struct O { inner } let o = O(I(42)); print o.inner.v;' "42"
+check_prog "struct-array"   'struct P { x: int } let a = [P(1), P(2)]; a[0].x = 99; print a[0].x; print a[1].x;' "$(printf '99\n2')"
+check_prog "struct-fn"      'struct P { x: int, y: int } fn sx(p: P): int { return p.x; } print sx(P(10, 20));' "10"
+check_prog "struct-typed"   'struct Pt { x: int, y: int } let p: Pt = Pt(3, 4); print p.x + p.y;' "7"
+# Runtime errors.
+check_prog_err "struct-no-field"   'struct P { x: int } let p = P(1); print p.z;'
+check_prog_err "struct-arity-rt"   'fn f(p) { return p; } struct P { x: int, y: int } let g = f(P); g(1);'
+check_prog_err "struct-field-nonobj" 'let p = 5; print p.x;'
+# Static type errors.
+check_prog_err "struct-arg-type"   'struct P { x: int, y: int } let p = P(3, "no"); print p;'
+check_prog_err "struct-arity-st"   'struct P { x: int, y: int } let p = P(3); print p;'
+check_prog_err "struct-field-flow" 'struct P { x: int } let p = P(1); let b: bool = p.x; print b;'
+check_prog_err "struct-store-bad"  'struct P { x: int } let p = P(1); p.x = "no"; print p;'
+check_prog_err "struct-unknown-ty" 'let p: Nope = 5; print p;'
+check_prog_err "struct-nominal"    'struct A { v: int } struct B { v: int } fn f(a: A): int { return a.v; } print f(B(1));'
+check_native_err "nat-rej-struct"  'struct P { x: int } let p = P(1); print p.x;'
+
 # --- native backend: compile to C -> a real executable (step 9) ---
 # Each program is the typed first-order subset; its native output must match.
 check_native "nat-arith"    'print 2 + 3 * 4;'                          "14"

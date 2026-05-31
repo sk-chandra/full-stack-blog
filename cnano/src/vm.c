@@ -173,6 +173,24 @@ static bool call(ObjClosure *closure, int argCount) {
 static bool callValue(Value callee, int argCount) {
   if (IS_CLOSURE(callee))
     return call(AS_CLOSURE(callee), argCount);
+  if (IS_STRUCT(callee)) {
+    // Calling a struct CONSTRUCTS an instance: each argument fills the next
+    // declared field, in order. The instance is allocated while the args are
+    // still on the stack (rooted), and tableSet never collects, so it is safe
+    // before we push it.
+    ObjStruct *s = AS_STRUCT(callee);
+    if (argCount != s->fieldCount) {
+      runtimeError("%s expects %d field%s but got %d", s->name->chars,
+                   s->fieldCount, s->fieldCount == 1 ? "" : "s", argCount);
+      return false;
+    }
+    ObjInstance *instance = newInstance(s);
+    for (int i = 0; i < argCount; i++)
+      tableSet(&instance->fields, s->fieldNames[i], vm.stackTop[-argCount + i]);
+    vm.stackTop -= argCount + 1; // pop the arguments and the struct
+    push(OBJ_VAL(instance));
+    return true;
+  }
   if (IS_NATIVE(callee)) {
     // A native builtin runs immediately, with no call frame: its arguments are
     // the top `argCount` stack slots. We check arity here (the uniform place),
@@ -599,6 +617,42 @@ static InterpretResult run(bool trace, int stopFrame) {
         runtimeError("can only index into arrays and maps");
         return INTERPRET_RUNTIME_ERROR;
       }
+      push(value);
+      break;
+    }
+    case OP_GET_FIELD: {
+      ObjString *name = READ_STRING();
+      Value obj = pop();
+      if (!IS_INSTANCE(obj)) {
+        runtimeError("only struct instances have fields");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      ObjInstance *inst = AS_INSTANCE(obj);
+      Value value;
+      if (!tableGet(&inst->fields, name, &value)) {
+        runtimeError("%s has no field '%s'", inst->type->name->chars,
+                     name->chars);
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      push(value);
+      break;
+    }
+    case OP_SET_FIELD: {
+      // Stack: [.. instance value]. Store, then leave `value` as the result.
+      ObjString *name = READ_STRING();
+      Value value = pop();
+      Value obj = pop();
+      if (!IS_INSTANCE(obj)) {
+        runtimeError("only struct instances have fields");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      ObjInstance *inst = AS_INSTANCE(obj);
+      if (!structHasField(inst->type, name)) {
+        runtimeError("%s has no field '%s'", inst->type->name->chars,
+                     name->chars);
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      tableSet(&inst->fields, name, value);
       push(value);
       break;
     }

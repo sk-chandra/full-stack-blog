@@ -140,6 +140,13 @@ static Node *foldExpr(Node *node) {
     node->as.index.index = foldExpr(node->as.index.index);
     node->as.index.value = foldExpr(node->as.index.value);
     return node;
+  case NODE_FIELD_GET:
+    node->as.field.object = foldExpr(node->as.field.object);
+    return node;
+  case NODE_FIELD_SET:
+    node->as.field.object = foldExpr(node->as.field.object);
+    node->as.field.value = foldExpr(node->as.field.value);
+    return node;
   default:
     return node; // literals, var reads: nothing to fold
   }
