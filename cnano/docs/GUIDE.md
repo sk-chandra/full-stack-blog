@@ -1627,7 +1627,13 @@ programs define their own types, and makes failure recoverable.
     `Color`, rejecting unknown members and cross-enum mixing. Native rejects them
     (heap objects). A good lesson in *reuse*: a whole feature mostly assembled
     from field access + object equality + the nominal-type pattern.
-49. **Performance** (inline caching/peephole), generics, native closures, and a
+49. ~~**Text/number builtins + array reductions.**~~ **✅ DONE** (step 45) —
+    free `parseInt`/`parseFloat` (whitespace-tolerant but rejecting trailing
+    junk), `ord`/`chr` (ASCII inverses), and array `.sum`/`.min`/`.max` (numeric,
+    preserving int-vs-float, int→float promotion in `.sum` mirroring `+`). All
+    additive in builtins.c. With `.split` (step 41) and lambdas (step 43) these
+    compose into real one-liners: `"10,20,30".split(",").map(fn(s)=>parseInt(s)).sum()`.
+50. **Performance** (inline caching/peephole), generics, native closures, and a
     per-module namespace for `import` — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom

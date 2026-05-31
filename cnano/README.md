@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (549 cases, incl. native + GC)
+make test       # run the end-to-end test suite (567 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -92,14 +92,16 @@ make run        # start the REPL
   ordinary closures (capture, share, and outlive their scope just like named
   functions) and, when annotated, are arity/return-type checked at call sites
 - **Builtins & methods**: native functions implemented in C — `clock()`,
-  `str(x)`, `len(x)`, `type(x)`, `assert(c)`, math (`abs min max sqrt floor ceil round pow`) — registered as
-  globals, plus **method-call syntax** `receiver.method(args)` that dispatches on
-  the receiver's type via a fused `OP_INVOKE`. A small standard library: strings
-  have `.len/.upper/.lower/.contains/.indexOf/.substring/.trim/.startsWith/
-  .endsWith/.replace/.repeat/.split`; arrays add `.contains/.indexOf/.join/.sort/
-  .reverse/.slice` plus **higher-order** `.map/.filter/.reduce` (which call a
-  cnano function back from C — the VM is re-entrant); maps add `.values`. `.split`
-  and `.join` round-trip; `.reverse`/`.slice` copy (leaving the receiver intact)
+  `str(x)`, `len(x)`, `type(x)`, `assert(c)`, math (`abs min max sqrt floor ceil
+  round pow`), and text/number helpers (`parseInt`, `parseFloat`, `ord`, `chr`) —
+  registered as globals, plus **method-call syntax** `receiver.method(args)` that
+  dispatches on the receiver's type via a fused `OP_INVOKE`. A small standard
+  library: strings have `.len/.upper/.lower/.contains/.indexOf/.substring/.trim/
+  .startsWith/.endsWith/.replace/.repeat/.split`; arrays add `.contains/.indexOf/
+  .join/.sort/.reverse/.slice/.sum/.min/.max` plus **higher-order**
+  `.map/.filter/.reduce` (which call a cnano function back from C — the VM is
+  re-entrant); maps add `.values`. `.split` and `.join` round-trip;
+  `.reverse`/`.slice` copy (leaving the receiver intact)
 - **Arrays**: `[1, 2, 3]` literals, indexing `a[i]` and `a[i] = v`
   (bounds-checked), nesting (`m[1][0]`), and methods `.len()`/`.push(x)`/`.pop()`.
   A heap object **managed by the GC** (elements are traced). Typed as `[T]` and

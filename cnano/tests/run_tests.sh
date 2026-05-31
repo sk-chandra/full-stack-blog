@@ -572,6 +572,26 @@ check_prog_err "m-on-int"    'print (5).len();'
 check_prog_err "m-bad-arity" 'print "hi".len(1);'
 check_prog_err "bi-bad-arity" 'print str();'
 
+# --- parse/char builtins + array reductions (step 45) ---
+check "bi-parseint"    'parseInt("42") + 8'      "50"
+check "bi-parseint-neg" 'parseInt("  -17 ")'     "-17"
+check "bi-parsefloat"  'parseFloat("3.5") * 2.0' "7.0"
+check "bi-ord"         'ord("A")'                "65"
+check "bi-chr"         'chr(97)'                 "a"
+check_prog "bi-ord-chr-roundtrip" 'print chr(ord("z"));' "z"
+check "arr-sum"        '[3,1,4,1,5].sum()'       "14"
+check "arr-sum-empty"  '[].sum()'                "0"
+check "arr-sum-float"  '[1.5, 2, 3].sum()'       "6.5"
+check "arr-min"        '[3,1,4,1,5].min()'       "1"
+check "arr-max"        '[3,1,4,1,5].max()'       "5"
+check_prog "bi-pipeline" 'print "10,20,30".split(",").map(fn(s)=>parseInt(s)).sum();' "60"
+check_prog_err "bi-parseint-junk" 'print parseInt("12x");'
+check_prog_err "bi-parsefloat-empty" 'print parseFloat("");'
+check_prog_err "bi-ord-multi"     'print ord("ab");'
+check_prog_err "bi-chr-oob"       'print chr(300);'
+check_prog_err "arr-min-empty"    'print [].min();'
+check_prog_err "arr-sum-nonnum"   'print [1, "x"].sum();'
+
 # --- for-in iteration (step 17) ---
 check_prog "forin-array"  'let s = 0; for (let x in [10,20,30]) { s += x; } print s;' "60"
 check_prog "forin-print"  'for (let x in [1,2,3]) print x*x;' "$(printf '1\n4\n9')"

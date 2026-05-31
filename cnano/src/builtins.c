@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <errno.h>
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -216,6 +217,63 @@ static bool powNative(int a, Value *args, Value *r) {
   return true;
 }
 
+// parseInt("42") -> 42 ; parseFloat("3.14") -> 3.14. Both accept surrounding
+// whitespace but reject any trailing non-numeric junk (so "12x" is an error, not
+// a silent 12). A clean error beats a misleading partial parse.
+static bool parseIntNative(int a, Value *args, Value *r) {
+  (void)a;
+  if (!IS_STRING(args[0])) { runtimeError("parseInt() expects a string"); return false; }
+  ObjString *s = AS_STRING(args[0]);
+  if (s->length == 0) { runtimeError("parseInt() of an empty string"); return false; }
+  char *end;
+  errno = 0;
+  long long v = strtoll(s->chars, &end, 10);
+  while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')
+    end++;
+  if (end != s->chars + s->length || errno != 0) {
+    runtimeError("parseInt(\"%s\"): not a valid integer", s->chars);
+    return false;
+  }
+  *r = INT_VAL((int64_t)v);
+  return true;
+}
+static bool parseFloatNative(int a, Value *args, Value *r) {
+  (void)a;
+  if (!IS_STRING(args[0])) { runtimeError("parseFloat() expects a string"); return false; }
+  ObjString *s = AS_STRING(args[0]);
+  if (s->length == 0) { runtimeError("parseFloat() of an empty string"); return false; }
+  char *end;
+  double v = strtod(s->chars, &end);
+  while (*end == ' ' || *end == '\t' || *end == '\n' || *end == '\r')
+    end++;
+  if (end != s->chars + s->length) {
+    runtimeError("parseFloat(\"%s\"): not a valid number", s->chars);
+    return false;
+  }
+  *r = FLOAT_VAL(v);
+  return true;
+}
+
+// ord("A") -> 65 (the first byte's value) ; chr(65) -> "A". Inverses for ASCII.
+static bool ordNative(int a, Value *args, Value *r) {
+  (void)a;
+  if (!IS_STRING(args[0]) || AS_STRING(args[0])->length != 1) {
+    runtimeError("ord() expects a single-character string");
+    return false;
+  }
+  *r = INT_VAL((unsigned char)AS_STRING(args[0])->chars[0]);
+  return true;
+}
+static bool chrNative(int a, Value *args, Value *r) {
+  (void)a;
+  if (!IS_INT(args[0])) { runtimeError("chr() expects an int"); return false; }
+  int64_t n = AS_INT(args[0]);
+  if (n < 0 || n > 255) { runtimeError("chr(%lld) out of byte range 0..255", (long long)n); return false; }
+  char c = (char)n;
+  *r = OBJ_VAL(copyString(&c, 1));
+  return true;
+}
+
 void defineBuiltins(void) {
   struct {
     const char *name;
@@ -235,6 +293,10 @@ void defineBuiltins(void) {
       {"ceil", ceilNative, 1},
       {"round", roundNative, 1},
       {"pow", powNative, 2},
+      {"parseInt", parseIntNative, 1},
+      {"parseFloat", parseFloatNative, 1},
+      {"ord", ordNative, 1},
+      {"chr", chrNative, 1},
       {"$for_iter", forIterNative, 1}, // internal: backs for-in (unlexable name)
   };
   for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
@@ -707,8 +769,65 @@ static bool arraySlice(Value receiver, int argCount, Value *args, Value *result)
   return true;
 }
 
+// [1,2,3].sum() -> 6 : add all elements (int+int stays int; any float promotes
+// the running total to float, mirroring `+`). An empty array sums to 0.
+static bool arraySum(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount; (void)args;
+  ValueArray *e = &AS_ARRAY(receiver)->elements;
+  int64_t isum = 0;     // integer accumulator while all elements are ints
+  double fsum = 0;      // float accumulator once a float is seen
+  bool isFloat = false;
+  for (int i = 0; i < e->count; i++) {
+    if (!IS_NUM(e->values[i])) {
+      runtimeError("sum() expects a list of numbers");
+      return false;
+    }
+    if (!isFloat && IS_FLOAT(e->values[i])) { // first float: fold ints in so far
+      isFloat = true;
+      fsum = (double)isum;
+    }
+    if (isFloat) fsum += AS_NUM(e->values[i]);
+    else isum += AS_INT(e->values[i]);
+  }
+  *result = isFloat ? FLOAT_VAL(fsum) : INT_VAL(isum);
+  return true;
+}
+
+// [3,1,2].min() / .max() -> the smallest/largest element (numbers), preserving
+// its int-or-float representation. An empty array is a clean runtime error.
+static bool arrayMinMax(Value receiver, Value *result, bool wantMax,
+                        const char *name) {
+  ValueArray *e = &AS_ARRAY(receiver)->elements;
+  if (e->count == 0) {
+    runtimeError("%s() of an empty array", name);
+    return false;
+  }
+  Value best = e->values[0];
+  for (int i = 0; i < e->count; i++) {
+    if (!IS_NUM(e->values[i])) {
+      runtimeError("%s() expects a list of numbers", name);
+      return false;
+    }
+    if (i == 0) continue;
+    double cur = AS_NUM(e->values[i]), b = AS_NUM(best);
+    if (wantMax ? cur > b : cur < b)
+      best = e->values[i];
+  }
+  *result = best;
+  return true;
+}
+static bool arrayMin(Value r, int a, Value *args, Value *out) {
+  (void)a; (void)args; return arrayMinMax(r, out, false, "min");
+}
+static bool arrayMax(Value r, int a, Value *args, Value *out) {
+  (void)a; (void)args; return arrayMinMax(r, out, true, "max");
+}
+
 static Method arrayMethods[] = {
     {"len", 0, arrayLen},
+    {"sum", 0, arraySum},
+    {"min", 0, arrayMin},
+    {"max", 0, arrayMax},
     {"push", 1, arrayPush},
     {"pop", 0, arrayPop},
     {"contains", 1, arrayContains},
