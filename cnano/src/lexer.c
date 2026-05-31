@@ -131,6 +131,13 @@ static void skipWhitespace(void) {
 static Token number(void) {
   while (isDigit(peek()))
     advance();
+  // A fractional part makes it a float — but ONLY if a digit follows the dot, so
+  // `0..5` (a range) still scans as the integer `0` and then `..`.
+  if (peek() == '.' && isDigit(peekNext())) {
+    advance(); // consume '.'
+    while (isDigit(peek()))
+      advance();
+  }
   return makeToken(TOKEN_NUMBER);
 }
 

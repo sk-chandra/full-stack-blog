@@ -611,11 +611,19 @@ static Node *interpolate(const char *text, int len, int line) {
 
 static Node *primary(void) {
   if (match(TOKEN_NUMBER)) {
-    // strtoll parses the slice of source text the token points at. The token is
-    // not NUL-terminated on its own, but it is followed by more source (or the
-    // final '\0'), and strtoll stops at the first non-digit, so this is safe.
-    int64_t value = strtoll(parser.previous.start, NULL, 10);
-    return newInt(value, parser.previous.line);
+    // A '.' in the token's text means a float literal; otherwise an integer.
+    // strtoll/strtod parse the slice in place (they stop at the first character
+    // that can't continue the number, and the token is followed by more source).
+    const char *s = parser.previous.start;
+    bool isFloat = false;
+    for (int i = 0; i < parser.previous.length; i++)
+      if (s[i] == '.') {
+        isFloat = true;
+        break;
+      }
+    if (isFloat)
+      return newFloat(strtod(s, NULL), parser.previous.line);
+    return newInt(strtoll(s, NULL, 10), parser.previous.line);
   }
   if (match(TOKEN_TRUE))
     return newBool(true, parser.previous.line);
@@ -1140,6 +1148,8 @@ static Type *parseTypeBase(void) {
     const char *s = parser.previous.start;
     if (len == 3 && memcmp(s, "int", 3) == 0)
       return typeInt();
+    if (len == 5 && memcmp(s, "float", 5) == 0)
+      return typeFloat();
     if (len == 4 && memcmp(s, "bool", 4) == 0)
       return typeBool();
     if (len == 3 && memcmp(s, "str", 3) == 0)

@@ -44,6 +44,8 @@ static ObjString *stringify(Value v) {
   int len = 0;
   if (IS_INT(v))
     len = snprintf(buf, sizeof(buf), "%lld", (long long)AS_INT(v));
+  else if (IS_FLOAT(v))
+    len = formatFloat(buf, sizeof(buf), AS_FLOAT(v)); // matches printValue
   else if (IS_BOOL(v))
     len = snprintf(buf, sizeof(buf), "%s", AS_BOOL(v) ? "true" : "false");
   else if (IS_NIL(v))
@@ -119,6 +121,7 @@ static bool typeNative(int argCount, Value *args, Value *result) {
   (void)argCount;
   Value v = args[0];
   const char *name = IS_INT(v)     ? "int"
+                     : IS_FLOAT(v) ? "float"
                      : IS_BOOL(v)  ? "bool"
                      : IS_NIL(v)   ? "nil"
                      : IS_STRING(v) ? "str"

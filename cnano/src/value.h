@@ -20,10 +20,11 @@ typedef struct Obj Obj;
 // The set of runtime types cnano knows about. Adding a type to the language
 // starts by adding a tag here.
 typedef enum {
-  VAL_NIL,  // the absence of a value
-  VAL_BOOL, // true / false
-  VAL_INT,  // 64-bit signed integer
-  VAL_OBJ,  // a heap-allocated object (string, ...): payload is a pointer
+  VAL_NIL,   // the absence of a value
+  VAL_BOOL,  // true / false
+  VAL_INT,   // 64-bit signed integer
+  VAL_FLOAT, // 64-bit IEEE double
+  VAL_OBJ,   // a heap-allocated object (string, ...): payload is a pointer
 } ValueType;
 
 // A value = a tag + a union of payloads. The union means a Value is only as big
@@ -36,7 +37,8 @@ typedef struct {
   union {
     bool boolean;
     int64_t integer;
-    Obj *obj; // for VAL_OBJ: points at a heap object (see object.h)
+    double number; // for VAL_FLOAT
+    Obj *obj;      // for VAL_OBJ: points at a heap object (see object.h)
   } as;
 } Value;
 
@@ -46,12 +48,16 @@ typedef struct {
 #define NIL_VAL ((Value){VAL_NIL, {.integer = 0}})
 #define BOOL_VAL(b) ((Value){VAL_BOOL, {.boolean = (b)}})
 #define INT_VAL(i) ((Value){VAL_INT, {.integer = (i)}})
+#define FLOAT_VAL(d) ((Value){VAL_FLOAT, {.number = (d)}})
 #define OBJ_VAL(object) ((Value){VAL_OBJ, {.obj = (Obj *)(object)}})
 
 // --- type predicates: ask what a Value is ----------------------------------
 #define IS_NIL(value) ((value).type == VAL_NIL)
 #define IS_BOOL(value) ((value).type == VAL_BOOL)
 #define IS_INT(value) ((value).type == VAL_INT)
+#define IS_FLOAT(value) ((value).type == VAL_FLOAT)
+// "numeric" = int or float; the arithmetic operators accept either.
+#define IS_NUM(value) (IS_INT(value) || IS_FLOAT(value))
 #define IS_OBJ(value) ((value).type == VAL_OBJ)
 
 // --- accessors: cnano Value -> C value -------------------------------------
@@ -60,6 +66,9 @@ typedef struct {
 // silent misread of the union.
 #define AS_BOOL(value) ((value).as.boolean)
 #define AS_INT(value) ((value).as.integer)
+#define AS_FLOAT(value) ((value).as.number)
+// Read a numeric Value as a double (int or float), for mixed arithmetic.
+#define AS_NUM(value) (IS_INT(value) ? (double)AS_INT(value) : AS_FLOAT(value))
 #define AS_OBJ(value) ((value).as.obj)
 
 // The constant pool: a growable array of Values, unchanged in spirit from
@@ -69,6 +78,11 @@ typedef struct {
   int capacity;
   Value *values;
 } ValueArray;
+
+// Format a double into `buf` the way cnano prints floats (always with a decimal
+// point, so 3.0 reads as a float). Returns the length. Shared by printValue and
+// the str() builtin so their output agrees.
+int formatFloat(char *buf, int size, double v);
 
 void initValueArray(ValueArray *array);
 void freeValueArray(ValueArray *array);

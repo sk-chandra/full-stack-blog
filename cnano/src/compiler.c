@@ -209,9 +209,14 @@ static void emitByte(uint8_t byte, int line) {
 // longer. Returns the constant index.
 static int makeConstant(Value value) {
   Chunk *chunk = currentChunk();
-  for (int i = 0; i < chunk->constants.count; i++)
-    if (valuesEqual(chunk->constants.values[i], value))
+  for (int i = 0; i < chunk->constants.count; i++) {
+    // STRICT dedup: same tag AND equal. valuesEqual treats int and float
+    // numerically (1 == 1.0), but a constant slot stores one representation, so
+    // we must not merge an int constant with a float one.
+    Value c = chunk->constants.values[i];
+    if (c.type == value.type && valuesEqual(c, value))
       return i;
+  }
   return addConstant(chunk, value);
 }
 
@@ -367,6 +372,10 @@ static void emitExpr(Node *node) {
     // Value right here — the AST stayed representation-agnostic, the compiler
     // bridges to the runtime type.
     emitConstant(INT_VAL(node->as.intValue), node->line);
+    break;
+
+  case NODE_FLOAT:
+    emitConstant(FLOAT_VAL(node->as.floatValue), node->line);
     break;
 
   case NODE_BOOL:

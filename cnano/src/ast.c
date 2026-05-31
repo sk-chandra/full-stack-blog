@@ -21,6 +21,12 @@ Node *newInt(int64_t value, int line) {
   return node;
 }
 
+Node *newFloat(double value, int line) {
+  Node *node = allocNode(NODE_FLOAT, line);
+  node->as.floatValue = value;
+  return node;
+}
+
 Node *newBool(bool value, int line) {
   Node *node = allocNode(NODE_BOOL, line);
   node->as.boolValue = value;
@@ -274,6 +280,7 @@ void freeNode(Node *node) {
     return;
   switch (node->type) {
   case NODE_INT:
+  case NODE_FLOAT:
   case NODE_BOOL:
   case NODE_NIL:
   case NODE_STRING:  // the ObjString is owned/freed by the VM, not the AST

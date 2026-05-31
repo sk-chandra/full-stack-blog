@@ -201,6 +201,26 @@ static bool requireInt(Type *t, int line, const char *what) {
   return false;
 }
 
+// An arithmetic/comparison operand must be numeric (int or float) or `any`.
+static bool requireNum(Type *t, int line, const char *what) {
+  if (t->kind == TY_INT || t->kind == TY_FLOAT || t->kind == TY_ANY)
+    return true;
+  char msg[128];
+  snprintf(msg, sizeof(msg), "%s must be a number, got %s", what, typeName(t));
+  typeError(line, msg);
+  return false;
+}
+
+// The result type of numeric `+ - * /`: `any` if either side is dynamic, `float`
+// if either side is float, else `int`.
+static Type *numericResult(Type *l, Type *r) {
+  if (l->kind == TY_ANY || r->kind == TY_ANY)
+    return typeAny();
+  if (l->kind == TY_FLOAT || r->kind == TY_FLOAT)
+    return typeFloat();
+  return typeInt();
+}
+
 static Type *checkBinary(Node *node) {
   Type *l = checkExpr(node->as.binary.left);
   Type *r = checkExpr(node->as.binary.right);
@@ -214,25 +234,29 @@ static Type *checkBinary(Node *node) {
         typeError(node->line, "both operands of '+' must be str for concatenation");
       return (l->kind == TY_ANY || r->kind == TY_ANY) ? typeAny() : typeStr();
     }
-    requireInt(l, node->line, "left operand of '+'");
-    requireInt(r, node->line, "right operand of '+'");
-    return (l->kind == TY_ANY || r->kind == TY_ANY) ? typeAny() : typeInt();
+    requireNum(l, node->line, "left operand of '+'");
+    requireNum(r, node->line, "right operand of '+'");
+    return numericResult(l, r);
   case OP_NODE_SUB:
   case OP_NODE_MUL:
   case OP_NODE_DIV:
+    requireNum(l, node->line, "left operand");
+    requireNum(r, node->line, "right operand");
+    return numericResult(l, r);
   case OP_NODE_MOD:
   case OP_NODE_BITAND:
   case OP_NODE_BITOR:
   case OP_NODE_BITXOR:
   case OP_NODE_SHL:
   case OP_NODE_SHR:
+    // Modulo and bitwise ops are integers-only.
     requireInt(l, node->line, "left operand");
     requireInt(r, node->line, "right operand");
     return typeInt();
   case OP_NODE_LESS:
   case OP_NODE_GREATER:
-    requireInt(l, node->line, "left operand of comparison");
-    requireInt(r, node->line, "right operand of comparison");
+    requireNum(l, node->line, "left operand of comparison");
+    requireNum(r, node->line, "right operand of comparison");
     return typeBool();
   case OP_NODE_EQUAL:
     // `==` works on any pair of types (mismatched types are simply not equal at
@@ -288,6 +312,8 @@ static Type *checkExpr(Node *node) {
   switch (node->type) {
   case NODE_INT:
     return typeInt();
+  case NODE_FLOAT:
+    return typeFloat();
   case NODE_BOOL:
     return typeBool();
   case NODE_NIL:
@@ -315,8 +341,11 @@ static Type *checkExpr(Node *node) {
   }
   case NODE_UNARY:
     if (node->as.unary.op == OP_NODE_NEGATE) {
-      requireInt(checkExpr(node->as.unary.operand), node->line, "operand of '-'");
-      return typeInt();
+      Type *o = checkExpr(node->as.unary.operand);
+      requireNum(o, node->line, "operand of '-'");
+      return o->kind == TY_FLOAT ? typeFloat()
+             : o->kind == TY_ANY ? typeAny()
+                                 : typeInt();
     }
     if (node->as.unary.op == OP_NODE_BITNOT) {
       requireInt(checkExpr(node->as.unary.operand), node->line, "operand of '~'");

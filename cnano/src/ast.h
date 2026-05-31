@@ -36,6 +36,7 @@
 typedef enum {
   // --- expression nodes (yield a value onto the VM stack) ---
   NODE_INT,     // a literal integer
+  NODE_FLOAT,   // a literal floating-point number
   NODE_BOOL,    // a literal `true` or `false`
   NODE_NIL,     // the literal `nil`
   NODE_STRING,  // a string literal (a heap ObjString)
@@ -114,6 +115,7 @@ typedef struct Node {
     // let the compiler wrap them into Values — keeping the AST independent of the
     // runtime value representation.
     int64_t intValue;
+    double floatValue;      // NODE_FLOAT: the literal double
     bool boolValue;
     ObjString *stringValue; // NODE_STRING: the interned string literal
     // Variable name for NODE_VAR_GET. The name is an interned ObjString so the
@@ -268,6 +270,7 @@ void writeProgram(Program *program, Node *statement);
 // Constructors. Each allocates a node on the heap and fills it in. The parser
 // owns these; freeNode walks the tree and releases the whole thing.
 Node *newInt(int64_t value, int line);
+Node *newFloat(double value, int line);
 Node *newBool(bool value, int line);
 Node *newNil(int line);
 Node *newUnary(NodeOp op, Node *operand, int line);

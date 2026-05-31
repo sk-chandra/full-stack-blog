@@ -4,6 +4,25 @@
 #include "object.h"
 #include "value.h"
 
+int formatFloat(char *buf, int size, double v) {
+  // %g is compact, but prints whole values without a point (3.0 -> "3"); append
+  // ".0" so a float always reads as a float and never looks like an int.
+  int n = snprintf(buf, size, "%g", v);
+  bool looksFloat = false;
+  for (int i = 0; i < n; i++)
+    if (buf[i] == '.' || buf[i] == 'e' || buf[i] == 'E' || buf[i] == 'n' ||
+        buf[i] == 'i') { // '.', exponent, nan, inf
+      looksFloat = true;
+      break;
+    }
+  if (!looksFloat && n + 2 < size) {
+    buf[n++] = '.';
+    buf[n++] = '0';
+    buf[n] = '\0';
+  }
+  return n;
+}
+
 void initValueArray(ValueArray *array) {
   array->values = NULL;
   array->capacity = 0;
@@ -46,6 +65,12 @@ void printValue(Value value) {
     // PRId64 would be the fully portable way; %lld after a cast is simpler.
     printf("%lld", (long long)AS_INT(value));
     break;
+  case VAL_FLOAT: {
+    char buf[32];
+    formatFloat(buf, sizeof(buf), AS_FLOAT(value));
+    printf("%s", buf);
+    break;
+  }
   case VAL_OBJ:
     printObject(value); // dispatch to the heap-object printer
     break;
@@ -53,9 +78,14 @@ void printValue(Value value) {
 }
 
 bool valuesEqual(Value a, Value b) {
-  // Different types are never equal — `1 == true` is false, not a coercion.
-  // This is a deliberate language-design stance (no implicit conversions);
-  // a language like JavaScript would choose differently here.
+  // NUMBERS are the one cross-type exception: `1 == 1.0` is true (int and float
+  // compare numerically). Everything else: different types are never equal —
+  // `1 == true` is false, no coercion. A deliberate language-design stance.
+  if (IS_NUM(a) && IS_NUM(b)) {
+    if (IS_INT(a) && IS_INT(b))
+      return AS_INT(a) == AS_INT(b); // exact (avoids huge-int precision loss)
+    return AS_NUM(a) == AS_NUM(b);
+  }
   if (a.type != b.type)
     return false;
   switch (a.type) {

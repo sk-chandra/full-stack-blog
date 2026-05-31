@@ -8,8 +8,14 @@ static int foldCount;
 
 // Is this node a literal the folder can compute with?
 static bool isIntLit(Node *n) { return n != NULL && n->type == NODE_INT; }
+static bool isFloatLit(Node *n) { return n != NULL && n->type == NODE_FLOAT; }
 static bool isBoolLit(Node *n) { return n != NULL && n->type == NODE_BOOL; }
 static bool isStrLit(Node *n) { return n != NULL && n->type == NODE_STRING; }
+// A numeric literal (int or float), and its value as a double.
+static bool isNumLit(Node *n) { return isIntLit(n) || isFloatLit(n); }
+static double numLit(Node *n) {
+  return isIntLit(n) ? (double)n->as.intValue : n->as.floatValue;
+}
 
 static Node *foldExpr(Node *node);
 
@@ -19,6 +25,22 @@ static Node *tryFoldBinary(Node *node) {
   Node *l = node->as.binary.left;
   Node *r = node->as.binary.right;
   int line = node->line;
+
+  // Numeric arithmetic where at least one side is a FLOAT literal (and both are
+  // numeric): fold to a float, mirroring the VM's promotion.
+  if (isNumLit(l) && isNumLit(r) && (isFloatLit(l) || isFloatLit(r))) {
+    double a = numLit(l), b = numLit(r);
+    switch (node->as.binary.op) {
+    case OP_NODE_ADD: return newFloat(a + b, line);
+    case OP_NODE_SUB: return newFloat(a - b, line);
+    case OP_NODE_MUL: return newFloat(a * b, line);
+    case OP_NODE_DIV: return newFloat(a / b, line); // float / 0 -> inf (defined)
+    case OP_NODE_LESS: return newBool(a < b, line);
+    case OP_NODE_GREATER: return newBool(a > b, line);
+    case OP_NODE_EQUAL: return newBool(a == b, line);
+    default: return NULL; // mod/bitwise on floats are type errors, not folded
+    }
+  }
 
   // Integer arithmetic and comparisons.
   if (isIntLit(l) && isIntLit(r)) {
@@ -84,6 +106,8 @@ static Node *tryFoldUnary(Node *node) {
   int line = node->line;
   if (node->as.unary.op == OP_NODE_NEGATE && isIntLit(o))
     return newInt(-o->as.intValue, line);
+  if (node->as.unary.op == OP_NODE_NEGATE && isFloatLit(o))
+    return newFloat(-o->as.floatValue, line);
   if (node->as.unary.op == OP_NODE_BITNOT && isIntLit(o))
     return newInt(~o->as.intValue, line);
   if (node->as.unary.op == OP_NODE_NOT) {

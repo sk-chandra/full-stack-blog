@@ -17,12 +17,14 @@
 
 static Type anyType = {.kind = TY_ANY};
 static Type intType = {.kind = TY_INT};
+static Type floatType = {.kind = TY_FLOAT};
 static Type boolType = {.kind = TY_BOOL};
 static Type strType = {.kind = TY_STR};
 static Type nilType = {.kind = TY_NIL};
 
 Type *typeAny(void) { return &anyType; }
 Type *typeInt(void) { return &intType; }
+Type *typeFloat(void) { return &floatType; }
 Type *typeBool(void) { return &boolType; }
 Type *typeStr(void) { return &strType; }
 Type *typeNil(void) { return &nilType; }
@@ -186,6 +188,8 @@ const char *typeName(const Type *type) {
     return "any";
   case TY_INT:
     return "int";
+  case TY_FLOAT:
+    return "float";
   case TY_BOOL:
     return "bool";
   case TY_STR:

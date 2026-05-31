@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (437 cases, incl. native + GC)
+make test       # run the end-to-end test suite (452 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -141,11 +141,13 @@ make run        # start the REPL
   sequences** `\n \t \r \" \\` (and `\$` to escape interpolation), correctly
   re-escaped in the native backend too
 - **Line comments** with `//` (stripped by the lexer; `/` is still division)
-- Four runtime types: **integers** (64-bit signed), **booleans**, **nil**, and
-  heap **strings**, represented with a tagged union + an object header (see
-  `value.h` / `object.h`)
-- Integer arithmetic `+  -  *  /  %` and **bitwise** `&  |  ^  <<  >>  ~` with
-  correct C-style **precedence** and **left-associativity**, unary minus
+- Runtime types: **integers** (64-bit signed), **floats** (64-bit IEEE double,
+  written `3.14`), **booleans**, **nil**, and heap objects — a tagged union + an
+  object header (see `value.h` / `object.h`)
+- Arithmetic `+  -  *  /` works on ints *and* floats with **int→float promotion**
+  (`5 + 2.5` → `7.5`, `10/4` → `2` but `10.0/4` → `2.5`); `%` and **bitwise**
+  `&  |  ^  <<  >>  ~` are integers-only. Numeric `==` is cross-type (`3 == 3.0`).
+  Correct C-style **precedence** and **left-associativity**, unary minus
   (`-5`, even `--5`)
 - **Comparisons** `<  <=  >  >=` and **equality** `==  !=` (no implicit
   cross-type coercion: `1 == true` is `false`)

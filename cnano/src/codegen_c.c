@@ -166,6 +166,9 @@ static TypeKind annotationKind(Type *t, int line) {
   case TY_ARRAY:
     unsupported(line, "an array-typed value");
     return TY_ANY;
+  case TY_FLOAT:
+    unsupported(line, "a float value");
+    return TY_ANY;
   case TY_NULLABLE:
     unsupported(line, "a nullable-typed value");
     return TY_ANY;
@@ -278,6 +281,9 @@ static void emitExpr(Node *node) {
   }
   case NODE_NIL:
     unsupported(node->line, "a nil value in an expression");
+    break;
+  case NODE_FLOAT:
+    unsupported(node->line, "a float literal");
     break;
   case NODE_VAR_GET:
     emitName(node->as.name);

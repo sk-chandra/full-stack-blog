@@ -1499,8 +1499,15 @@ programs define their own types, and makes failure recoverable.
     string / start a hole); the parser decodes escapes (plain strings and each
     interpolation literal run), and the native backend re-escapes them for C.
 42. **Native-backend extensions** — closures (and/or simple arrays) lowered to C.
-43. **Performance** (inline caching/peephole), **modules/imports**, **floats**,
-    type-pattern arms in `match` — larger, still open.
+43. ~~**Floating-point numbers.**~~ **✅ DONE** (step 35) — a `VAL_FLOAT`/`TY_FLOAT`
+    double; `3.14` literals (the lexer requires a digit after `.`, so `0..5` stays
+    a range); VM arithmetic promotes int→float (`5 + 2.5`), `/` stays integer for
+    two ints; numeric `==` is cross-type; `%`/bitwise are int-only. Folded; printed
+    with a trailing `.0` for whole values. (A subtle bug caught along the way: the
+    `AS_NUM` macro evaluates its argument twice, so the arithmetic macros must
+    `pop()` into a local first.) Native rejects floats for now.
+44. **Performance** (inline caching/peephole), **modules/imports**, generics,
+    native floats/closures, type-pattern `match` arms — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
 (free online). cnano's bytecode/VM design intentionally follows the same lineage

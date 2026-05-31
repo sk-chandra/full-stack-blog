@@ -305,6 +305,35 @@ static InterpretResult run(bool trace, int stopFrame) {
     push(valueType(a op b));                                                   \
   } while (false)
 
+// Numeric arithmetic with int->float PROMOTION: two ints give an int; if either
+// operand is a float, both widen to double and the result is a float.
+#define NUM_ARITH(op)                                                          \
+  do {                                                                         \
+    if (!IS_NUM(peek(0)) || !IS_NUM(peek(1))) {                                \
+      runtimeError("operands must be numbers");                                \
+      return INTERPRET_RUNTIME_ERROR;                                          \
+    }                                                                          \
+    if (IS_INT(peek(0)) && IS_INT(peek(1))) {                                  \
+      int64_t b = AS_INT(pop()), a = AS_INT(pop());                            \
+      push(INT_VAL(a op b));                                                   \
+    } else {                                                                   \
+      /* AS_NUM evaluates its arg twice, so pop into locals FIRST. */          \
+      Value vb = pop(), va = pop();                                            \
+      push(FLOAT_VAL(AS_NUM(va) op AS_NUM(vb)));                               \
+    }                                                                          \
+  } while (false)
+
+// Numeric comparison: operands widen to double; the result is always bool.
+#define NUM_COMPARE(op)                                                        \
+  do {                                                                         \
+    if (!IS_NUM(peek(0)) || !IS_NUM(peek(1))) {                                \
+      runtimeError("operands must be numbers");                                \
+      return INTERPRET_RUNTIME_ERROR;                                          \
+    }                                                                          \
+    Value vb = pop(), va = pop();                                             \
+    push(BOOL_VAL(AS_NUM(va) op AS_NUM(vb)));                                  \
+  } while (false)
+
   for (;;) {
     if (trace) {
       // Show the current stack contents, then the instruction about to run.
@@ -344,13 +373,15 @@ static InterpretResult run(bool trace, int stopFrame) {
       push(BOOL_VAL(false));
       break;
     case OP_NEGATE:
-      // Unary minus is integers-only, so it gets its own type check (the
-      // BINARY_OP macro doesn't apply to a one-operand instruction).
-      if (!IS_INT(peek(0))) {
-        runtimeError("operand of '-' must be an integer");
+      // Unary minus works on either numeric type (one-operand, so its own check).
+      if (IS_INT(peek(0)))
+        push(INT_VAL(-AS_INT(pop())));
+      else if (IS_FLOAT(peek(0)))
+        push(FLOAT_VAL(-AS_FLOAT(pop())));
+      else {
+        runtimeError("operand of '-' must be a number");
         return INTERPRET_RUNTIME_ERROR;
       }
-      push(INT_VAL(-AS_INT(pop())));
       break;
     case OP_NOT:
       // `!` works on ANY value via the truthiness rule, so no type check — it
@@ -364,37 +395,37 @@ static InterpretResult run(bool trace, int stopFrame) {
       // overloading in a dynamically typed language. Anything else is an error.
       if (IS_STRING(peek(0)) && IS_STRING(peek(1))) {
         concatenate();
-      } else if (IS_INT(peek(0)) && IS_INT(peek(1))) {
-        int64_t b = AS_INT(pop());
-        int64_t a = AS_INT(pop());
-        push(INT_VAL(a + b));
+      } else if (IS_NUM(peek(0)) && IS_NUM(peek(1))) {
+        NUM_ARITH(+); // int+int -> int, otherwise float (with promotion)
       } else {
-        runtimeError("operands to '+' must be two integers or two strings");
+        runtimeError("operands to '+' must be two numbers or two strings");
         return INTERPRET_RUNTIME_ERROR;
       }
       break;
     case OP_SUB:
-      BINARY_OP(INT_VAL, -);
+      NUM_ARITH(-);
       break;
     case OP_MUL:
-      BINARY_OP(INT_VAL, *);
+      NUM_ARITH(*);
       break;
     case OP_DIV: {
-      // Division needs the integer type check AND a zero-divisor check. Order
-      // matters: validate types first (so the error message is right), then
-      // guard against divide-by-zero, which is undefined behaviour in C and
-      // would otherwise crash the whole interpreter.
-      if (!IS_INT(peek(0)) || !IS_INT(peek(1))) {
-        runtimeError("operands must be integers");
+      if (!IS_NUM(peek(0)) || !IS_NUM(peek(1))) {
+        runtimeError("operands must be numbers");
         return INTERPRET_RUNTIME_ERROR;
       }
-      if (AS_INT(peek(0)) == 0) {
-        runtimeError("division by zero");
-        return INTERPRET_RUNTIME_ERROR;
+      if (IS_INT(peek(0)) && IS_INT(peek(1))) {
+        // Integer division: guard against divide-by-zero (UB in C).
+        if (AS_INT(peek(0)) == 0) {
+          runtimeError("division by zero");
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        int64_t b = AS_INT(pop()), a = AS_INT(pop());
+        push(INT_VAL(a / b));
+      } else {
+        // Float division: IEEE-defined even by zero (gives inf/nan), no error.
+        Value vb = pop(), va = pop();
+        push(FLOAT_VAL(AS_NUM(va) / AS_NUM(vb)));
       }
-      int64_t b = AS_INT(pop());
-      int64_t a = AS_INT(pop());
-      push(INT_VAL(a / b));
       break;
     }
     case OP_MOD: {
@@ -456,10 +487,10 @@ static InterpretResult run(bool trace, int stopFrame) {
       break;
     }
     case OP_LESS:
-      BINARY_OP(BOOL_VAL, <);
+      NUM_COMPARE(<);
       break;
     case OP_GREATER:
-      BINARY_OP(BOOL_VAL, >);
+      NUM_COMPARE(>);
       break;
     case OP_DEFINE_GLOBAL: {
       // The operand indexes the name in the constant pool. We read the value

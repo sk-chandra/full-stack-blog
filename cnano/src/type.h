@@ -17,6 +17,7 @@ typedef struct ObjString ObjString; // forward decl; full type in object.h
 typedef enum {
   TY_ANY,  // unknown / dynamic — compatible with every type (the gradual escape hatch)
   TY_INT,
+  TY_FLOAT,
   TY_BOOL,
   TY_STR,
   TY_NIL,
@@ -61,6 +62,7 @@ typedef struct Type {
 // Primitives are shared singletons (one `int` type, etc.) and are never freed.
 Type *typeAny(void);
 Type *typeInt(void);
+Type *typeFloat(void);
 Type *typeBool(void);
 Type *typeStr(void);
 Type *typeNil(void);
