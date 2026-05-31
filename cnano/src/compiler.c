@@ -774,6 +774,28 @@ static void emitStatement(Node *node) {
     loop.continueCount = 0;
     currentLoop = &loop;
 
+    if (node->as.whileStmt.isDoWhile) {
+      // do/while: run the body FIRST, then test. Layout:
+      //   loopStart: <body>  continueTarget: <cond> JUMP_IF_FALSE->exit POP
+      //   LOOP->loopStart  exit: POP  breakTarget:
+      // `continue` jumps to the condition (so the loop can still re-test), and a
+      // do/while never carries a for-style increment.
+      int loopStart = currentChunk()->count;
+      emitStatement(node->as.whileStmt.body);
+      for (int i = 0; i < loop.continueCount; i++)
+        patchJump(loop.continueJumps[i]); // continue -> re-test the condition
+      emitExpr(node->as.whileStmt.condition);
+      int exitJump = emitJump(OP_JUMP_IF_FALSE, node->line);
+      emitByte(OP_POP, node->line);   // true: pop condition and loop back
+      emitLoop(loopStart, node->line);
+      patchJump(exitJump);
+      emitByte(OP_POP, node->line);   // exit: pop condition
+      for (int i = 0; i < loop.breakCount; i++)
+        patchJump(loop.breakJumps[i]);
+      currentLoop = loop.enclosing;
+      break;
+    }
+
     int loopStart = currentChunk()->count; // the condition is re-evaluated here
     emitExpr(node->as.whileStmt.condition);
     int exitJump = emitJump(OP_JUMP_IF_FALSE, node->line);

@@ -207,6 +207,8 @@ static TokenType identifierType(void) {
     return TOKEN_ELSE;
   if (length == 5 && memcmp(s, "while", 5) == 0)
     return TOKEN_WHILE;
+  if (length == 2 && memcmp(s, "do", 2) == 0)
+    return TOKEN_DO;
   if (length == 3 && memcmp(s, "for", 3) == 0)
     return TOKEN_FOR;
   if (length == 2 && memcmp(s, "in", 2) == 0)

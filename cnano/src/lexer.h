@@ -65,6 +65,7 @@ typedef enum {
   TOKEN_IF,
   TOKEN_ELSE,
   TOKEN_WHILE,
+  TOKEN_DO,        // do — begins a `do { } while (c);` loop
   TOKEN_FOR,
   TOKEN_IN,        // in — used by for-in iteration: `for (let x in coll)`
   TOKEN_IS,        // is — runtime type test: `x is int` (also narrows unions)

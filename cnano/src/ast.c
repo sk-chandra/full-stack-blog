@@ -127,6 +127,13 @@ Node *newWhile(Node *condition, Node *body, int line) {
   node->as.whileStmt.condition = condition;
   node->as.whileStmt.body = body;
   node->as.whileStmt.increment = NULL; // set by the `for` desugar when needed
+  node->as.whileStmt.isDoWhile = false;
+  return node;
+}
+
+Node *newDoWhile(Node *condition, Node *body, int line) {
+  Node *node = newWhile(condition, body, line);
+  node->as.whileStmt.isDoWhile = true;
   return node;
 }
 

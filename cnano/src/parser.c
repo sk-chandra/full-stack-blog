@@ -853,6 +853,18 @@ static Node *whileStatement(void) {
   return newWhile(condition, body, line);
 }
 
+// `do { body } while (cond);` — the body runs once before the first test.
+static Node *doWhileStatement(void) {
+  int line = parser.previous.line; // the 'do'
+  Node *body = statement();
+  consume(TOKEN_WHILE, "Expect 'while' after a 'do' body.");
+  consume(TOKEN_LPAREN, "Expect '(' after 'while'.");
+  Node *condition = expression();
+  consume(TOKEN_RPAREN, "Expect ')' after condition.");
+  consume(TOKEN_SEMICOLON, "Expect ';' after a do/while loop.");
+  return newDoWhile(condition, body, line);
+}
+
 // `for (init; cond; update) body` — implemented entirely as SYNTACTIC SUGAR over
 // constructs we already have. There is no for-loop node and no for-loop opcode;
 // the parser rewrites
@@ -1152,6 +1164,8 @@ static Node *statement(void) {
     return ifStatement();
   if (match(TOKEN_WHILE))
     return whileStatement();
+  if (match(TOKEN_DO))
+    return doWhileStatement();
   if (match(TOKEN_FOR))
     return forStatement();
   if (match(TOKEN_RETURN))

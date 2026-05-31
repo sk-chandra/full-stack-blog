@@ -640,6 +640,17 @@ static void emitStmt(Node *node, int ind, bool fileScope) {
     fprintf(out, "\n");
     break;
   case NODE_WHILE:
+    if (node->as.whileStmt.isDoWhile) {
+      // do/while lowers to C's own do/while (a do/while never has an increment).
+      indent(ind);
+      fprintf(out, "do {\n");
+      emitStmt(node->as.whileStmt.body, ind + 1, false);
+      indent(ind);
+      fprintf(out, "} while (");
+      emitExpr(node->as.whileStmt.condition);
+      fprintf(out, ");\n");
+      break;
+    }
     indent(ind);
     fprintf(out, "while (");
     emitExpr(node->as.whileStmt.condition);

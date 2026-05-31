@@ -173,6 +173,7 @@ typedef struct Node {
       struct Node *condition;
       struct Node *body;
       struct Node *increment; // an expression run each iteration; may be NULL
+      bool isDoWhile;         // `do { } while (c)`: run the body before testing c
     } whileStmt;
     // NODE_CALL: the expression being called plus a list of argument expressions.
     struct {
@@ -298,6 +299,9 @@ Node *newIf(Node *condition, Node *then, Node *otherwise, int line);
 // its branches are EXPRESSIONS and it yields a value. `otherwise` is never NULL.
 Node *newCond(Node *condition, Node *thenExpr, Node *elseExpr, int line);
 Node *newWhile(Node *condition, Node *body, int line);
+// `do { body } while (c);` — like a while loop but the body runs once before the
+// first test. Reuses the NODE_WHILE node with its isDoWhile flag set.
+Node *newDoWhile(Node *condition, Node *body, int line);
 // Takes ownership of the `args` array (freed by freeNode).
 Node *newCall(Node *callee, Node **args, int argCount, int line);
 // `receiver.method(args)`. Takes ownership of the `args` array.

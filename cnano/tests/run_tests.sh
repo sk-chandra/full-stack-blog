@@ -366,6 +366,13 @@ check_prog "if-block"     'if (true) { let a = 5; print a; }'       "5"
 # while
 check_prog "while-count"  'let i=0; while (i<3) { print i; i=i+1; }' "$(printf '0\n1\n2')"
 check_prog "while-never"  'while (false) print "x"; print "ok";'    "ok"
+# do/while: the body runs at least once, even when the condition starts false.
+check_prog "dowhile-count" 'let i=0; do { print i; i+=1; } while (i<3);' "$(printf '0\n1\n2')"
+check_prog "dowhile-once"  'do print "once"; while (false);'          "once"
+check_prog "dowhile-sum"   'let n=5; let s=0; do { s+=n; n-=1; } while (n>0); print s;' "15"
+check_prog "dowhile-break" 'let k=0; do { k+=1; if (k==3) break; print k; } while (k<10); print "end";' "$(printf '1\n2\nend')"
+check_prog "dowhile-cont"  'let k=0; do { k+=1; if (k==2) continue; print k; } while (k<4);' "$(printf '1\n3\n4')"
+check_native "nat-dowhile" 'fn cd(n: int): int { let s=0; do { s+=n; n-=1; } while (n>0); return s; } print cd(5);' "15"
 # for (desugars to block + while)
 check_prog "for-count"    'for (let i=0; i<3; i=i+1) print i;'      "$(printf '0\n1\n2')"
 check_prog "for-sum"      'let s=0; for (let i=1; i<=5; i=i+1) s=s+i; print s;' "15"

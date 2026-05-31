@@ -1642,7 +1642,12 @@ programs define their own types, and makes failure recoverable.
     runs, and folds inside lambda bodies. These collapses exactly match
     short-circuit/conditional semantics, so they never change which side effects
     run (verified by tests like `true or (x = 99)` leaving `x == 0`).
-51. **Performance** (inline caching/peephole), generics, native closures, and a
+51. ~~**`do { } while (c);` loops.**~~ **✅ DONE** (step 47) — the body runs once
+    before the first test. Reuses the NODE_WHILE node with an `isDoWhile` flag:
+    the compiler emits body-then-condition (vs condition-then-body), with
+    `continue` jumping to the condition re-test and `break`/local cleanup working
+    exactly as in `while`. Lowers to C's own `do/while` in the native backend.
+52. **Performance** (inline caching/peephole), generics, native closures, and a
     per-module namespace for `import` — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
