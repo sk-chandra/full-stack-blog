@@ -171,6 +171,10 @@ static TokenType identifierType(void) {
     return TOKEN_AND;
   if (length == 2 && memcmp(s, "or", 2) == 0)
     return TOKEN_OR;
+  if (length == 2 && memcmp(s, "fn", 2) == 0)
+    return TOKEN_FN;
+  if (length == 6 && memcmp(s, "return", 6) == 0)
+    return TOKEN_RETURN;
   // Not a keyword: it's a user-defined identifier (a variable name).
   return TOKEN_IDENTIFIER;
 }
@@ -214,6 +218,8 @@ Token scanToken(void) {
     return makeToken(TOKEN_LBRACE);
   case '}':
     return makeToken(TOKEN_RBRACE);
+  case ',':
+    return makeToken(TOKEN_COMMA);
   case ';':
     return makeToken(TOKEN_SEMICOLON);
   case '"':

@@ -12,9 +12,13 @@
 // the grammar is therefore about statements; expressions sit underneath:
 //
 //   program     -> declaration* EOF ;
-//   declaration -> varDecl | statement ;
+//   declaration -> funDecl | varDecl | statement ;
+//   funDecl     -> "fn" IDENTIFIER "(" parameters? ")" block ;
+//   parameters  -> IDENTIFIER ( "," IDENTIFIER )* ;
 //   varDecl     -> "let" IDENTIFIER "=" expression ";" ;
-//   statement   -> printStmt | ifStmt | whileStmt | forStmt | block | exprStmt ;
+//   statement   -> printStmt | ifStmt | whileStmt | forStmt | returnStmt
+//                | block | exprStmt ;
+//   returnStmt  -> "return" expression? ";" ;
 //   ifStmt      -> "if" "(" expression ")" statement ( "else" statement )? ;
 //   whileStmt   -> "while" "(" expression ")" statement ;
 //   forStmt     -> "for" "(" ( varDecl | exprStmt | ";" )
@@ -41,8 +45,11 @@
 //   comparison -> term ( ( "<" | "<=" | ">" | ">=" ) term )* ;
 //   term       -> factor ( ( "+" | "-" ) factor )* ;       // left-associative
 //   factor     -> unary  ( ( "*" | "/" ) unary  )* ;       // left-associative
-//   unary      -> ( "-" | "!" ) unary | primary ;
-//   primary    -> INT | "true" | "false" | "nil" | "(" expression ")" ;
+//   unary      -> ( "-" | "!" ) unary | call ;
+//   call       -> primary ( "(" arguments? ")" )* ;   // postfix call(s)
+//   arguments  -> expression ( "," expression )* ;
+//   primary    -> INT | STRING | IDENTIFIER | "true" | "false" | "nil"
+//               | "(" expression ")" ;
 //
 // Precedence falls out of the call chain: equality calls comparison calls term
 // calls factor calls unary calls primary. Each new level we add sits ABOVE the
@@ -261,6 +268,8 @@ static Node *factor(void) {
   return node;
 }
 
+static Node *call(void);
+
 static Node *unary(void) {
   // Both prefix operators recurse into unary() (not primary) so stacked prefixes
   // like `--5` or `!!true` parse right-to-left as -(-5) / !(!true).
@@ -272,7 +281,47 @@ static Node *unary(void) {
     int line = parser.previous.line;
     return newUnary(OP_NODE_NOT, unary(), line);
   }
-  return primary();
+  return call();
+}
+
+// Parse the argument list after a '(' and build a call node. Arguments are
+// ordinary expressions separated by commas. We cap the count at 255 because
+// OP_CALL's operand is one byte (and it matches the parameter limit below).
+static Node *finishCall(Node *callee) {
+  int line = parser.previous.line; // the '('
+  Node **args = NULL;
+  int argCount = 0;
+  int capacity = 0;
+
+  if (!check(TOKEN_RPAREN)) {
+    do {
+      if (argCount == 255) {
+        errorAt(&parser.current, "Cannot have more than 255 arguments.");
+        break;
+      }
+      if (argCount + 1 > capacity) {
+        capacity = capacity < 4 ? 4 : capacity * 2;
+        args = realloc(args, sizeof(Node *) * capacity);
+        if (args == NULL) {
+          fprintf(stderr, "cnano: out of memory parsing arguments\n");
+          exit(70);
+        }
+      }
+      args[argCount++] = expression();
+    } while (match(TOKEN_COMMA));
+  }
+  consume(TOKEN_RPAREN, "Expect ')' after arguments.");
+  return newCall(callee, args, argCount, line);
+}
+
+// `call -> primary ( "(" arguments? ")" )*` — a primary followed by zero or more
+// call suffixes. Looping lets `f()()` (calling a returned function) work, which
+// is why calls are parsed as a postfix here rather than baked into primary.
+static Node *call(void) {
+  Node *node = primary();
+  while (match(TOKEN_LPAREN))
+    node = finishCall(node);
+  return node;
 }
 
 static Node *primary(void) {
@@ -333,11 +382,13 @@ static void synchronize(void) {
     if (parser.previous.type == TOKEN_SEMICOLON)
       return; // just finished a statement; the next one can parse cleanly
     switch (parser.current.type) {
+    case TOKEN_FN:
     case TOKEN_LET:
     case TOKEN_PRINT:
     case TOKEN_IF:
     case TOKEN_WHILE:
     case TOKEN_FOR:
+    case TOKEN_RETURN:
       return; // a keyword that starts a declaration/statement — resume here
     default:
       break;
@@ -491,6 +542,18 @@ static Node *forStatement(void) {
   return body;
 }
 
+// `return EXPR? ;` — return from the enclosing function. A bare `return;`
+// returns nil (handled by the compiler). Returning from the top-level script is
+// rejected at COMPILE time, not here, since the parser doesn't track that.
+static Node *returnStatement(void) {
+  int line = parser.previous.line; // the 'return'
+  Node *value = NULL;
+  if (!check(TOKEN_SEMICOLON))
+    value = expression();
+  consume(TOKEN_SEMICOLON, "Expect ';' after return value.");
+  return newReturn(value, line);
+}
+
 static Node *statement(void) {
   if (match(TOKEN_PRINT))
     return printStatement();
@@ -500,6 +563,8 @@ static Node *statement(void) {
     return whileStatement();
   if (match(TOKEN_FOR))
     return forStatement();
+  if (match(TOKEN_RETURN))
+    return returnStatement();
   if (match(TOKEN_LBRACE))
     return block();
   return expressionStatement();
@@ -518,10 +583,55 @@ static Node *varDeclaration(void) {
   return newVarDecl(name, initializer, line);
 }
 
-// One level above statement(): a declaration is either a `let` or any statement.
-// Splitting these mirrors the grammar and is where scoped declarations will hook
-// in later (step 4). This is also the natural synchronisation point for errors.
+// `fn NAME ( params ) { body }`. We parse the parameter names into a heap array,
+// then the body as a block. The compiler turns this into an ObjFunction. Like
+// `let`, a function declaration BINDS a name (so functions can be called, and
+// can recurse / be mutually recursive among globals).
+static Node *funDeclaration(void) {
+  int line = parser.previous.line; // the 'fn'
+  consume(TOKEN_IDENTIFIER, "Expect function name after 'fn'.");
+  ObjString *name = copyString(parser.previous.start, parser.previous.length);
+
+  consume(TOKEN_LPAREN, "Expect '(' after function name.");
+  ObjString **params = NULL;
+  int paramCount = 0;
+  int capacity = 0;
+  if (!check(TOKEN_RPAREN)) {
+    do {
+      if (paramCount == 255) {
+        errorAt(&parser.current, "Cannot have more than 255 parameters.");
+        break;
+      }
+      consume(TOKEN_IDENTIFIER, "Expect parameter name.");
+      if (paramCount + 1 > capacity) {
+        capacity = capacity < 4 ? 4 : capacity * 2;
+        params = realloc(params, sizeof(ObjString *) * capacity);
+        if (params == NULL) {
+          fprintf(stderr, "cnano: out of memory parsing parameters\n");
+          exit(70);
+        }
+      }
+      params[paramCount++] =
+          copyString(parser.previous.start, parser.previous.length);
+    } while (match(TOKEN_COMMA));
+  }
+  consume(TOKEN_RPAREN, "Expect ')' after parameters.");
+
+  consume(TOKEN_LBRACE, "Expect '{' before function body.");
+  Node *bodyBlock = block(); // parses up to and including the closing '}'
+  // block() returns a NODE_BLOCK owning a Program; unwrap it for the fun node.
+  Program *body = bodyBlock->as.block;
+  bodyBlock->as.block = NULL; // detach so freeing the wrapper won't free body
+  freeNode(bodyBlock);
+
+  return newFun(name, params, paramCount, body, line);
+}
+
+// One level above statement(): a declaration is a `fn`, a `let`, or any
+// statement. This is the natural synchronisation point for errors.
 static Node *declaration(void) {
+  if (match(TOKEN_FN))
+    return funDeclaration();
   if (match(TOKEN_LET))
     return varDeclaration();
   return statement();

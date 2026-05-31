@@ -241,6 +241,31 @@ check_prog_err "while-no-paren" 'while true print 1;'
 check_prog_err "for-no-parts"   'for print 1;'
 check_prog_err "dangling-else"  'else print 1;'
 
+# --- functions (step 6) ---
+check_prog "fn-basic"     'fn add(a,b){return a+b;} print add(3,4);'           "7"
+check_prog "fn-no-args"   'fn answer(){return 42;} print answer();'            "42"
+check_prog "fn-void-nil"  'fn p(x){print x;} print p(5);'                      "$(printf '5\nnil')"
+check_prog "fn-implicit-nil" 'fn f(){} print f();'                            "nil"
+check_prog "fn-locals"    'fn poly(x){let s=x*x; return s+x+1;} print poly(5);' "31"
+check_prog "fn-recursion" 'fn fact(n){if(n<=1)return 1; return n*fact(n-1);} print fact(5);' "120"
+check_prog "fn-fib"       'fn fib(n){if(n<2)return n; return fib(n-1)+fib(n-2);} print fib(10);' "55"
+check_prog "fn-mutual"    'fn ev(n){if(n==0)return true; return od(n-1);} fn od(n){if(n==0)return false; return ev(n-1);} print ev(8);' "true"
+check_prog "fn-nested"    'fn outer(){fn inner(x){return x*2;} return inner(21);} print outer();' "42"
+check_prog "fn-as-value"  'fn sq(x){return x*x;} let f = sq; print f(9);'      "81"
+check_prog "fn-early-ret" 'fn f(x){if(x>0)return "pos"; return "nonpos";} print f(5); print f(-1);' "$(printf 'pos\nnonpos')"
+check_prog "fn-bare-ret"  'fn f(){return;} print f();'                        "nil"
+check_prog "fn-uses-global" 'let g=100; fn add(x){return x+g;} print add(1);'  "101"
+check_prog "fn-arg-expr"  'fn id(x){return x;} print id(2+3*4);'               "14"
+
+# --- function errors (step 6) ---
+check_prog_err "fn-too-few-args"  'fn f(a,b){return a;} f(1);'
+check_prog_err "fn-too-many-args" 'fn f(a){return a;} f(1,2);'
+check_prog_err "call-non-fn"      'let x=5; x();'
+check_prog_err "call-int"         '(3)();'
+check_prog_err "return-top-level" 'return 5;'
+check_prog_err "fn-no-name"       'fn (){}'
+check_prog_err "fn-no-body"       'fn f()'
+
 rm -f "$tmp"
 echo "-----------------------------------------"
 echo "passed: $pass   failed: $fail"

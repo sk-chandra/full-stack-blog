@@ -43,6 +43,7 @@ typedef enum {
   NODE_VAR_GET, // read a variable: yields its current value
   NODE_ASSIGN,  // `name = EXPR` : store EXPR into name, yields the value
   NODE_LOGICAL, // `a and b` / `a or b` : SHORT-CIRCUITS, so not a plain binary
+  NODE_CALL,    // `callee(arg, arg, ...)` : call a function, yields its result
   // --- statement nodes (performed for effect, yield nothing) ---
   NODE_PRINT,      // `print EXPR;` — evaluate EXPR and print it
   NODE_EXPR_STMT,  // `EXPR;` — evaluate EXPR, then discard its value
@@ -50,6 +51,8 @@ typedef enum {
   NODE_BLOCK,      // `{ ... }` — a new lexical scope holding more statements
   NODE_IF,         // `if (c) then [else otherwise]`
   NODE_WHILE,      // `while (c) body`
+  NODE_FUN,        // `fn name(params) { body }` — a function declaration
+  NODE_RETURN,     // `return [EXPR];` — return from the enclosing function
 } NodeType;
 
 // The operator carried by unary/binary nodes. Keeping this separate from the
@@ -137,6 +140,24 @@ typedef struct Node {
       struct Node *condition;
       struct Node *body;
     } whileStmt;
+    // NODE_CALL: the expression being called plus a list of argument expressions.
+    struct {
+      struct Node *callee;
+      struct Node **args; // heap array of argument expression nodes
+      int argCount;
+    } call;
+    // NODE_FUN: a function declaration. params holds the parameter NAMES (interned
+    // ObjStrings); body is the function's block of statements.
+    struct {
+      ObjString *name;
+      ObjString **params; // heap array of parameter names
+      int paramCount;
+      struct Program *body;
+    } fun;
+    // NODE_RETURN: the optional return value (NULL for a bare `return;`).
+    struct {
+      struct Node *value;
+    } ret;
   } as;
 } Node;
 
@@ -172,6 +193,12 @@ Node *newBlock(Program *block, int line); // takes ownership of `block`
 Node *newLogical(bool isAnd, Node *left, Node *right, int line);
 Node *newIf(Node *condition, Node *then, Node *otherwise, int line);
 Node *newWhile(Node *condition, Node *body, int line);
+// Takes ownership of the `args` array (freed by freeNode).
+Node *newCall(Node *callee, Node **args, int argCount, int line);
+// Takes ownership of `params` and `body`.
+Node *newFun(ObjString *name, ObjString **params, int paramCount,
+             Program *body, int line);
+Node *newReturn(Node *value, int line); // value may be NULL
 void freeNode(Node *node);
 
 #endif // CNANO_AST_H

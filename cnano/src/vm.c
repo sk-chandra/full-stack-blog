@@ -12,9 +12,12 @@
 // The one global VM instance (declared `extern` in vm.h).
 VM vm;
 
-// Reset the stack by pointing the top back at the base. No need to clear the
-// memory — values below stackTop are simply considered "not there".
-static void resetStack(void) { vm.stackTop = vm.stack; }
+// Reset the stack AND the call frames. No need to clear memory — values below
+// stackTop and frames below frameCount are simply considered "not there".
+static void resetStack(void) {
+  vm.stackTop = vm.stack;
+  vm.frameCount = 0;
+}
 
 void initVM(void) {
   resetStack();
@@ -59,11 +62,22 @@ static void runtimeError(const char *format, ...) {
   va_end(args);
   fprintf(stderr, "\n");
 
-  // Recover the source line from the instruction that just executed. vm.ip has
-  // already advanced past it, hence the -1.
-  int instruction = (int)(vm.ip - vm.chunk->code) - 1;
-  int line = vm.chunk->lines[instruction];
-  fprintf(stderr, "[line %d] in script\n", line);
+  // Print a STACK TRACE: walk the active frames from innermost to outermost,
+  // naming each function and the line it was executing. This is the payoff of
+  // keeping per-frame ip's — we can reconstruct exactly how we got here.
+  for (int i = vm.frameCount - 1; i >= 0; i--) {
+    CallFrame *frame = &vm.frames[i];
+    ObjFunction *function = frame->function;
+    // frame->ip points at the NEXT instruction, so -1 gets the current one.
+    size_t instruction = frame->ip - function->chunk.code - 1;
+    int line = function->chunk.lines[instruction];
+    fprintf(stderr, "[line %d] in ", line);
+    if (function->name == NULL)
+      fprintf(stderr, "script\n");
+    else
+      fprintf(stderr, "%s()\n", function->name->chars);
+  }
+
   resetStack();
 }
 
@@ -103,16 +117,58 @@ static void concatenate(void) {
   push(OBJ_VAL(result));
 }
 
+// --- the calling convention, runtime side ----------------------------------
+//
+// Begin a call to `function` with `argCount` arguments already pushed. We set up
+// a new CallFrame whose window (`slots`) starts at the callee on the stack, so:
+//   stack:  [.. callee arg0 arg1 .. arg(N-1)]
+//                  ^slots[0]  slots[1] ...
+// Slot 0 is the callee itself (the compiler reserved it); the arguments are the
+// next slots, which is exactly where the function's parameters live. Returns
+// false on an error (arity mismatch or call-stack overflow).
+static bool call(ObjFunction *function, int argCount) {
+  if (argCount != function->arity) {
+    runtimeError("%s() expects %d arguments but got %d",
+                 function->name ? function->name->chars : "fn",
+                 function->arity, argCount);
+    return false;
+  }
+  if (vm.frameCount == FRAMES_MAX) {
+    runtimeError("stack overflow (call depth exceeded %d)", FRAMES_MAX);
+    return false;
+  }
+  CallFrame *frame = &vm.frames[vm.frameCount++];
+  frame->function = function;
+  frame->ip = function->chunk.code;          // start at the function's first byte
+  frame->slots = vm.stackTop - argCount - 1; // window includes callee + args
+  return true;
+}
+
+// Dispatch a call on whatever value is being called. Only functions are callable;
+// calling anything else (an int, a string, ...) is a clean runtime error rather
+// than a crash.
+static bool callValue(Value callee, int argCount) {
+  if (IS_FUNCTION(callee))
+    return call(AS_FUNCTION(callee), argCount);
+  runtimeError("can only call functions");
+  return false;
+}
+
 // The fetch-decode-execute loop — the core of the whole project.
 static InterpretResult run(bool trace) {
+  // The currently executing frame. We cache it in a local for speed and re-cache
+  // it whenever we call into or return from a function (the only times it
+  // changes). All reads of bytecode and locals now go through `frame`.
+  CallFrame *frame = &vm.frames[vm.frameCount - 1];
 // These macros make the loop read like an instruction reference. READ_BYTE
 // fetches the next byte and advances ip; READ_CONSTANT uses that byte as a pool
 // index. BINARY_OP factors out the identical pop/pop/push shape of +,-,*,/.
-#define READ_BYTE() (*vm.ip++)
+#define READ_BYTE() (*frame->ip++)
 // Read a 2-byte big-endian operand (used by jumps) and advance ip past it.
 #define READ_SHORT()                                                           \
-  (vm.ip += 2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1]))
-#define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
+  (frame->ip += 2, (uint16_t)((frame->ip[-2] << 8) | frame->ip[-1]))
+// Constants now come from the CURRENT FUNCTION's chunk, reached via the frame.
+#define READ_CONSTANT() (frame->function->chunk.constants.values[READ_BYTE()])
 // Read a constant and interpret it as a string — used for variable names, which
 // the compiler always stores as ObjString constants.
 #define READ_STRING() (AS_STRING(READ_CONSTANT()))
@@ -142,7 +198,8 @@ static InterpretResult run(bool trace) {
         printf(" ]");
       }
       printf("\n");
-      disassembleInstruction(vm.chunk, (int)(vm.ip - vm.chunk->code));
+      disassembleInstruction(&frame->function->chunk,
+                             (int)(frame->ip - frame->function->chunk.code));
     }
 
     uint8_t instruction = READ_BYTE();
@@ -264,24 +321,26 @@ static InterpretResult run(bool trace) {
       break;
     }
     case OP_GET_LOCAL: {
-      // A local lives at a fixed slot in the stack. The compiler resolved the
-      // name to this index already, so there is NO lookup — just copy the slot's
-      // value to the top of the stack so the rest of the expression can use it.
+      // A local lives at a fixed slot WITHIN THE CURRENT FRAME's window. The slot
+      // index is relative to frame->slots, not the absolute stack base — that is
+      // what lets the same bytecode address a different physical location on each
+      // (re)entry, which is precisely how recursion gets independent locals.
       uint8_t slot = READ_BYTE();
-      push(vm.stack[slot]);
+      push(frame->slots[slot]);
       break;
     }
     case OP_SET_LOCAL: {
-      // Store the top value INTO the local's slot. peek (not pop): assignment is
-      // an expression, so its value must remain on top for the surrounding code.
+      // Store the top value INTO the local's slot (frame-relative). peek (not
+      // pop): assignment is an expression, so its value stays on top.
       uint8_t slot = READ_BYTE();
-      vm.stack[slot] = peek(0);
+      frame->slots[slot] = peek(0);
       break;
     }
     case OP_JUMP: {
-      // Unconditional forward jump: always skip `offset` bytes.
+      // Unconditional forward jump: always skip `offset` bytes (within the
+      // current function's ip).
       uint16_t offset = READ_SHORT();
-      vm.ip += offset;
+      frame->ip += offset;
       break;
     }
     case OP_JUMP_IF_FALSE: {
@@ -290,13 +349,24 @@ static InterpretResult run(bool trace) {
       // reusable for short-circuit and/or where the value is also the result.
       uint16_t offset = READ_SHORT();
       if (isFalsey(peek(0)))
-        vm.ip += offset;
+        frame->ip += offset;
       break;
     }
     case OP_LOOP: {
       // Unconditional backward jump: the engine of every loop.
       uint16_t offset = READ_SHORT();
-      vm.ip -= offset;
+      frame->ip -= offset;
+      break;
+    }
+    case OP_CALL: {
+      // The callee sits `argCount` slots below the top. Dispatch the call; on
+      // success a new frame was pushed, so re-cache `frame` to the new innermost
+      // one and the loop continues executing the callee's bytecode.
+      int argCount = READ_BYTE();
+      Value callee = peek(argCount);
+      if (!callValue(callee, argCount))
+        return INTERPRET_RUNTIME_ERROR;
+      frame = &vm.frames[vm.frameCount - 1];
       break;
     }
     case OP_PRINT:
@@ -308,9 +378,24 @@ static InterpretResult run(bool trace) {
     case OP_POP:
       pop(); // discard the result of an expression statement
       break;
-    case OP_RETURN:
-      // End of program. Nothing to return — output already happened via print.
-      return INTERPRET_OK;
+    case OP_RETURN: {
+      // Return from the current function. The return value is on top. We:
+      //   1. grab it, 2. discard the whole frame by resetting stackTop back to
+      //   the frame's base (slot 0, the callee), 3. push the result there.
+      // This tears the callee's entire window — locals, args, callee — off the
+      // stack in one move, leaving exactly the result where the call expression
+      // expects it. If that was the LAST frame, the whole program is done.
+      Value result = pop();
+      vm.frameCount--;
+      if (vm.frameCount == 0) {
+        pop(); // discard the top-level script's reserved slot 0
+        return INTERPRET_OK;
+      }
+      vm.stackTop = frame->slots; // reclaim the callee's window
+      push(result);               // hand the result to the caller
+      frame = &vm.frames[vm.frameCount - 1]; // resume the caller
+      break;
+    }
     }
   }
 
@@ -329,24 +414,21 @@ InterpretResult interpret(const char *source, bool trace) {
     return INTERPRET_COMPILE_ERROR;
   }
 
-  // 2. Compile the program into a chunk of bytecode.
-  Chunk chunk;
-  initChunk(&chunk);
-  bool compiled = compile(&program, &chunk);
+  // 2. Compile the program into a top-level ObjFunction. (Its chunk, and every
+  // nested function's chunk, is owned by the VM object list — freed at shutdown,
+  // not here.)
+  ObjFunction *function = compile(&program);
   freeProgram(&program); // trees no longer needed once bytecode exists
-  if (!compiled) {
-    freeChunk(&chunk);
+  if (function == NULL)
     return INTERPRET_COMPILE_ERROR;
-  }
 
   if (trace)
-    disassembleChunk(&chunk, "compiled bytecode");
+    disassembleChunk(&function->chunk, "<script>");
 
-  // 3. Point the VM at the chunk and run it.
-  vm.chunk = &chunk;
-  vm.ip = vm.chunk->code;
-  InterpretResult result = run(trace);
-
-  freeChunk(&chunk);
-  return result;
+  // 3. Bootstrap execution: push the script function and `call` it, so the top
+  // level runs through the exact same frame machinery as any function. This
+  // uniformity — the program IS a function call — keeps the VM loop simple.
+  push(OBJ_VAL(function));
+  call(function, 0);
+  return run(trace);
 }

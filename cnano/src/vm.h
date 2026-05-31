@@ -9,16 +9,35 @@
 #define CNANO_VM_H
 
 #include "chunk.h"
+#include "object.h"
 #include "table.h"
 
-// A fixed-size operand stack. 256 slots is plenty for arithmetic expressions;
-// real VMs grow the stack dynamically. A fixed cap keeps the code simple and
-// makes stack-overflow handling explicit.
-#define STACK_MAX 256
+// The maximum call depth (number of nested function calls). Exceeding it is a
+// "stack overflow" runtime error — the controlled version of what infinite
+// recursion does to a native program.
+#define FRAMES_MAX 64
+// The operand stack must be big enough for all locals/temporaries across all
+// active frames, so it scales with the frame limit.
+#define STACK_MAX (FRAMES_MAX * 256)
+
+// One CALL FRAME: the activation record of a single in-progress function call.
+// This is the central data structure of step 6. Each frame remembers:
+//   - which function is running (so we know its chunk),
+//   - that function's OWN instruction pointer (so calls/returns resume correctly),
+//   - and `slots`: a pointer to where this call's window begins on the shared
+//     operand stack. A local at compile-time "slot i" is simply slots[i] — that
+//     is how the same bytecode runs at a different stack location every call,
+//     which is exactly what makes recursion work.
+typedef struct {
+  ObjFunction *function;
+  uint8_t *ip;
+  Value *slots;
+} CallFrame;
 
 typedef struct {
-  Chunk *chunk;        // the bytecode being executed
-  uint8_t *ip;         // instruction pointer: the NEXT byte to read
+  CallFrame frames[FRAMES_MAX]; // the call stack: one frame per active call
+  int frameCount;               // current call depth
+
   Value stack[STACK_MAX];
   Value *stackTop;     // points just PAST the last pushed value
   Table globals;       // global variable store: name (ObjString*) -> Value
@@ -42,9 +61,8 @@ void initVM(void);
 void freeVM(void);
 
 // Compile + run `source` (a sequence of statements). If `trace` is true, dump
-// the chunk and print the stack at every step — the best way to learn how the VM
-// "thinks". Programs now produce output via `print`, so there is no return value
-// to hand back.
+// every function's chunk and print the stack at each step — the best way to learn
+// how the VM "thinks". Programs produce output via `print`.
 InterpretResult interpret(const char *source, bool trace);
 
 #endif // CNANO_VM_H

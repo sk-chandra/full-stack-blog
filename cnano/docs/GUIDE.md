@@ -664,7 +664,80 @@ Two reuse lessons land here:
 
 ---
 
-## 14. Roadmap: where to go next
+## 14. Case study: functions, call frames, and the calling convention
+
+Roadmap step 6, completed — the conceptual heart of the language, and the step
+that ties together everything from steps 1–5. It touches every file, but the new
+ideas cluster around two things: **functions as objects that own their own
+bytecode**, and a **call-frame stack** at runtime.
+
+### 14.1 Functions are objects with their own chunk
+
+`ObjFunction` (in `object.{h,c}`) is a heap object — same `Obj` header, same
+intrusive free list as strings — but it carries a whole `Chunk`. Each function is
+compiled independently into its own bytecode. The masterstroke is uniformity:
+**the top-level script is itself a function** (an implicit `<script>`), so the VM
+only ever runs functions and the bootstrap is just "push the script function and
+call it with zero arguments." One code path handles everything.
+
+### 14.2 One compiler per function
+
+The compiler grew a `CompilerState` *per function*, linked by an `enclosing`
+pointer into a stack that mirrors the nesting of `fn` declarations.
+`compileFunction` spins up a fresh state (its own chunk, its own locals starting
+at slot 0) and pops it when done. Parameters are simply the function's first
+locals — at runtime the caller will have placed the arguments in exactly those
+slots, so no copying is needed. Slot 0 is reserved for the callee itself, which
+is why it lines up with the runtime frame (below).
+
+### 14.3 The call-frame stack — the runtime heart
+
+A `CallFrame` is the activation record of one in-progress call. It holds the
+function, that call's **own `ip`**, and `slots` — a pointer into the shared
+operand stack marking where this call's window begins. The key identity:
+
+> a local at compile-time **slot i** is, at runtime, simply **`frame->slots[i]`**.
+
+Because `slots` is different on every (re)entry, the *same bytecode* reads and
+writes a *different physical location* each call — which is exactly what gives
+recursion its independent locals. fib(20) runs ~13,000 overlapping calls, each
+with its own `n`, on one flat stack.
+
+### 14.4 The calling convention, both sides
+
+The contract that lets caller and callee cooperate:
+
+- **Compiler (caller):** push the callee, then the arguments left-to-right; emit
+  `OP_CALL argc`. The stack is now `[.. callee arg0 .. argN]`.
+- **VM (`OP_CALL`):** the callee sits `argc` below the top. `call()` checks arity,
+  pushes a new `CallFrame` whose `slots` points at the callee, and execution
+  continues in the callee's chunk (we re-cache the `frame` local).
+- **VM (`OP_RETURN`):** grab the result, reset `stackTop` back to `frame->slots`
+  (tearing down the callee's entire window — locals, args, callee — in one move),
+  push the result there, and resume the caller. The whole frame vanishes at once.
+
+This window-based teardown is why functions are cheap and why a returning
+function automatically frees all its locals.
+
+### 14.5 What falls out for free, and the safety rails
+
+- **Recursion and mutual recursion** need no special support: globals resolve by
+  name at call time, so a function can call itself or peers declared anywhere.
+- **First-class functions:** a function is just a `Value`, so `let f = sq;` works.
+- **Stack traces:** because every frame keeps its own `ip`, `runtimeError` walks
+  the frames innermost-to-outermost and prints `in c()` / `in b()` / `in script`.
+- **Safety:** arity mismatch, calling a non-function, infinite recursion
+  (a controlled "stack overflow" at `FRAMES_MAX`), and `return` at top level are
+  all clean errors — never a host crash.
+
+> **Note on closures.** cnano's functions can read globals but do *not* yet
+> capture enclosing *locals* (true closures need "upvalues"). That is a natural
+> and well-known next step; the single-compiler-per-function structure here is
+> exactly the foundation it builds on.
+
+---
+
+## 15. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -685,8 +758,10 @@ ordered so each builds on the last.
    `for` (desugared to block + while) via `OP_JUMP`/`OP_JUMP_IF_FALSE`/`OP_LOOP`
    and backpatching, plus short-circuiting `and`/`or`. cnano is now
    Turing-complete.
-6. **Functions and a call stack.** Call frames, parameters, return values, and a
-   real *calling convention*. This is the conceptual heart of any language.
+6. ~~**Functions and a call stack.**~~ **✅ DONE** — see §14 above. `fn`,
+   parameters, `return`, a per-call frame stack and calling convention,
+   recursion / mutual recursion, first-class functions, and stack traces.
+   (True closures over locals are the natural follow-on.)
 7. **A type checker.** A separate pass over the AST that assigns and verifies
    types *before* running — your first taste of static analysis and the
    static-vs-dynamic trade-off.

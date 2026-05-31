@@ -111,6 +111,30 @@ Node *newWhile(Node *condition, Node *body, int line) {
   return node;
 }
 
+Node *newCall(Node *callee, Node **args, int argCount, int line) {
+  Node *node = allocNode(NODE_CALL, line);
+  node->as.call.callee = callee;
+  node->as.call.args = args;
+  node->as.call.argCount = argCount;
+  return node;
+}
+
+Node *newFun(ObjString *name, ObjString **params, int paramCount,
+             Program *body, int line) {
+  Node *node = allocNode(NODE_FUN, line);
+  node->as.fun.name = name;
+  node->as.fun.params = params;
+  node->as.fun.paramCount = paramCount;
+  node->as.fun.body = body;
+  return node;
+}
+
+Node *newReturn(Node *value, int line) {
+  Node *node = allocNode(NODE_RETURN, line);
+  node->as.ret.value = value;
+  return node;
+}
+
 // Post-order traversal: free children before the parent so we never follow a
 // dangling pointer. Recursion mirrors the tree's own shape — the natural way to
 // walk a tree in any compiler stage.
@@ -141,9 +165,12 @@ void freeNode(Node *node) {
     break;
   case NODE_BLOCK:
     // A block owns a heap-allocated Program: free its statements, the Program
-    // struct itself, then fall through to free the node.
-    freeProgram(node->as.block);
-    free(node->as.block);
+    // struct itself, then fall through to free the node. (May be NULL if the
+    // Program was detached, e.g. when a function declaration adopts the body.)
+    if (node->as.block != NULL) {
+      freeProgram(node->as.block);
+      free(node->as.block);
+    }
     break;
   case NODE_LOGICAL:
     freeNode(node->as.logical.left);
@@ -157,6 +184,22 @@ void freeNode(Node *node) {
   case NODE_WHILE:
     freeNode(node->as.whileStmt.condition);
     freeNode(node->as.whileStmt.body);
+    break;
+  case NODE_CALL:
+    freeNode(node->as.call.callee);
+    for (int i = 0; i < node->as.call.argCount; i++)
+      freeNode(node->as.call.args[i]);
+    free(node->as.call.args); // free the heap array of arg pointers
+    break;
+  case NODE_FUN:
+    // name and the param ObjStrings are VM-owned (interned); free only the
+    // params array, the body program, and its container.
+    free(node->as.fun.params);
+    freeProgram(node->as.fun.body);
+    free(node->as.fun.body);
+    break;
+  case NODE_RETURN:
+    freeNode(node->as.ret.value); // tolerates NULL (bare `return;`)
     break;
   }
   free(node);

@@ -9,11 +9,12 @@
 #define CNANO_COMPILER_H
 
 #include "ast.h"
-#include "chunk.h"
+#include "object.h"
 
-// Compile a whole `program` (its sequence of statements) into `chunk`. The
-// chunk should already be initialised. Returns false if a compile-time error
-// occurred (e.g. duplicate local, too many locals); the message is printed.
-bool compile(Program *program, Chunk *chunk);
+// Compile a whole `program` into a top-level ObjFunction (an implicit "main").
+// Returns NULL if a compile-time error occurred (the message is printed). The
+// returned function — and every nested function it references — is owned by the
+// VM's object list and freed at shutdown.
+ObjFunction *compile(Program *program);
 
 #endif // CNANO_COMPILER_H

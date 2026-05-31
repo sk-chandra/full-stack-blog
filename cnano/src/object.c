@@ -68,11 +68,28 @@ ObjString *copyString(const char *chars, int length) {
   return allocateString(heapChars, length, hash);
 }
 
+ObjFunction *newFunction(void) {
+  ObjFunction *function =
+      (ObjFunction *)allocateObject(sizeof(ObjFunction), OBJ_FUNCTION);
+  function->arity = 0;
+  function->name = NULL;
+  initChunk(&function->chunk); // each function owns a fresh, empty chunk
+  return function;
+}
+
 void printObject(Value value) {
   switch (AS_OBJ(value)->type) {
   case OBJ_STRING:
     printf("%s", AS_CSTRING(value));
     break;
+  case OBJ_FUNCTION: {
+    ObjFunction *fn = AS_FUNCTION(value);
+    if (fn->name == NULL)
+      printf("<script>"); // the implicit top-level function
+    else
+      printf("<fn %s>", fn->name->chars);
+    break;
+  }
   }
 }
 
@@ -83,6 +100,14 @@ static void freeObject(Obj *object) {
     ObjString *string = (ObjString *)object;
     free(string->chars);
     free(string);
+    break;
+  }
+  case OBJ_FUNCTION: {
+    // A function owns its chunk, so free that too, then the struct. (The name
+    // ObjString is owned by the object list / intern pool, not freed here.)
+    ObjFunction *function = (ObjFunction *)object;
+    freeChunk(&function->chunk);
+    free(function);
     break;
   }
   }

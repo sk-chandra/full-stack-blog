@@ -18,6 +18,7 @@ typedef enum {
   TOKEN_RPAREN,
   TOKEN_LBRACE,    // { — opens a block scope
   TOKEN_RBRACE,    // } — closes a block scope
+  TOKEN_COMMA,     // , — separates parameters and arguments
   TOKEN_SEMICOLON, // ; — terminates a statement
   // One- or two-character operators. Some of these share a first character
   // (`!` vs `!=`, `<` vs `<=`), so the lexer must peek at the SECOND character
@@ -46,6 +47,8 @@ typedef enum {
   TOKEN_FOR,
   TOKEN_AND,
   TOKEN_OR,
+  TOKEN_FN,
+  TOKEN_RETURN,
   // Bookkeeping
   TOKEN_ERROR, // lexing failed; `start`/`length` point at a human message
   TOKEN_EOF,   // end of input — lets the parser stop without special-casing

@@ -63,7 +63,11 @@ typedef enum {
   // stack, mirroring the expression/statement split in the language itself.
   OP_PRINT,    // [opcode]        : pop one value and print it, then a newline
   OP_POP,      // [opcode]        : pop one value and discard it
-  OP_RETURN,   // [opcode]        : end execution (no value)
+  // Calls. OP_CALL's operand is the ARGUMENT COUNT; the callee and its arguments
+  // are already on the stack below the current top. OP_RETURN now returns from
+  // the current function (popping its call frame), with the return value on top.
+  OP_CALL,     // [opcode][argc]  : call the function sitting under `argc` args
+  OP_RETURN,   // [opcode]        : return top-of-stack from the current function
 } OpCode;
 
 typedef struct {

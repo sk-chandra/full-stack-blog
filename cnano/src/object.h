@@ -16,11 +16,13 @@
 #ifndef CNANO_OBJECT_H
 #define CNANO_OBJECT_H
 
+#include "chunk.h"
 #include "common.h"
 #include "value.h"
 
 typedef enum {
   OBJ_STRING,
+  OBJ_FUNCTION,
 } ObjType;
 
 // The common header shared by every heap object. Because it is the first field
@@ -43,6 +45,21 @@ struct ObjString {
 };
 typedef struct ObjString ObjString;
 
+// A function is a first-class heap object. The crucial idea: each function owns
+// ITS OWN Chunk of bytecode. The top-level program is itself compiled as a
+// function (an implicit "main"), so the VM only ever runs functions — uniform
+// and simple. `arity` is the declared parameter count; `name` is for error
+// messages and disassembly (NULL for the top-level script).
+typedef struct {
+  Obj obj;       // MUST be first
+  int arity;     // number of parameters
+  Chunk chunk;   // the function's own compiled bytecode
+  ObjString *name;
+} ObjFunction;
+
+#define IS_FUNCTION(value) isObjType(value, OBJ_FUNCTION)
+#define AS_FUNCTION(value) ((ObjFunction *)AS_OBJ(value))
+
 // Convenience predicate + accessors, mirroring the Value macros.
 #define IS_STRING(value) isObjType(value, OBJ_STRING)
 #define AS_STRING(value) ((ObjString *)AS_OBJ(value))
@@ -58,6 +75,10 @@ static inline bool isObjType(Value value, ObjType type) {
 // transient slice of program text). Interning (see below) means identical
 // strings share one ObjString.
 ObjString *copyString(const char *chars, int length);
+
+// Allocate a fresh, empty function (arity 0, empty chunk, no name). The compiler
+// fills in the chunk and arity as it compiles the body.
+ObjFunction *newFunction(void);
 
 // Print an object value (dispatched from printValue).
 void printObject(Value value);
