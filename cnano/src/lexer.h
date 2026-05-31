@@ -16,8 +16,22 @@ typedef enum {
   TOKEN_SLASH,
   TOKEN_LPAREN,
   TOKEN_RPAREN,
+  // One- or two-character operators. Some of these share a first character
+  // (`!` vs `!=`, `<` vs `<=`), so the lexer must peek at the SECOND character
+  // to decide which token it is — the first taste of multi-character lexing.
+  TOKEN_BANG,          // !
+  TOKEN_BANG_EQUAL,    // !=
+  TOKEN_EQUAL_EQUAL,   // ==
+  TOKEN_LESS,          // <
+  TOKEN_LESS_EQUAL,    // <=
+  TOKEN_GREATER,       // >
+  TOKEN_GREATER_EQUAL, // >=
   // Literals
   TOKEN_NUMBER,
+  // Keywords. These are spelled like identifiers but have reserved meaning.
+  TOKEN_TRUE,
+  TOKEN_FALSE,
+  TOKEN_NIL,
   // Bookkeeping
   TOKEN_ERROR, // lexing failed; `start`/`length` point at a human message
   TOKEN_EOF,   // end of input — lets the parser stop without special-casing

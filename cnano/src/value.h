@@ -1,18 +1,58 @@
-// value.h — the "constant pool" and value helpers.
+// value.h — the runtime value representation and the constant pool.
 //
-// Bytecode instructions are tiny (one byte for the opcode). But programs contain
-// big literals like 1000000. We cannot stuff a 64-bit number into a one-byte
-// instruction. The classic solution every real VM uses (CPython, the JVM, Lua):
-// store literals once in a side table — the *constant pool* — and let the
-// instruction carry a small *index* into that table. ValueArray is that pool.
+// Until now a Value was just `int64_t`: cnano had exactly one type. The moment a
+// language gains a SECOND type (here: booleans and nil), every value must carry
+// two things — its data AND a tag describing what kind of data it is. The
+// universal solution is a *tagged union*: a small struct with a `type` field and
+// a `union` of the possible payloads. This is exactly how CPython, Lua, Ruby and
+// friends represent dynamically typed values under the hood.
 #ifndef CNANO_VALUE_H
 #define CNANO_VALUE_H
 
 #include "common.h"
 
-// A growable array of Values. This is the textbook dynamic-array pattern:
-// keep a `count` of live elements and a `capacity` of allocated slots; when
-// they meet, double the capacity. Amortised O(1) appends.
+// The set of runtime types cnano knows about. Adding a type to the language
+// starts by adding a tag here.
+typedef enum {
+  VAL_NIL,  // the absence of a value
+  VAL_BOOL, // true / false
+  VAL_INT,  // 64-bit signed integer
+} ValueType;
+
+// A value = a tag + a union of payloads. The union means a Value is only as big
+// as its largest member (here 8 bytes) plus the tag — booleans and ints share
+// the same storage, and `type` tells you which member is currently valid. You
+// must NEVER read `as.integer` from a value whose type is VAL_BOOL; the helper
+// macros below exist to make that mistake hard.
+typedef struct {
+  ValueType type;
+  union {
+    bool boolean;
+    int64_t integer;
+  } as;
+} Value;
+
+// --- constructors: C value -> cnano Value ----------------------------------
+// Compound literals ((Value){...}) build a struct inline. Wrapping them in
+// macros keeps construction readable and centralised.
+#define NIL_VAL ((Value){VAL_NIL, {.integer = 0}})
+#define BOOL_VAL(b) ((Value){VAL_BOOL, {.boolean = (b)}})
+#define INT_VAL(i) ((Value){VAL_INT, {.integer = (i)}})
+
+// --- type predicates: ask what a Value is ----------------------------------
+#define IS_NIL(value) ((value).type == VAL_NIL)
+#define IS_BOOL(value) ((value).type == VAL_BOOL)
+#define IS_INT(value) ((value).type == VAL_INT)
+
+// --- accessors: cnano Value -> C value -------------------------------------
+// Only valid when the matching predicate is true. The VM checks types BEFORE
+// calling these, turning "wrong type" into a clean runtime error rather than a
+// silent misread of the union.
+#define AS_BOOL(value) ((value).as.boolean)
+#define AS_INT(value) ((value).as.integer)
+
+// The constant pool: a growable array of Values, unchanged in spirit from
+// before — it just stores tagged Values now instead of bare ints.
 typedef struct {
   int count;
   int capacity;
@@ -21,9 +61,11 @@ typedef struct {
 
 void initValueArray(ValueArray *array);
 void freeValueArray(ValueArray *array);
-// Appends `value` and returns the index it landed at — that index is what the
-// bytecode will reference.
 int writeValueArray(ValueArray *array, Value value);
 void printValue(Value value);
+
+// Value-level equality, used by the `==` / `!=` operators. Values of different
+// types are never equal; same-type values compare their payloads.
+bool valuesEqual(Value a, Value b);
 
 #endif // CNANO_VALUE_H

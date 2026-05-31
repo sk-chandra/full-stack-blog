@@ -18,11 +18,22 @@
 // to compile to and easy to write, which is why so many bytecode VMs use them.
 typedef enum {
   OP_CONSTANT, // [opcode][index] : push constants[index] onto the stack
-  OP_NEGATE,   // [opcode]        : a = pop;        push -a
+  // Dedicated opcodes for the three literal values that have no operand. We
+  // *could* store true/false/nil in the constant pool like integers, but giving
+  // them their own one-byte opcodes is smaller and faster — a common micro
+  // optimisation in real bytecode sets (the JVM has iconst_0, aconst_null, ...).
+  OP_NIL,      // [opcode]        : push nil
+  OP_TRUE,     // [opcode]        : push true
+  OP_FALSE,    // [opcode]        : push false
+  OP_NEGATE,   // [opcode]        : a = pop;          push -a   (ints only)
+  OP_NOT,      // [opcode]        : a = pop;          push logical-not of a
   OP_ADD,      // [opcode]        : b = pop; a = pop; push a + b
   OP_SUB,      // [opcode]        : b = pop; a = pop; push a - b
   OP_MUL,      // [opcode]        : b = pop; a = pop; push a * b
   OP_DIV,      // [opcode]        : b = pop; a = pop; push a / b
+  OP_EQUAL,    // [opcode]        : b = pop; a = pop; push (a == b)  (any types)
+  OP_LESS,     // [opcode]        : b = pop; a = pop; push (a < b)   (ints only)
+  OP_GREATER,  // [opcode]        : b = pop; a = pop; push (a > b)   (ints only)
   OP_RETURN,   // [opcode]        : end execution; result is top of stack
 } OpCode;
 

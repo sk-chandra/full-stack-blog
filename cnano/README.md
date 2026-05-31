@@ -15,11 +15,12 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (13 cases)
+make test       # run the end-to-end test suite (39 cases)
 make run        # start the REPL
 
 # run a file
 ./build/cnano examples/arithmetic.cn          #  prints 4
+./build/cnano examples/booleans.cn            #  prints true
 
 # see the bytecode AND a step-by-step VM trace (the best way to learn)
 ./build/cnano --dump examples/arithmetic.cn
@@ -32,12 +33,19 @@ make run        # start the REPL
 
 ## What it supports today
 
-- Integer literals (64-bit signed)
-- `+  -  *  /` with correct **precedence** and **left-associativity**
-- Unary minus (`-5`, even `--5`)
+- Three runtime types: **integers** (64-bit signed), **booleans**, and **nil**,
+  represented with a tagged union (see `value.h`)
+- Integer arithmetic `+  -  *  /` with correct **precedence** and
+  **left-associativity**, unary minus (`-5`, even `--5`)
+- **Comparisons** `<  <=  >  >=` and **equality** `==  !=` (no implicit
+  cross-type coercion: `1 == true` is `false`)
+- **Logical not** `!` with a defined truthiness rule (`nil` and `false` are
+  falsey; *every* integer including `0` is truthy)
 - Parentheses for grouping
-- Controlled errors: syntax errors, unexpected characters, and **division by
-  zero** are reported with a line number instead of crashing
+- **Runtime type checking**: arithmetic/ordering on non-integers (e.g.
+  `1 + true`, `true < false`) is a clean runtime error, not a crash
+- Controlled errors: syntax errors, unexpected characters, **division by zero**,
+  and type errors are all reported with a line number instead of crashing
 
 ## The files, in reading order
 

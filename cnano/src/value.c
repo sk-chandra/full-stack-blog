@@ -31,6 +31,37 @@ int writeValueArray(ValueArray *array, Value value) {
 }
 
 void printValue(Value value) {
-  // PRId64 would be the fully portable way; %lld after a cast is simpler to read.
-  printf("%lld", (long long)value);
+  // Printing must now dispatch on the tag: a value no longer has a single
+  // textual form. This switch is the value-level mirror of the VM's opcode
+  // switch — both are "decode the tag, act accordingly".
+  switch (value.type) {
+  case VAL_NIL:
+    printf("nil");
+    break;
+  case VAL_BOOL:
+    printf(AS_BOOL(value) ? "true" : "false");
+    break;
+  case VAL_INT:
+    // PRId64 would be the fully portable way; %lld after a cast is simpler.
+    printf("%lld", (long long)AS_INT(value));
+    break;
+  }
+}
+
+bool valuesEqual(Value a, Value b) {
+  // Different types are never equal — `1 == true` is false, not a coercion.
+  // This is a deliberate language-design stance (no implicit conversions);
+  // a language like JavaScript would choose differently here.
+  if (a.type != b.type)
+    return false;
+  switch (a.type) {
+  case VAL_NIL:
+    return true; // nil == nil
+  case VAL_BOOL:
+    return AS_BOOL(a) == AS_BOOL(b);
+  case VAL_INT:
+    return AS_INT(a) == AS_INT(b);
+  default:
+    return false; // unreachable
+  }
 }

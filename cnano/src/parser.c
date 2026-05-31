@@ -8,16 +8,30 @@
 // The grammar we implement, written in EBNF. Each rule below becomes a function.
 // Lower rules bind tighter (higher precedence):
 //
-//   expression -> term ;
-//   term       -> factor ( ( "+" | "-" ) factor )* ;   // left-associative
-//   factor     -> unary  ( ( "*" | "/" ) unary  )* ;   // left-associative
-//   unary      -> "-" unary | primary ;
-//   primary    -> NUMBER | "(" expression ")" ;
+//   expression -> equality ;
+//   equality   -> comparison ( ( "==" | "!=" ) comparison )* ;
+//   comparison -> term ( ( "<" | "<=" | ">" | ">=" ) term )* ;
+//   term       -> factor ( ( "+" | "-" ) factor )* ;       // left-associative
+//   factor     -> unary  ( ( "*" | "/" ) unary  )* ;       // left-associative
+//   unary      -> ( "-" | "!" ) unary | primary ;
+//   primary    -> INT | "true" | "false" | "nil" | "(" expression ")" ;
 //
-// Precedence falls out of the call chain: term calls factor calls unary calls
-// primary. Because factor is "below" term, multiplication is grouped before
-// addition automatically. Associativity falls out of the loops (`while`): we
-// fold left-to-right, so 1-2-3 parses as (1-2)-3, which is what we want.
+// Precedence falls out of the call chain: equality calls comparison calls term
+// calls factor calls unary calls primary. Each new level we add sits ABOVE the
+// arithmetic it should bind looser than — so `1 + 2 == 3` parses as
+// `(1 + 2) == 3`, which is what people expect. Associativity falls out of the
+// loops (`while`): we fold left-to-right, so 1-2-3 parses as (1-2)-3.
+//
+// DESUGARING: the grammar lists `!=`, `<=`, `>=`, but the AST has no operators
+// for them. The parser rewrites them into the three primitives the rest of the
+// pipeline supports:
+//     a != b   becomes   !(a == b)
+//     a <= b   becomes   !(a > b)
+//     a >= b   becomes   !(a < b)
+// This is "syntactic sugar": surface syntax that expands into a simpler core.
+// Doing it once, here, means the compiler and VM never need to know these forms
+// exist — a recurring strategy for keeping a language's CORE small while its
+// SURFACE stays convenient.
 
 typedef struct {
   Token current;  // the next token to consume (one-token lookahead)
@@ -81,12 +95,60 @@ static bool match(TokenType type) {
 // --- grammar rules (forward declarations, since they call each other) -------
 
 static Node *expression(void);
+static Node *equality(void);
+static Node *comparison(void);
 static Node *term(void);
 static Node *factor(void);
 static Node *unary(void);
 static Node *primary(void);
 
-static Node *expression(void) { return term(); }
+static Node *expression(void) { return equality(); }
+
+static Node *equality(void) {
+  Node *node = comparison();
+  while (check(TOKEN_EQUAL_EQUAL) || check(TOKEN_BANG_EQUAL)) {
+    int line = parser.current.line;
+    bool negate = check(TOKEN_BANG_EQUAL); // remember before consuming
+    advance();
+    Node *right = comparison();
+    node = newBinary(OP_NODE_EQUAL, node, right, line);
+    // Desugar `a != b` into `!(a == b)`.
+    if (negate)
+      node = newUnary(OP_NODE_NOT, node, line);
+  }
+  return node;
+}
+
+static Node *comparison(void) {
+  Node *node = term();
+  while (check(TOKEN_LESS) || check(TOKEN_LESS_EQUAL) ||
+         check(TOKEN_GREATER) || check(TOKEN_GREATER_EQUAL)) {
+    int line = parser.current.line;
+    TokenType op = parser.current.type;
+    advance();
+    Node *right = term();
+    // Build each form out of the two primitives `<` and `>` plus `!`:
+    switch (op) {
+    case TOKEN_LESS:
+      node = newBinary(OP_NODE_LESS, node, right, line);
+      break;
+    case TOKEN_GREATER:
+      node = newBinary(OP_NODE_GREATER, node, right, line);
+      break;
+    case TOKEN_LESS_EQUAL: // a <= b  ==>  !(a > b)
+      node = newUnary(OP_NODE_NOT,
+                      newBinary(OP_NODE_GREATER, node, right, line), line);
+      break;
+    case TOKEN_GREATER_EQUAL: // a >= b  ==>  !(a < b)
+      node = newUnary(OP_NODE_NOT,
+                      newBinary(OP_NODE_LESS, node, right, line), line);
+      break;
+    default:
+      break; // unreachable
+    }
+  }
+  return node;
+}
 
 static Node *term(void) {
   Node *node = factor();
@@ -111,11 +173,15 @@ static Node *factor(void) {
 }
 
 static Node *unary(void) {
+  // Both prefix operators recurse into unary() (not primary) so stacked prefixes
+  // like `--5` or `!!true` parse right-to-left as -(-5) / !(!true).
   if (match(TOKEN_MINUS)) {
     int line = parser.previous.line;
-    // Recursing into unary() (not primary) makes `--5` parse as -(-5).
-    Node *operand = unary();
-    return newUnary(OP_NODE_NEGATE, operand, line);
+    return newUnary(OP_NODE_NEGATE, unary(), line);
+  }
+  if (match(TOKEN_BANG)) {
+    int line = parser.previous.line;
+    return newUnary(OP_NODE_NOT, unary(), line);
   }
   return primary();
 }
@@ -125,15 +191,21 @@ static Node *primary(void) {
     // strtoll parses the slice of source text the token points at. The token is
     // not NUL-terminated on its own, but it is followed by more source (or the
     // final '\0'), and strtoll stops at the first non-digit, so this is safe.
-    Value value = (Value)strtoll(parser.previous.start, NULL, 10);
-    return newNumber(value, parser.previous.line);
+    int64_t value = strtoll(parser.previous.start, NULL, 10);
+    return newInt(value, parser.previous.line);
   }
+  if (match(TOKEN_TRUE))
+    return newBool(true, parser.previous.line);
+  if (match(TOKEN_FALSE))
+    return newBool(false, parser.previous.line);
+  if (match(TOKEN_NIL))
+    return newNil(parser.previous.line);
   if (match(TOKEN_LPAREN)) {
     Node *node = expression();
     consume(TOKEN_RPAREN, "Expect ')' after expression.");
     return node;
   }
-  errorAt(&parser.current, "Expect a number or '('.");
+  errorAt(&parser.current, "Expect a value or '('.");
   return NULL;
 }
 

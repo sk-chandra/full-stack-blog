@@ -15,11 +15,19 @@ static Node *allocNode(NodeType type, int line) {
   return node;
 }
 
-Node *newNumber(Value value, int line) {
-  Node *node = allocNode(NODE_NUMBER, line);
-  node->as.number.value = value;
+Node *newInt(int64_t value, int line) {
+  Node *node = allocNode(NODE_INT, line);
+  node->as.intValue = value;
   return node;
 }
+
+Node *newBool(bool value, int line) {
+  Node *node = allocNode(NODE_BOOL, line);
+  node->as.boolValue = value;
+  return node;
+}
+
+Node *newNil(int line) { return allocNode(NODE_NIL, line); }
 
 Node *newUnary(NodeOp op, Node *operand, int line) {
   Node *node = allocNode(NODE_UNARY, line);
@@ -43,8 +51,10 @@ void freeNode(Node *node) {
   if (node == NULL)
     return;
   switch (node->type) {
-  case NODE_NUMBER:
-    break; // no children
+  case NODE_INT:
+  case NODE_BOOL:
+  case NODE_NIL:
+    break; // leaf nodes, no children
   case NODE_UNARY:
     freeNode(node->as.unary.operand);
     break;

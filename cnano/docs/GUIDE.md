@@ -277,15 +277,92 @@ line to that file for every new feature.
 
 ---
 
-## 9. Roadmap: where to go next
+## 9. Case study: adding a second type (booleans, nil, comparisons)
+
+This is roadmap step 1, completed. It is worth its own section because going from
+*one* type to *two* is the single change that turns "a calculator" into "a
+language". Here is everything it touched and why — a template for how a single
+feature ripples through every stage of a compiler.
+
+### 10.1 The representation: from `int64_t` to a tagged union
+
+Before, `Value` was literally `int64_t`. With more than one type, a value must
+say *what it is*, so `value.h` now holds a **tagged union**:
+
+```c
+typedef struct {
+  ValueType type;            // VAL_NIL | VAL_BOOL | VAL_INT  — the tag
+  union { bool boolean; int64_t integer; } as;  // the payload
+} Value;
+```
+
+The union is only as big as its largest member, so booleans and ints share
+storage; `type` says which member is live. Reading the wrong member is a bug, so
+we funnel all access through macros — constructors (`INT_VAL`, `BOOL_VAL`,
+`NIL_VAL`), predicates (`IS_INT`, …), and accessors (`AS_INT`, `AS_BOOL`). This
+is *exactly* how CPython, Lua, and Ruby store dynamically typed values; you have
+now built the core of a dynamic value system.
+
+> **Trade-off:** a tagged struct is simple and debuggable but "fat" (16 bytes
+> here, vs 8 for a bare int). Production VMs often shrink this with *NaN-boxing*
+> (hiding a type tag inside the unused bits of a 64-bit IEEE float) — a great
+> advanced exercise once this version makes sense.
+
+### 10.2 The ripple through every stage
+
+Adding the type forced a coordinated change across the whole pipeline — this
+fan-out is the lesson:
+
+| Stage | What changed |
+|-------|--------------|
+| **lexer** | new tokens: `!`, `!=`, `==`, `<`, `<=`, `>`, `>=`, and the keywords `true`/`false`/`nil`. Introduced two-char-operator lexing (`match('=')`) and keyword recognition (`identifierType`). |
+| **AST** | new leaf nodes `NODE_INT`/`NODE_BOOL`/`NODE_NIL`; new ops `NOT`, `EQUAL`, `LESS`, `GREATER`. |
+| **parser** | two new precedence levels (`equality`, `comparison`) above arithmetic; `!` in `unary`; the literals in `primary`. |
+| **ISA** | new opcodes `OP_NIL/TRUE/FALSE/NOT/EQUAL/LESS/GREATER`. |
+| **compiler** | emit the new nodes; wrap raw ints into `INT_VAL`. |
+| **VM** | a `peek()`, runtime type checks, `valuesEqual`, the truthiness rule, and a varargs `runtimeError`. |
+
+When people say a language feature is "cross-cutting," *this* is what they mean.
+
+### 10.3 Three design decisions worth internalising
+
+- **Keep the core small with desugaring.** The grammar offers `!=`, `<=`, `>=`,
+  but the AST/compiler/VM only know `==`, `<`, `>`, and `!`. The parser
+  *rewrites* the others (`a <= b` → `!(a > b)`), so three stages never grow code
+  for them. Run `./build/cnano --dump` on `1 <= 2` and you will literally see
+  `OP_GREATER` followed by `OP_NOT`. Real compilers desugar aggressively
+  (for-loops → while-loops, `+=` → `=` plus `+`, and so on).
+
+- **Truthiness is a choice, not a fact.** `isFalsey` in `vm.c` decides what
+  counts as false. cnano follows Ruby/Lua: only `nil` and `false` are falsey, so
+  `!0` is `false` (0 is truthy). C and Python would say 0 is falsey. There is no
+  universally correct answer — but you must *pick one and apply it everywhere*.
+
+- **No implicit coercion.** `1 == true` is `false`, not an error and not `true`.
+  `valuesEqual` returns false for differing types rather than converting. This
+  keeps ints and bools as genuinely distinct types — the opposite of
+  JavaScript's `==`. It is the first whiff of a *type system*.
+
+### 10.4 Runtime type checking — the robustness core
+
+A typed value system is useless unless the VM *enforces* it. Arithmetic and
+ordering now check `IS_INT` on both operands **before** unwrapping (`BINARY_OP`
+and `OP_NEGATE`/`OP_DIV`), and raise a clean `runtimeError` otherwise. `OP_EQUAL`
+and `OP_NOT`, by contrast, accept any type — a deliberate asymmetry. The
+guarantee this buys: **no cnano program can crash the interpreter via a type
+error or a divide-by-zero.** Turning would-be undefined behaviour into reported
+errors is the difference between a toy and a usable tool.
+
+---
+
+## 10. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
 
-1. **Booleans, `nil`, and comparisons.** Turn `Value` into a *tagged union*
-   (`{ type, union { int64_t i; bool b; } }`). Add `<  >  ==  !=` and `OP_TRUE`,
-   `OP_FALSE`. This is the gateway to a real type system and forces you to add
-   runtime type checks ("operands must be numbers").
+1. ~~**Booleans, `nil`, and comparisons.**~~ **✅ DONE** — see §9 above for a
+   full write-up. `Value` is now a tagged union; `<  <=  >  >=  ==  !=  !` work;
+   the VM type-checks operands at runtime.
 2. **Statements and `print`.** Introduce a statement grammar, a `;` terminator,
    and an `OP_PRINT`. Programs become sequences of statements rather than one
    expression. Add `OP_POP` to discard expression-statement results.

@@ -42,6 +42,7 @@ check_err() {
 
 echo "Running cnano tests with: $CNANO"
 
+# --- arithmetic (from the first slice) ---
 check "addition"        "1 + 2"            "3"
 check "precedence"      "1 + 2 * 3"        "7"
 check "grouping"        "(1 + 2) * 3"      "9"
@@ -52,10 +53,49 @@ check "integer-div"     "7 / 2"            "3"
 check "big-expression"  "(1 + 2) * 3 - 10 / 2" "4"
 check "nested-parens"   "((2))"            "2"
 
-check_err "div-by-zero"   "1 / 0"
+# --- literals (step 1) ---
+check "true-literal"    "true"             "true"
+check "false-literal"   "false"            "false"
+check "nil-literal"     "nil"              "nil"
+
+# --- logical not + truthiness (step 1) ---
+check "not-true"        "!true"            "false"
+check "not-false"       "!false"           "true"
+check "not-nil"         "!nil"             "true"
+check "not-zero-truthy" "!0"               "false"   # 0 is TRUTHY in cnano
+check "double-not"      "!!false"          "false"
+
+# --- comparisons (step 1) ---
+check "less"            "1 < 2"            "true"
+check "less-false"      "2 < 1"            "false"
+check "less-equal"      "2 <= 2"           "true"
+check "greater"         "5 > 3"            "true"
+check "greater-equal"   "5 >= 5"           "true"
+
+# --- equality, including cross-type (step 1) ---
+check "int-equal"       "1 == 1"           "true"
+check "int-not-equal"   "1 != 2"           "true"
+check "bool-equal"      "true == true"     "true"
+check "cross-type-neq"  "1 == true"        "false"   # no implicit coercion
+check "nil-equal-nil"   "nil == nil"       "true"
+
+# --- precedence across the new levels (step 1) ---
+check "arith-vs-cmp"    "1 + 2 == 3"       "true"    # parses as (1+2)==3
+check "cmp-vs-eq"       "1 < 2 == true"    "true"    # parses as (1<2)==true
+
+# --- runtime type errors (step 1) ---
+check_err "div-by-zero"     "1 / 0"
+check_err "add-bool"        "1 + true"
+check_err "negate-bool"     "-true"
+check_err "compare-bool"    "true < false"
+check_err "chained-compare" "1 < 2 < 3"            # (1<2)<3 -> true<3 -> error
+
+# --- syntax / lexing errors ---
 check_err "syntax-trail"  "1 +"
-check_err "bad-char"      "1 $ 2"
+check_err "bad-char"      "1 @ 2"
 check_err "unbalanced"    "(1 + 2"
+check_err "lone-equals"   "1 = 2"                   # '=' alone is rejected
+check_err "unknown-word"  "foo"                     # no variables yet
 
 rm -f "$tmp"
 echo "-----------------------------------------"

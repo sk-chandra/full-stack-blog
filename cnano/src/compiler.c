@@ -29,8 +29,20 @@ static void emitConstant(Value value, int line) {
 // The core recursive walk. Each case leaves exactly one value on the VM stack.
 static void emitNode(Node *node) {
   switch (node->type) {
-  case NODE_NUMBER:
-    emitConstant(node->as.number.value, node->line);
+  case NODE_INT:
+    // Integers go through the constant pool. We wrap the raw int into a tagged
+    // Value right here — the AST stayed representation-agnostic, the compiler
+    // bridges to the runtime type.
+    emitConstant(INT_VAL(node->as.intValue), node->line);
+    break;
+
+  case NODE_BOOL:
+    // No constant-pool slot needed: a single opcode encodes the whole value.
+    emitByte(node->as.boolValue ? OP_TRUE : OP_FALSE, node->line);
+    break;
+
+  case NODE_NIL:
+    emitByte(OP_NIL, node->line);
     break;
 
   case NODE_UNARY:
@@ -39,8 +51,11 @@ static void emitNode(Node *node) {
     case OP_NODE_NEGATE:
       emitByte(OP_NEGATE, node->line);
       break;
+    case OP_NODE_NOT:
+      emitByte(OP_NOT, node->line);
+      break;
     default:
-      break; // unreachable: only NEGATE is a unary op today
+      break; // unreachable
     }
     break;
 
@@ -61,6 +76,15 @@ static void emitNode(Node *node) {
       break;
     case OP_NODE_DIV:
       emitByte(OP_DIV, node->line);
+      break;
+    case OP_NODE_EQUAL:
+      emitByte(OP_EQUAL, node->line);
+      break;
+    case OP_NODE_LESS:
+      emitByte(OP_LESS, node->line);
+      break;
+    case OP_NODE_GREATER:
+      emitByte(OP_GREATER, node->line);
       break;
     default:
       break; // unreachable

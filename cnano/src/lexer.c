@@ -24,6 +24,12 @@ static bool isAtEnd(void) { return *lexer.current == '\0'; }
 
 static bool isDigit(char c) { return c >= '0' && c <= '9'; }
 
+// A character that may start or continue an identifier/keyword. cnano keeps it
+// simple: ASCII letters and underscore. (Real languages also allow Unicode.)
+static bool isAlpha(char c) {
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+}
+
 // Consume and return the current character.
 static char advance(void) {
   lexer.current++;
@@ -32,6 +38,19 @@ static char advance(void) {
 
 // Look at the current character without consuming it ("lookahead").
 static char peek(void) { return *lexer.current; }
+
+// Conditionally consume: if the current character equals `expected`, eat it and
+// return true. This is how the lexer decides between `!` and `!=`: it reads `!`,
+// then `match('=')` tells it whether a `=` follows. One character of lookahead
+// is all two-character operators need.
+static bool match(char expected) {
+  if (isAtEnd())
+    return false;
+  if (*lexer.current != expected)
+    return false;
+  lexer.current++;
+  return true;
+}
 
 // Build a token of `type` spanning from lexer.start to lexer.current.
 static Token makeToken(TokenType type) {
@@ -83,6 +102,36 @@ static Token number(void) {
   return makeToken(TOKEN_NUMBER);
 }
 
+// Decide whether the just-scanned identifier is actually a reserved keyword.
+// We compare the lexeme's length and bytes against each keyword. With only three
+// keywords a short if-chain is clearest; real lexers use a small trie or hash to
+// stay fast as the keyword set grows. The KEYword *recognition* must happen here
+// rather than in the parser, because a keyword and a variable name look
+// identical until you check the spelling.
+static TokenType identifierType(void) {
+  int length = (int)(lexer.current - lexer.start);
+  const char *s = lexer.start;
+  if (length == 4 && memcmp(s, "true", 4) == 0)
+    return TOKEN_TRUE;
+  if (length == 5 && memcmp(s, "false", 5) == 0)
+    return TOKEN_FALSE;
+  if (length == 3 && memcmp(s, "nil", 3) == 0)
+    return TOKEN_NIL;
+  // Not a keyword. cnano has no user identifiers yet (that arrives with
+  // variables in roadmap step 3), so an unknown word is an error for now.
+  return TOKEN_ERROR;
+}
+
+// Scan a maximal run of identifier characters, then classify it.
+static Token identifier(void) {
+  while (isAlpha(peek()) || isDigit(peek()))
+    advance();
+  TokenType type = identifierType();
+  if (type == TOKEN_ERROR)
+    return errorToken("Unknown keyword (variables are not supported yet).");
+  return makeToken(type);
+}
+
 Token scanToken(void) {
   skipWhitespace();
   lexer.start = lexer.current; // the new token begins here
@@ -92,6 +141,8 @@ Token scanToken(void) {
 
   char c = advance();
 
+  if (isAlpha(c))
+    return identifier();
   if (isDigit(c))
     return number();
 
@@ -108,6 +159,18 @@ Token scanToken(void) {
     return makeToken(TOKEN_LPAREN);
   case ')':
     return makeToken(TOKEN_RPAREN);
+  // Operators that may be one or two characters. match('=') peeks ahead.
+  case '!':
+    return makeToken(match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
+  case '=':
+    // A lone '=' is assignment, which doesn't exist yet — only '==' is valid.
+    if (match('='))
+      return makeToken(TOKEN_EQUAL_EQUAL);
+    return errorToken("Expect '==' (assignment is not supported yet).");
+  case '<':
+    return makeToken(match('=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
+  case '>':
+    return makeToken(match('=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
   }
 
   return errorToken("Unexpected character.");
