@@ -524,7 +524,81 @@ on its right side, making it right-associative, and sits at the lowest precedenc
 
 ---
 
-## 12. Roadmap: where to go next
+## 12. Case study: local variables, lexical scope, and compile-time resolution
+
+Roadmap step 4, completed. Where globals are stored by name in a runtime hash
+table, **locals are resolved to numeric stack slots by the compiler**, so reading
+a local is a single array access with no name and no lookup. This step is almost
+entirely in `compiler.c` — the VM barely changed — which is itself the lesson: a
+lot of a language's behaviour is decided at *compile* time.
+
+### 12.1 Two kinds of variable, one decision point
+
+The compiler's `resolveLocal` searches its compile-time list of in-scope locals
+for a name. If found, the variable is a local and the compiler emits a
+slot-indexed `OP_GET_LOCAL`/`OP_SET_LOCAL`; if not, it falls back to the by-name
+`OP_GET_GLOBAL`/`OP_SET_GLOBAL` from step 3. That single branch in
+`NODE_VAR_GET`/`NODE_ASSIGN` is the entire global-vs-local distinction. The payoff
+is visible in `--dump`: inside a block, `print a + b` becomes `OP_GET_LOCAL 0`,
+`OP_GET_LOCAL 1`, `OP_ADD` — indices, not names.
+
+### 12.2 The compile-time model of the runtime stack
+
+The key idea: the compiler keeps a `locals[]` array that **mirrors what the VM
+stack will look like** at runtime. When a local is declared, its slot index is
+simply its position in that array — which is exactly where its value will sit on
+the VM stack, because (a) every statement is stack-neutral, so the stack is empty
+at statement boundaries, and (b) a local's initialiser leaves its value on top.
+So "storing" a local needs **no opcode at all**: the value's natural stack
+position *is* the variable. This elegant correspondence is why stack-based VMs
+make locals so cheap.
+
+### 12.3 Scopes: begin, end, and the cost of leaving
+
+`beginScope`/`endScope` just bump and drop a `scopeDepth` counter. The real work
+is at end of scope: every local declared in the block must be removed from the
+runtime stack, so `endScope` emits one `OP_POP` per local and shrinks the
+compile-time model to match. That is the concrete runtime cost of a block —
+proportional to the locals it declared. (Real VMs add an `OP_POPN` to pop many at
+once; we keep it explicit.)
+
+### 12.4 Three correctness subtleties real compilers handle
+
+- **Shadowing.** `resolveLocal` scans from the innermost local outward, so an
+  inner `let x` is found before an outer one — it *shadows* it. On block exit the
+  inner slot is popped and the outer reappears. The example prints `1 2 3 2 1`.
+- **Redeclaration in the same scope.** `declareLocal` rejects a second `let` of
+  the same name *at the same depth* (a likely bug) while still allowing an inner
+  scope to shadow. This is a compile-time error.
+- **Self-reference in an initialiser.** `let e = e;` is nonsense. We declare the
+  name at depth `-1` ("uninitialised") *before* compiling its initialiser, and
+  `resolveLocal` errors if it sees a `-1` local — catching the self-reference.
+  Only after the initialiser compiles do we `markInitialized`.
+
+### 12.5 Compile-time errors, cleanly
+
+Because the compiler can now fail (the three cases above, plus "too many
+locals"), `compile()` returns a bool and records errors via `compileError`
+instead of `exit()`-ing mid-stream — mirroring the parser's report-and-continue
+style. `interpret()` checks the result and skips execution on failure.
+
+### 12.6 A real bug this step exposed (and the fix)
+
+Adding `}` to the language surfaced a latent **infinite loop** in error recovery
+from step 2. A token that cannot start an expression (a stray `}`) was reported
+by `primary()` but never *consumed*; the recovery loop could early-return from
+`synchronize()` on a stale `;` and then retry the very same token forever,
+flooding errors until the process was OOM-killed. The fix is a one-liner with a
+big principle behind it: **an error path must still make forward progress.**
+`primary()` now consumes the offending token on error, guaranteeing the parser
+always advances. The test suite gained regression guards (`}`, `} } }`, `* 3;`)
+that must *terminate*, not hang. Lesson: test your error paths, not just your
+happy paths — and a parser that can loop on malformed input is a real
+denial-of-service bug, not a cosmetic one.
+
+---
+
+## 13. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -538,9 +612,9 @@ ordered so each builds on the last.
 3. ~~**Global variables.**~~ **✅ DONE** — see §11 above. Built a from-scratch
    hash table (open addressing, tombstones), heap objects with interning, string
    values, and `let`/read/assign with l-value handling.
-4. **Local variables and scope.** Resolve locals to **stack slots** at compile
-   time (no hash lookup at runtime). This introduces the *compile-time
-   environment* and lexical scoping.
+4. ~~**Local variables and scope.**~~ **✅ DONE** — see §12 above. `{ }` blocks,
+   locals resolved to stack slots at compile time, shadowing, and compile-time
+   checks for redeclaration and self-referential initialisers.
 5. **Control flow.** `if`/`else`, `while`, `for` via **jump instructions**
    (`OP_JUMP`, `OP_JUMP_IF_FALSE`) and *backpatching* — emitting a jump with a
    placeholder offset and filling it in once you know the target.

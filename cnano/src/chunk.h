@@ -42,6 +42,12 @@ typedef enum {
   OP_DEFINE_GLOBAL, // [opcode][nameIdx] : pop value, create globals[name]=value
   OP_GET_GLOBAL,    // [opcode][nameIdx] : push globals[name] (error if undefined)
   OP_SET_GLOBAL,    // [opcode][nameIdx] : globals[name]=peek (error if undefined)
+  // Local variables. Unlike globals (looked up by name in a hash table at
+  // runtime), locals are resolved to a numeric STACK SLOT by the compiler, so
+  // these carry a 1-byte slot index and need no name and no lookup — just a
+  // direct array access. That speed difference is the whole point of step 4.
+  OP_GET_LOCAL,     // [opcode][slot]    : push stack[slot]
+  OP_SET_LOCAL,     // [opcode][slot]    : stack[slot] = peek(0)  (no pop)
   // Statement-level opcodes. Unlike the operators above, these consume a value
   // WITHOUT pushing one back — they exist for their effect on output or the
   // stack, mirroring the expression/statement split in the language itself.

@@ -182,6 +182,32 @@ check_prog_err "let-no-name"      "let = 5;"
 check_prog_err "string-plus-int"  'print "a" + 1;'
 check_prog_err "unterminated-str" 'print "oops;'
 
+# --- local variables & block scope (step 4) ---
+check_prog "block-local"      "{ let a = 5; print a; }"           "5"
+check_prog "two-locals"       "{ let a = 3; let b = 4; print a + b; }" "7"
+check_prog "local-sees-global" "let g = 100; { let a = 1; print a + g; }" "101"
+check_prog "local-assign"     "{ let c = 1; c = c + 9; print c; }" "10"
+# Shadowing: each scope has its own x; exiting restores the outer one.
+check_prog "shadowing" \
+  "let x = 1; print x; { let x = 2; print x; { let x = 3; print x; } print x; } print x;" \
+  "$(printf '1\n2\n3\n2\n1')"
+check_prog "shadow-global-in-block" "let n = 9; { let n = 1; print n; } print n;" "$(printf '1\n9')"
+check_prog "nested-blocks"    "{ let a = 1; { let b = 2; { print a + b; } } }" "3"
+# A global declared after a block still works (block locals were cleaned up).
+check_prog "stack-balanced"   "{ let a = 1; } let g = 7; print g;" "7"
+
+# --- local/scope compile & runtime errors (step 4) ---
+check_prog_err "local-escapes-scope" "{ let s = 1; } print s;"   # s is gone -> undefined
+check_prog_err "redeclare-local"     "{ let d = 1; let d = 2; }"
+check_prog_err "self-init"           "{ let e = e; }"
+check_prog_err "unclosed-block"      "{ let a = 1;"
+check_prog_err "unexpected-rbrace"   "let a = 1; }"
+# Regression guards: tokens that cannot start an expression once caused the
+# parser's recovery loop to spin forever. These must terminate (not hang).
+check_prog_err "stray-rbrace"        "}"
+check_prog_err "many-rbrace"         "} } }"
+check_prog_err "leading-operator"    "* 3;"
+
 rm -f "$tmp"
 echo "-----------------------------------------"
 echo "passed: $pass   failed: $fail"

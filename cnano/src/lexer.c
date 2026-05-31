@@ -198,6 +198,10 @@ Token scanToken(void) {
     return makeToken(TOKEN_LPAREN);
   case ')':
     return makeToken(TOKEN_RPAREN);
+  case '{':
+    return makeToken(TOKEN_LBRACE);
+  case '}':
+    return makeToken(TOKEN_RBRACE);
   case ';':
     return makeToken(TOKEN_SEMICOLON);
   case '"':

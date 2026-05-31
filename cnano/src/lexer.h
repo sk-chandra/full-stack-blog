@@ -16,6 +16,8 @@ typedef enum {
   TOKEN_SLASH,
   TOKEN_LPAREN,
   TOKEN_RPAREN,
+  TOKEN_LBRACE,    // { — opens a block scope
+  TOKEN_RBRACE,    // } — closes a block scope
   TOKEN_SEMICOLON, // ; — terminates a statement
   // One- or two-character operators. Some of these share a first character
   // (`!` vs `!=`, `<` vs `<=`), so the lexer must peek at the SECOND character

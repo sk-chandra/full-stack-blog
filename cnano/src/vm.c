@@ -260,6 +260,21 @@ static InterpretResult run(bool trace) {
       }
       break;
     }
+    case OP_GET_LOCAL: {
+      // A local lives at a fixed slot in the stack. The compiler resolved the
+      // name to this index already, so there is NO lookup — just copy the slot's
+      // value to the top of the stack so the rest of the expression can use it.
+      uint8_t slot = READ_BYTE();
+      push(vm.stack[slot]);
+      break;
+    }
+    case OP_SET_LOCAL: {
+      // Store the top value INTO the local's slot. peek (not pop): assignment is
+      // an expression, so its value must remain on top for the surrounding code.
+      uint8_t slot = READ_BYTE();
+      vm.stack[slot] = peek(0);
+      break;
+    }
     case OP_PRINT:
       // The only way a cnano program produces output. It pops its operand, so
       // like every statement-level op it is stack-neutral overall.
@@ -292,8 +307,12 @@ InterpretResult interpret(const char *source, bool trace) {
   // 2. Compile the program into a chunk of bytecode.
   Chunk chunk;
   initChunk(&chunk);
-  compile(&program, &chunk);
+  bool compiled = compile(&program, &chunk);
   freeProgram(&program); // trees no longer needed once bytecode exists
+  if (!compiled) {
+    freeChunk(&chunk);
+    return INTERPRET_COMPILE_ERROR;
+  }
 
   if (trace)
     disassembleChunk(&chunk, "compiled bytecode");

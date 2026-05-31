@@ -14,7 +14,8 @@
 //   program     -> declaration* EOF ;
 //   declaration -> varDecl | statement ;
 //   varDecl     -> "let" IDENTIFIER "=" expression ";" ;
-//   statement   -> printStmt | exprStmt ;
+//   statement   -> printStmt | block | exprStmt ;
+//   block       -> "{" declaration* "}" ;
 //   printStmt   -> "print" expression ";" ;
 //   exprStmt    -> expression ";" ;
 //
@@ -271,12 +272,20 @@ static Node *primary(void) {
     return node;
   }
   errorAt(&parser.current, "Expect a value or '('.");
+  // CRITICAL for error recovery: consume the offending token so the parser
+  // always makes forward progress. Without this, a token that cannot start an
+  // expression (e.g. a stray '}') is never advanced past, and the recovery loop
+  // — which may early-return from synchronize() on a stale ';' — spins forever.
+  // We only compile when parsing fully succeeds, so returning NULL here is safe.
+  if (!check(TOKEN_EOF))
+    advance();
   return NULL;
 }
 
 // --- statements ------------------------------------------------------------
 
 static Node *statement(void);
+static Node *declaration(void);
 
 // After a syntax error we "panic": skip tokens until we reach a likely
 // statement boundary, so parsing can resume and report further independent
@@ -316,9 +325,33 @@ static Node *expressionStatement(void) {
   return newExprStmt(expr, line);
 }
 
+// `{ declaration* }` — parse statements into a fresh Program until the closing
+// brace. The block OWNS that Program; the scope itself (which names are local) is
+// purely a COMPILE-TIME concern handled later by the compiler, so the parser just
+// records the nesting structure here.
+static Node *block(void) {
+  int line = parser.previous.line; // the '{'
+  Program *body = malloc(sizeof(Program));
+  if (body == NULL) {
+    fprintf(stderr, "cnano: out of memory allocating block\n");
+    exit(70);
+  }
+  initProgram(body);
+
+  while (!check(TOKEN_RBRACE) && !check(TOKEN_EOF)) {
+    writeProgram(body, declaration());
+    if (parser.panicMode)
+      synchronize();
+  }
+  consume(TOKEN_RBRACE, "Expect '}' after block.");
+  return newBlock(body, line);
+}
+
 static Node *statement(void) {
   if (match(TOKEN_PRINT))
     return printStatement();
+  if (match(TOKEN_LBRACE))
+    return block();
   return expressionStatement();
 }
 

@@ -82,6 +82,12 @@ Node *newVarDecl(ObjString *name, Node *value, int line) {
   return node;
 }
 
+Node *newBlock(Program *block, int line) {
+  Node *node = allocNode(NODE_BLOCK, line);
+  node->as.block = block; // node now owns this heap-allocated Program
+  return node;
+}
+
 // Post-order traversal: free children before the parent so we never follow a
 // dangling pointer. Recursion mirrors the tree's own shape — the natural way to
 // walk a tree in any compiler stage.
@@ -109,6 +115,12 @@ void freeNode(Node *node) {
   case NODE_ASSIGN:
   case NODE_VAR_DECL:
     freeNode(node->as.var.value); // free the value expr; name is VM-owned
+    break;
+  case NODE_BLOCK:
+    // A block owns a heap-allocated Program: free its statements, the Program
+    // struct itself, then fall through to free the node.
+    freeProgram(node->as.block);
+    free(node->as.block);
     break;
   }
   free(node);

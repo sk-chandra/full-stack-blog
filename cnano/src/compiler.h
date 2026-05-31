@@ -12,7 +12,8 @@
 #include "chunk.h"
 
 // Compile a whole `program` (its sequence of statements) into `chunk`. The
-// chunk should already be initialised.
-void compile(Program *program, Chunk *chunk);
+// chunk should already be initialised. Returns false if a compile-time error
+// occurred (e.g. duplicate local, too many locals); the message is printed.
+bool compile(Program *program, Chunk *chunk);
 
 #endif // CNANO_COMPILER_H

@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (73 cases)
+make test       # run the end-to-end test suite (86 cases)
 make run        # start the REPL
 
 # run a file
@@ -35,9 +35,13 @@ make run        # start the REPL
 
 - **Programs are sequences of statements**, each ending with `;`, run top to
   bottom. Output happens only via `print EXPR;`
-- **Global variables**: `let x = …;` to declare, `x` to read, `x = …` to
-  reassign (assignment is a right-associative expression, so `print a = 5;`
-  works and `a = b = 1;` chains)
+- **Variables**: `let x = …;` to declare, `x` to read, `x = …` to reassign
+  (assignment is a right-associative expression, so `print a = 5;` works and
+  `a = b = 1;` chains)
+- **Block scope** with `{ }` and **local variables**: `let` inside a block makes
+  a *local*, resolved to a stack slot at compile time (no runtime lookup, unlike
+  globals). Supports **shadowing**; flags redeclaration and self-referential
+  initialisers at compile time
 - **Strings**: `"double-quoted"` literals, `+` concatenates them, and they are
   **interned** so equal strings compare in O(1) by pointer
 - **Line comments** with `//` (stripped by the lexer; `/` is still division)
@@ -71,7 +75,7 @@ make run        # start the REPL
 | `src/object.{h,c}` | heap objects + strings | struct-embedding "inheritance", interning, FNV-1a |
 | `src/table.{h,c}` | hash table | open addressing, linear probing, tombstones |
 | `src/chunk.{h,c}` | bytecode container | designing an instruction set (ISA) |
-| `src/compiler.{h,c}` | AST → bytecode | tree walk → stack code; stack discipline |
+| `src/compiler.{h,c}` | AST → bytecode | stack code; compile-time scopes, local slots |
 | `src/vm.{h,c}` | executes bytecode | fetch-decode-execute; globals; type checks |
 | `src/debug.{h,c}` | disassembler | seeing what your compiler produced |
 | `src/main.c` | CLI / REPL | wiring it together |

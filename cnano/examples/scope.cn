@@ -1,0 +1,30 @@
+// Local variables and lexical scope.
+//
+// `let` at the top level makes a GLOBAL (stored by name in a hash table).
+// `let` inside a { } block makes a LOCAL (stored in a stack slot, resolved at
+// compile time — no runtime lookup, so it's faster).
+
+let total = 0;          // global
+
+{
+  let a = 10;           // local to this block
+  let b = 20;           // local
+  total = a + b;        // locals read fast; `total` is the outer global
+}
+// a and b no longer exist here — their stack slots were reclaimed.
+print total;            // 30
+
+// SHADOWING: an inner `let x` hides an outer one for the duration of its block,
+// then the outer reappears. Watch the value climb and fall back:
+let x = 1;
+print x;                // 1
+{
+  let x = 2;
+  print x;              // 2
+  {
+    let x = 3;
+    print x;            // 3
+  }
+  print x;              // 2  (inner x gone)
+}
+print x;                // 1  (back to the global)

@@ -45,7 +45,8 @@ typedef enum {
   // --- statement nodes (performed for effect, yield nothing) ---
   NODE_PRINT,      // `print EXPR;` — evaluate EXPR and print it
   NODE_EXPR_STMT,  // `EXPR;` — evaluate EXPR, then discard its value
-  NODE_VAR_DECL,   // `let name = EXPR;` — create a new global variable
+  NODE_VAR_DECL,   // `let name = EXPR;` — declare a variable (global or local)
+  NODE_BLOCK,      // `{ ... }` — a new lexical scope holding more statements
 } NodeType;
 
 // The operator carried by unary/binary nodes. Keeping this separate from the
@@ -68,6 +69,11 @@ typedef enum {
   OP_NODE_LESS,    // <
   OP_NODE_GREATER, // >
 } NodeOp;
+
+// Forward declaration: a Node can contain a Program (a block's body), but
+// Program is defined further down in terms of Node. Naming it here breaks the
+// cycle so the union member below can hold a `struct Program *`.
+struct Program;
 
 // A "tagged union": the `type` field tells you which arm of the union `as` is
 // valid. This is the idiomatic C way to represent "one of several shapes" and
@@ -106,6 +112,10 @@ typedef struct Node {
       ObjString *name;
       struct Node *value;
     } var;
+    // NODE_BLOCK: a brace-delimited sequence of statements forming a new scope.
+    // We reuse the Program container (a growable Node* list) — a block is, after
+    // all, just a nested program with its own scope.
+    struct Program *block;
   } as;
 } Node;
 
@@ -114,7 +124,7 @@ typedef struct Node {
 // capacity, double-on-full. Separating "the program" from "a node" keeps the
 // recursive Node type clean while still letting the parser produce many
 // statements.
-typedef struct {
+typedef struct Program {
   int count;
   int capacity;
   Node **statements; // array of owned Node* (each a statement)
@@ -137,6 +147,7 @@ Node *newAssign(ObjString *name, Node *value, int line);
 Node *newPrint(Node *expr, int line);
 Node *newExprStmt(Node *expr, int line);
 Node *newVarDecl(ObjString *name, Node *value, int line);
+Node *newBlock(Program *block, int line); // takes ownership of `block`
 void freeNode(Node *node);
 
 #endif // CNANO_AST_H
