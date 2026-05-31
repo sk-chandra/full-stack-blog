@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "memory.h"
 #include "object.h"
 #include "table.h"
 
@@ -156,5 +157,30 @@ ObjString *tableFindString(Table *table, const char *chars, int length,
       return entry->key; // found an identical existing string
     }
     index = (index + 1) & (table->capacity - 1);
+  }
+}
+
+// --- garbage-collector support ---------------------------------------------
+
+void markTable(Table *table) {
+  // The globals table is a GC root: both its keys (ObjString names) and its
+  // values must survive a collection. Walk every bucket; markObject/markValue
+  // ignore empty buckets (NULL key) and non-object values.
+  for (int i = 0; i < table->capacity; i++) {
+    Entry *entry = &table->entries[i];
+    markObject((Obj *)entry->key);
+    markValue(entry->value);
+  }
+}
+
+void tableRemoveWhite(Table *table) {
+  // The string intern pool is a WEAK table: it must not keep a string alive by
+  // itself. After tracing, any key still unmarked is unreachable and about to be
+  // freed, so delete its entry here — otherwise the table would be left pointing
+  // at freed memory (a classic dangling-weak-reference bug).
+  for (int i = 0; i < table->capacity; i++) {
+    Entry *entry = &table->entries[i];
+    if (entry->key != NULL && !entry->key->obj.isMarked)
+      tableDelete(table, entry->key);
   }
 }

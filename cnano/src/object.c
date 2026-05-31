@@ -2,20 +2,19 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "memory.h"
 #include "object.h"
 #include "table.h"
 #include "vm.h" // for the global object list head and the intern table
 
 // Allocate a heap object of `size` bytes, tag it, and thread it onto the VM's
-// intrusive object list so it can be freed at shutdown. Every object is born
-// through here — the single choke point a garbage collector would later hook.
+// intrusive object list. Every object is born through here — the single choke
+// point the garbage collector hooks: allocation goes through reallocate (which
+// may trigger a collection first) and each new object starts unmarked (white).
 static Obj *allocateObject(size_t size, ObjType type) {
-  Obj *object = malloc(size);
-  if (object == NULL) {
-    fprintf(stderr, "cnano: out of memory allocating object\n");
-    exit(70);
-  }
+  Obj *object = (Obj *)reallocate(NULL, 0, size);
   object->type = type;
+  object->isMarked = false;
   object->next = vm.objects; // push onto the front of the list
   vm.objects = object;
   return object;
@@ -57,12 +56,9 @@ ObjString *copyString(const char *chars, int length) {
     return interned;
 
   // Not seen before: copy the bytes into our own NUL-terminated buffer. We copy
-  // because the source is often a transient slice of the program text.
-  char *heapChars = malloc(length + 1);
-  if (heapChars == NULL) {
-    fprintf(stderr, "cnano: out of memory copying string\n");
-    exit(70);
-  }
+  // because the source is often a transient slice of the program text. Routed
+  // through reallocate so the GC accounts for the buffer too.
+  char *heapChars = (char *)reallocate(NULL, 0, length + 1);
   memcpy(heapChars, chars, length);
   heapChars[length] = '\0';
   return allocateString(heapChars, length, hash);
@@ -80,11 +76,9 @@ ObjFunction *newFunction(void) {
 
 ObjClosure *newClosure(ObjFunction *function) {
   // Allocate the upvalue pointer array first; the VM populates it right after.
-  ObjUpvalue **upvalues = malloc(sizeof(ObjUpvalue *) * function->upvalueCount);
-  if (upvalues == NULL && function->upvalueCount > 0) {
-    fprintf(stderr, "cnano: out of memory allocating closure upvalues\n");
-    exit(70);
-  }
+  // Through reallocate so freeObject can subtract the same bytes on release.
+  ObjUpvalue **upvalues = (ObjUpvalue **)reallocate(
+      NULL, 0, sizeof(ObjUpvalue *) * function->upvalueCount);
   for (int i = 0; i < function->upvalueCount; i++)
     upvalues[i] = NULL;
 
@@ -136,12 +130,14 @@ void printObject(Value value) {
 }
 
 // Free one object. Strings own two allocations: the char buffer and the struct.
-static void freeObject(Obj *object) {
+// All frees go through reallocate(ptr, size, 0) so the GC's byte tally stays
+// accurate (it must subtract exactly what allocation added).
+void freeObject(Obj *object) {
   switch (object->type) {
   case OBJ_STRING: {
     ObjString *string = (ObjString *)object;
-    free(string->chars);
-    free(string);
+    reallocate(string->chars, string->length + 1, 0);
+    reallocate(string, sizeof(ObjString), 0);
     break;
   }
   case OBJ_FUNCTION: {
@@ -149,20 +145,21 @@ static void freeObject(Obj *object) {
     // ObjString is owned by the object list / intern pool, not freed here.)
     ObjFunction *function = (ObjFunction *)object;
     freeChunk(&function->chunk);
-    free(function);
+    reallocate(function, sizeof(ObjFunction), 0);
     break;
   }
   case OBJ_CLOSURE: {
     // A closure owns its upvalue POINTER array, but NOT the upvalues themselves
     // (those are shared, and freed as their own objects on the VM list).
     ObjClosure *closure = (ObjClosure *)object;
-    free(closure->upvalues);
-    free(closure);
+    reallocate(closure->upvalues,
+               sizeof(ObjUpvalue *) * closure->upvalueCount, 0);
+    reallocate(closure, sizeof(ObjClosure), 0);
     break;
   }
   case OBJ_UPVALUE:
     // The upvalue does not own the value it points at; just free the struct.
-    free(object);
+    reallocate(object, sizeof(ObjUpvalue), 0);
     break;
   }
 }

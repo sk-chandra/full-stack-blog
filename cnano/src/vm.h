@@ -44,6 +44,14 @@ typedef struct {
   Table strings;       // string intern pool, used as a set of all live strings
   ObjUpvalue *openUpvalues; // open upvalues, sorted by stack slot (highest first)
   Obj *objects;        // head of the intrusive list of every heap object
+
+  // --- garbage-collector bookkeeping ---
+  bool gcEnabled;       // collector runs only while the VM is executing (see memory.h)
+  size_t bytesAllocated; // running total of live bytes, maintained by reallocate
+  size_t nextGC;         // collect when bytesAllocated exceeds this threshold
+  Obj **grayStack;       // the mark phase's grey worklist (managed outside the GC)
+  int grayCount;
+  int grayCapacity;
 } VM;
 
 // The VM is a single global instance. object.c reaches in to register new

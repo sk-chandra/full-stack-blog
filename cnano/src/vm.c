@@ -6,6 +6,7 @@
 #include "codegen_c.h"
 #include "compiler.h"
 #include "debug.h"
+#include "memory.h"
 #include "object.h"
 #include "optimize.h"
 #include "parser.h"
@@ -26,6 +27,17 @@ void initVM(void) {
   resetStack();
   vm.objects = NULL;
   vm.openUpvalues = NULL;
+
+  // GC starts DISABLED: compilation allocates objects (e.g. interned strings the
+  // AST points at) that are not yet reachable from GC roots. We switch it on only
+  // when execution begins (see interpret). The threshold begins at the floor.
+  vm.gcEnabled = false;
+  vm.bytesAllocated = 0;
+  vm.nextGC = 64 * 1024;
+  vm.grayStack = NULL;
+  vm.grayCount = 0;
+  vm.grayCapacity = 0;
+
   initTable(&vm.globals);
   initTable(&vm.strings);
 }
@@ -37,6 +49,7 @@ void freeVM(void) {
   freeTable(&vm.globals);
   freeTable(&vm.strings);
   freeObjects();
+  free(vm.grayStack); // the grey worklist is plain malloc memory, freed by hand
 }
 
 static void push(Value value) {
@@ -494,6 +507,11 @@ static InterpretResult run(bool trace) {
 }
 
 InterpretResult interpret(const char *source, bool trace) {
+  // Keep the collector off across the whole front end (parse/type-check/compile),
+  // which allocates AST-referenced strings that aren't GC roots yet. Matters in
+  // the REPL, where interpret() is re-entered per line after GC was switched on.
+  vm.gcEnabled = false;
+
   // 1. Parse source text into a Program (a list of statement trees).
   Program program;
   bool ok = parse(source, &program);
@@ -534,6 +552,10 @@ InterpretResult interpret(const char *source, bool trace) {
   ObjClosure *closure = newClosure(function);
   push(OBJ_VAL(closure));
   call(closure, 0);
+
+  // Execution is about to begin: the operand stack, frames and globals are now
+  // valid GC roots, and the AST has been freed. Safe to turn the collector on.
+  vm.gcEnabled = true;
   return run(trace);
 }
 

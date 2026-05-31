@@ -31,6 +31,7 @@ typedef enum {
 // of every concrete object, `(Obj*)somethingConcrete` is always valid.
 struct Obj {
   ObjType type;
+  bool isMarked;    // GC mark bit: set during the mark phase, cleared by sweep
   struct Obj *next; // intrusive linked list: the VM threads all objects here
 };
 
@@ -121,6 +122,10 @@ ObjUpvalue *newUpvalue(Value *slot);
 
 // Print an object value (dispatched from printValue).
 void printObject(Value value);
+
+// Free a single object and the memory it owns. Called by the GC's sweep phase
+// (for unreachable objects) and by freeObjects at shutdown.
+void freeObject(Obj *object);
 
 // Free every object the VM has allocated. Called at VM shutdown.
 void freeObjects(void);

@@ -49,4 +49,11 @@ bool tableDelete(Table *table, ObjString *key);
 ObjString *tableFindString(Table *table, const char *chars, int length,
                            uint32_t hash);
 
+// GC support. markTable marks every key and value as reachable (used for the
+// globals table, a GC root). tableRemoveWhite deletes entries whose key was NOT
+// marked — used to prune the string intern pool, a WEAK table, of strings that
+// are about to be swept (see memory.c / collectGarbage).
+void markTable(Table *table);
+void tableRemoveWhite(Table *table);
+
 #endif // CNANO_TABLE_H

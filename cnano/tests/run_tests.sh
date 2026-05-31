@@ -389,6 +389,22 @@ check_prog "fold-in-fn"     'fn f(){ return 6 * 7; } print f();'          "42"
 # A heavily-reused name is fine (constant dedup keeps it to one slot).
 check_prog "dedup-reuse"    'let c = 0; c = c + 1; c = c + 1; c = c + 1; print c;' "3"
 
+# --- garbage collector (step 10) ---
+# Churn: 5000 short-lived closures (+ their upvalues) are allocated and become
+# garbage. Correct output here means the GC reclaims them without corrupting the
+# loop's live state. Under `make gcstress` (collect on every allocation) this is
+# the real torture test for missed roots.
+check_prog "gc-closure-churn" \
+  'fn mk() { let c = 0; fn inc() { c = c + 1; return c; } return inc; }
+   let i = 0; while (i < 5000) { let junk = mk(); i = i + 1; } print i;' "5000"
+# Live data must SURVIVE collections: `acc` and its captured upvalue persist while
+# thousands of `junk` closures are reclaimed around it. If the GC wrongly freed
+# acc, the final count would be wrong (or it would crash under ASan).
+check_prog "gc-live-survives" \
+  'fn mk() { let c = 0; fn inc() { c = c + 1; return c; } return inc; }
+   let acc = mk(); let i = 0; let last = 0;
+   while (i < 5000) { let junk = mk(); last = acc(); i = i + 1; } print last;' "5000"
+
 # --- native backend: compile to C -> a real executable (step 9) ---
 # Each program is the typed first-order subset; its native output must match.
 check_native "nat-arith"    'print 2 + 3 * 4;'                          "14"

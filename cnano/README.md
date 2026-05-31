@@ -15,7 +15,8 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (192 cases, incl. native)
+make test       # run the end-to-end test suite (194 cases, incl. native + GC)
+make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
 # run a file
@@ -76,6 +77,12 @@ make run        # start the REPL
   Types are known, so the emitted C is **unboxed** (`int64_t`/`bool`/`const
   char*`) — genuinely fast. `--emit-c` prints the generated C. The VM still runs
   the full dynamic language
+- **Garbage collection**: a **mark-and-sweep** tracing collector reclaims dead
+  heap objects *while the program runs* (an allocation-churning loop stays at
+  bounded memory instead of growing forever). Tri-colour marking with an explicit
+  grey worklist, a self-tuning heap-growth threshold, and a **weak** string-intern
+  table. `make gcstress` runs the whole suite collecting on *every* allocation
+  under ASan — the torture test for missed roots
 - **Strings**: `"double-quoted"` literals, `+` concatenates them, and they are
   **interned** so equal strings compare in O(1) by pointer
 - **Line comments** with `//` (stripped by the lexer; `/` is still division)
@@ -109,6 +116,7 @@ make run        # start the REPL
 | `src/typecheck.{h,c}` | static analysis pass | tree-walking checker, two-pass for fns |
 | `src/optimize.{h,c}` | AST optimisation pass | constant folding (bottom-up rewrite) |
 | `src/codegen_c.{h,c}` | native backend | AST → C source → `cc` → executable (AOT) |
+| `src/memory.{h,c}` | GC + allocator | mark-and-sweep, tri-colour worklist, weak intern table |
 | `src/value.{h,c}` | values + constant pool | tagged-union dynamic values |
 | `src/object.{h,c}` | heap objects: strings, functions, closures, upvalues | object model, interning |
 | `src/table.{h,c}` | hash table | open addressing, linear probing, tombstones |

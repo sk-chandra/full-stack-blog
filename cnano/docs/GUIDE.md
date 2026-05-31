@@ -1023,7 +1023,72 @@ one representation to a lower-level one, repeated until you reach the machine.
 
 ---
 
-## 19. Roadmap: where to go next
+## 19. Case study: automatic memory management (a garbage collector)
+
+Until this step, cnano allocated heap objects and freed them all *at once* at
+shutdown (`freeObjects`). That is fine for a program that runs briefly, but a
+loop that builds endless temporaries would grow without bound — nothing reclaims
+the dead ones *while the program runs*. Step 10 fixes that with a real tracing
+**mark-and-sweep** garbage collector (`memory.{h,c}`).
+
+### 19.1 The idea: reachability = liveness
+
+A value is still "live" only if the running program can still *reach* it by
+following references from a **root** (a value the program holds directly: the
+operand stack, call frames, globals, open upvalues). Anything not reachable can
+never be used again, so its memory is safe to reclaim. The collector makes this
+concrete in two phases:
+
+- **Mark** — start at the roots and trace every reference, marking each reachable
+  object. We use the **tri-colour** abstraction (white = untouched, grey = found
+  but its own references not yet scanned, black = fully scanned) with an explicit
+  grey **worklist**, so tracing is an iterative loop, not deep recursion that
+  could itself overflow the stack.
+- **Sweep** — walk the intrusive list of *all* objects and free every one still
+  white. Survivors are flipped back to white for the next cycle.
+
+### 19.2 The roots are the whole game
+
+`markRoots()` is the single most important function: miss a root and the GC frees
+something still in use. cnano's roots are exactly its execution state — stack
+slots, each frame's closure, the open-upvalue list, and the globals table. The
+test of correctness is `make gcstress`: collect on **every** allocation, under
+AddressSanitizer, running the full suite. If any root were missed, a live object
+would be freed and ASan would report a use-after-free. Identical output to the
+normal build is the proof that liveness is computed correctly.
+
+### 19.3 Two subtleties worth the chapter
+
+- **The weak intern table.** The string-intern pool (`vm.strings`) points at every
+  live string — but it must *not*, by itself, keep a string alive, or no string
+  would ever be collected. It is a **weak** table: excluded from the roots, and
+  pruned of now-dead entries (`tableRemoveWhite`) after tracing but *before*
+  sweeping, so it never ends up pointing at freed memory. Weak references are a
+  recurring real-world GC concept (caches, interning, listeners) and this is the
+  smallest honest example of one.
+- **Why the collector is quiescent during compilation.** A GC may only run when it
+  can see *all* live objects through roots. cnano builds a separate **AST** that
+  holds `ObjString*` pointers which are *not* reachable from any runtime root, so
+  collecting mid-compile would free strings the AST still needs. Rather than paper
+  over this (e.g. by rooting the AST), we make a clean design choice: the
+  collector stays off until execution begins (`vm.gcEnabled`), by which point
+  compilation is done and the AST is freed. A single-pass compiler (like *Crafting
+  Interpreters*') avoids the issue differently — by funnelling constants straight
+  into the chunk as it goes. Naming *why* our architecture differs is the lesson.
+
+### 19.4 Self-tuning, and what it demonstrates
+
+`reallocate()` is the one allocation choke point; it keeps a running byte tally
+and triggers a collection once the heap grows past a threshold that is re-set to a
+multiple of the live set after each cycle — so GC frequency scales with how much
+the program actually retains. Watching a 20 000-iteration closure-churn loop hold
+**flat** at a few hundred live bytes (instead of climbing into the megabytes)
+makes the payoff tangible: automatic memory management is not magic, it is
+reachability analysis run periodically over a well-defined root set.
+
+---
+
+## 20. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -1061,14 +1126,30 @@ ordered so each builds on the last.
    executable via the system `cc` (`--native` / `--emit-c`); unboxed values,
    forward declarations, name mangling, output identical to the VM.
 
-### Beyond the roadmap
+10. ~~**Garbage collector.**~~ **✅ DONE** — see §19 above. A mark-and-sweep
+    tracing collector with a tri-colour grey worklist, a self-tuning heap-growth
+    threshold, and a weak string-intern table; reclaims dead objects while the
+    program runs (`make gcstress` collects on every allocation under ASan).
 
-Every numbered step is done. Natural next directions, each a substantial project:
-a **garbage collector** (mark-sweep — the object free list is already the hook),
-**arrays / hash maps** as first-class data, **true closures in the native
-backend** (lower upvalues to C structs), a **Pratt parser** refactor, or richer
-types (generics, unions). cnano is now a complete small language with two
-backends; these would deepen rather than complete it.
+### The memory + data-structures arc (in progress)
+
+With the collector in place, cnano is growing real aggregate data on top of it:
+
+11. **Structured type system.** Replace the flat `TypeKind` enum with a tagged
+    `Type` (so `[int]`, `{str: int}` can be expressed) — the foundation for typed
+    collections.
+12. **Method-call dispatch + builtins.** Postfix `a.method(args)`, an `OP_INVOKE`
+    that dispatches on the receiver's type, and `OBJ_NATIVE` builtins (`clock`,
+    `str`, …).
+13. **Arrays** (`[T]`): literals, indexing, `.len()/.push()/.pop()`, GC-managed.
+14. **Maps** (`{K: V}`): general value-keyed hashing, literals, indexing,
+    `.keys()/.has()`, GC-managed.
+
+### Beyond that
+
+Further directions, each a substantial project: **true closures in the native
+backend** (lower upvalues to C structs), a **Pratt parser** refactor, generics /
+union types, or an exception/`Result` error model.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
 (free online). cnano's bytecode/VM design intentionally follows the same lineage

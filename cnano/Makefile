@@ -18,7 +18,7 @@ BUILD   := build
 SOURCES := $(wildcard $(SRC_DIR)/*.c)
 TARGET  := $(BUILD)/cnano
 
-.PHONY: all run test debug clean
+.PHONY: all run test debug gcstress clean
 
 all: $(TARGET)
 
@@ -38,6 +38,14 @@ debug: | $(BUILD)
 
 test: all
 	./tests/run_tests.sh ./$(TARGET)
+
+# GC STRESS build: collect on EVERY allocation, with sanitizers. Running the full
+# suite through this is the real test of the collector — if any root is missed,
+# a live object gets freed and ASan reports a use-after-free. Identical output to
+# the normal build means the GC never reclaims something still in use.
+gcstress: | $(BUILD)
+	$(CC) $(DBGFLAGS) -DDEBUG_STRESS_GC $(SOURCES) -o $(BUILD)/cnano-gcstress
+	./tests/run_tests.sh ./$(BUILD)/cnano-gcstress
 
 clean:
 	rm -rf $(BUILD)
