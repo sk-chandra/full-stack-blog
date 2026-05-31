@@ -1427,7 +1427,12 @@ programs define their own types, and makes failure recoverable.
     inheritance) rather than add a parent chain. **Phase B complete.**
 
 **Phase C — errors & optional values**
-24. **Nullable / optional types** (`T?`) with flow narrowing.
+24. ~~**Nullable / optional types** (`T?`) with flow narrowing.~~ **✅ DONE** —
+    a `TY_NULLABLE` wrapper (`T?` = T or nil); compatibility lets T and nil widen
+    into `T?` but forbids the reverse, so a maybe-nil can't be used as `T` until
+    **narrowed**: the checker recognises `if (x != nil)` / `if (x == nil)` guards
+    and treats `x` as `T` in the proven branch (temporarily overriding its symbol
+    type). Works for any inner type, including structs (`Point?`). Native rejects.
 25. **Error handling** — `try`/`catch` (stack unwinding) or `Result` + `?`.
 
 **Phase D — type-system depth**

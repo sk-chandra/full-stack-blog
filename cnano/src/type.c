@@ -58,6 +58,16 @@ Type *typeArray(Type *element) {
   return t;
 }
 
+Type *typeNullable(Type *inner) {
+  // `any` already includes nil; `T??` is just `T?`; `nil?` is `nil`. Otherwise
+  // wrap, reusing the `element` field to hold the inner type.
+  if (inner->kind == TY_ANY || inner->kind == TY_NULLABLE || inner->kind == TY_NIL)
+    return inner;
+  Type *t = allocType(TY_NULLABLE);
+  t->element = inner;
+  return t;
+}
+
 Type *typeMap(Type *key, Type *value) {
   Type *t = allocType(TY_MAP);
   t->map.key = key;
@@ -135,6 +145,12 @@ const char *typeName(const Type *type) {
   case TY_ARRAY: {
     char *buf = nameRing[nameSlot++ % NAME_RING];
     snprintf(buf, NAME_LEN, "[%s]", typeName(type->element));
+    return buf;
+  }
+  case TY_NULLABLE: {
+    const char *inner = typeName(type->element);
+    char *buf = nameRing[nameSlot++ % NAME_RING];
+    snprintf(buf, NAME_LEN, "%s?", inner);
     return buf;
   }
   case TY_MAP: {

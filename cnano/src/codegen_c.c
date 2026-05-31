@@ -160,6 +160,9 @@ static TypeKind annotationKind(Type *t, int line) {
   case TY_ARRAY:
     unsupported(line, "an array-typed value");
     return TY_ANY;
+  case TY_NULLABLE:
+    unsupported(line, "a nullable-typed value");
+    return TY_ANY;
   case TY_MAP:
     unsupported(line, "a map-typed value");
     return TY_ANY;

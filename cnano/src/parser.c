@@ -844,7 +844,7 @@ static Node *statement(void) {
 // Types nest, so this recurses: `[[int]]` and `{str: [int]}` both parse. Type
 // names are NOT reserved keywords — they are recognised only here, in annotation
 // position, so `int` etc. remain usable as ordinary variable names elsewhere.
-static Type *parseType(void) {
+static Type *parseTypeBase(void) {
   if (match(TOKEN_LBRACKET)) { // [ ELEMENT ]
     Type *element = parseType();
     consume(TOKEN_RBRACKET, "Expect ']' to close an array type.");
@@ -877,6 +877,15 @@ static Type *parseType(void) {
   }
   errorAt(&parser.current, "Expect a type after ':'.");
   return typeAny();
+}
+
+// A type is a base type followed by zero or more `?` nullable markers (`int?`,
+// `[int]?`). Postfix `?` is the cnano spelling of "T or nil".
+static Type *parseType(void) {
+  Type *t = parseTypeBase();
+  while (match(TOKEN_QUESTION))
+    t = typeNullable(t);
+  return t;
 }
 
 // `let NAME [: TYPE] = EXPR ;` — declare and initialise a variable. The type

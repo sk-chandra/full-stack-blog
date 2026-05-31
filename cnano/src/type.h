@@ -21,6 +21,7 @@ typedef enum {
   TY_STR,
   TY_NIL,
   TY_ARRAY,    // a homogeneous list; carries an element type (see Type.element)
+  TY_NULLABLE, // `T?` — T or nil; the inner T is stored in Type.element
   TY_MAP,      // a dictionary; carries key + value types (see Type.map)
   TY_STRUCT,   // a user-defined record type, by name (see Type.strct)
   TY_FUNCTION, // a callable; carries param/return types (see Type.fn)
@@ -62,6 +63,8 @@ Type *typeNil(void);
 // Parametric types are allocated in the type arena and freed together by
 // freeTypes(). `typeFunction` takes ownership of the `params` array.
 Type *typeArray(Type *element);
+// `T?` — T or nil. Idempotent, and `any?`/`nil?` collapse sensibly.
+Type *typeNullable(Type *inner);
 Type *typeMap(Type *key, Type *value);
 Type *typeFunction(Type **params, int paramCount, Type *returnType);
 

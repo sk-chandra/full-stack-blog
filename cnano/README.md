@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (346 cases, incl. native + GC)
+make test       # run the end-to-end test suite (354 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -97,8 +97,11 @@ make run        # start the REPL
   type-checking pass runs **before** execution and rejects mismatches (bad
   initialisers, wrong argument types/arity, wrong return type, calling a
   non-function, bad operators); collection types are checked **structurally**
-  (`[int]` ≠ `[bool]`, recursing into element/key/value). Unannotated code is
-  `any` and stays fully dynamic, so typed and untyped code mix freely
+  (`[int]` ≠ `[bool]`, recursing into element/key/value). **Nullable** types
+  `T?` mean "T or nil" — you can't use one where `T` is required until you
+  **narrow** it with `if (x != nil) { … }` (the checker tracks the guard and
+  treats `x` as `T` inside). Unannotated code is `any` and stays fully dynamic,
+  so typed and untyped code mix freely
 - **Optimisation**: an AST **constant-folding** pass evaluates constant
   subexpressions at compile time (`2 + 3 * 4` → `14`, `"a" + "b"` → `"ab"`),
   constant **deduplication**, and an `OP_CONSTANT_LONG` form so chunks aren't

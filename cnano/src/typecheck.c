@@ -20,6 +20,18 @@
 static bool compatible(Type *a, Type *b) {
   if (a->kind == TY_ANY || b->kind == TY_ANY)
     return true;
+  // Nullable target `a = T?` accepts nil, a plain T (widening), or another U?.
+  // (compatible(a, b) reads "a value of type b fits where a is expected".)
+  if (a->kind == TY_NULLABLE) {
+    if (b->kind == TY_NIL)
+      return true;
+    if (b->kind == TY_NULLABLE)
+      return compatible(a->element, b->element);
+    return compatible(a->element, b);
+  }
+  // A non-nullable target cannot accept a maybe-nil source (narrow it first).
+  if (b->kind == TY_NULLABLE)
+    return false;
   if (a->kind != b->kind)
     return false;
   switch (a->kind) {
@@ -127,6 +139,8 @@ static void registerStruct(ObjString *name, Type *type) {
 // Replace an unresolved struct reference with the declared struct type. Other
 // types pass through unchanged. An unknown struct name is a type error.
 static Type *resolve(Type *t, int line) {
+  if (t->kind == TY_NULLABLE) // resolve inside `T?` (e.g. `Point?`)
+    return typeNullable(resolve(t->element, line));
   if (t->kind != TY_STRUCT || t->strct.fieldCount >= 0)
     return t; // not a reference (primitive, collection, or already resolved)
   for (int i = 0; i < structCount; i++)
@@ -468,6 +482,41 @@ static void checkMethod(Type *structType, Node *m) {
   checker.currentReturnType = savedReturn;
 }
 
+// FLOW NARROWING: if `cond` is a nil-guard on a nullable variable, return that
+// variable's symbol slot and set *nonNilInThen to which branch proves it non-nil
+// (`x != nil` -> then; `x == nil` -> else). Recall `!=` desugars to `!(==)`. This
+// lets the checker treat a `T?` as `T` inside the guarded branch — the key to
+// using optionals without casts. Returns -1 when no such guard applies.
+static int nilGuardSlot(Node *cond, bool *nonNilInThen) {
+  Node *eq = NULL;
+  bool inThen = false;
+  if (cond->type == NODE_UNARY && cond->as.unary.op == OP_NODE_NOT &&
+      cond->as.unary.operand->type == NODE_BINARY &&
+      cond->as.unary.operand->as.binary.op == OP_NODE_EQUAL) {
+    eq = cond->as.unary.operand; // x != nil  (i.e. !(x == nil))
+    inThen = true;
+  } else if (cond->type == NODE_BINARY && cond->as.binary.op == OP_NODE_EQUAL) {
+    eq = cond; // x == nil
+    inThen = false;
+  }
+  if (eq == NULL)
+    return -1;
+  Node *l = eq->as.binary.left, *r = eq->as.binary.right;
+  Node *var = (l->type == NODE_VAR_GET && r->type == NODE_NIL)   ? l
+              : (r->type == NODE_VAR_GET && l->type == NODE_NIL) ? r
+                                                                 : NULL;
+  if (var == NULL)
+    return -1;
+  for (int i = checker.symbolCount - 1; i >= 0; i--)
+    if (checker.symbols[i].name == var->as.name) {
+      if (checker.symbols[i].type->kind != TY_NULLABLE)
+        return -1; // only narrowing a nullable means anything
+      *nonNilInThen = inThen;
+      return i;
+    }
+  return -1;
+}
+
 static void checkStatement(Node *node) {
   switch (node->type) {
   case NODE_PRINT:
@@ -497,12 +546,30 @@ static void checkStatement(Node *node) {
     endScope();
     break;
   }
-  case NODE_IF:
+  case NODE_IF: {
     checkExpr(node->as.ifStmt.condition);
+    // Narrow a nullable variable inside whichever branch proves it non-nil,
+    // temporarily overriding its symbol type and restoring it afterwards.
+    bool inThen = false;
+    int slot = nilGuardSlot(node->as.ifStmt.condition, &inThen);
+    Type *saved = slot >= 0 ? checker.symbols[slot].type : NULL;
+    Type *inner = saved ? saved->element : NULL;
+
+    if (slot >= 0 && inThen)
+      checker.symbols[slot].type = inner;
     checkStatement(node->as.ifStmt.then);
-    if (node->as.ifStmt.otherwise != NULL)
+    if (slot >= 0)
+      checker.symbols[slot].type = saved;
+
+    if (node->as.ifStmt.otherwise != NULL) {
+      if (slot >= 0 && !inThen)
+        checker.symbols[slot].type = inner;
       checkStatement(node->as.ifStmt.otherwise);
+      if (slot >= 0)
+        checker.symbols[slot].type = saved;
+    }
     break;
+  }
   case NODE_WHILE:
     checkExpr(node->as.whileStmt.condition);
     checkStatement(node->as.whileStmt.body);

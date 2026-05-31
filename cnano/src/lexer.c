@@ -234,6 +234,8 @@ Token scanToken(void) {
     return makeToken(TOKEN_COMMA);
   case ':':
     return makeToken(TOKEN_COLON);
+  case '?':
+    return makeToken(TOKEN_QUESTION);
   case ';':
     return makeToken(TOKEN_SEMICOLON);
   case '"':

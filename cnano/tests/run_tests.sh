@@ -606,6 +606,16 @@ check_prog_err "init-return-val"  'struct P { x: int fn init(v: int) { self.x = 
 check_prog_err "init-arg-type"    'struct T { c: int fn init(v: int) { self.c = v; } } let t = T("hot"); print t;'
 check_prog_err "init-arity-err"   'struct T { c: int fn init(v: int) { self.c = v; } } let t = T(1, 2); print t;'
 
+# --- nullable / optional types (step 24) ---
+check_prog "null-assign"   'let a: int? = nil; let b: int? = 5; print b;' "5"
+check_prog "null-narrow-then" 'fn f(x: int?): int { if (x != nil) { return x; } return -1; } print f(7); print f(nil);' "$(printf '7\n-1')"
+check_prog "null-narrow-else" 'fn g(x: int?): int { if (x == nil) { return 0; } else { return x; } } print g(42);' "42"
+check_prog "null-struct"   'struct P { x: int } fn f(p: P?): int { if (p != nil) { return p.x; } return -1; } print f(P(9)); print f(nil);' "$(printf '9\n-1')"
+check_prog_err "null-use-as-t"  'let a: int? = nil; let b: int = a; print b;'
+check_prog_err "null-wrong-inner" 'let a: int? = "no"; print a;'
+check_prog_err "null-no-narrow"  'fn f(x: int?): int { return x; } print f(1);'
+check_native_err "nat-rej-nullable" 'fn f(x: int?): int { return 0; } print f(nil);'
+
 # --- native backend: compile to C -> a real executable (step 9) ---
 # Each program is the typed first-order subset; its native output must match.
 check_native "nat-arith"    'print 2 + 3 * 4;'                          "14"
