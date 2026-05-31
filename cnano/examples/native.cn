@@ -1,0 +1,40 @@
+// A program in cnano's STATICALLY-TYPED, FIRST-ORDER subset — the part that the
+// --native backend compiles to a standalone C executable (no interpreter).
+//
+//   cnano --emit-c examples/native.cn          # see the generated C
+//   cnano --native examples/native.cn -o demo  # build a real binary
+//   ./demo
+//
+// Because every type is known, the generated C uses unboxed int64_t / bool /
+// const char* — genuinely fast native code, then optimised by the system cc.
+
+fn factorial(n: int): int {
+  if (n <= 1) return 1;
+  return n * factorial(n - 1);
+}
+
+fn fib(n: int): int {
+  if (n < 2) return n;
+  return fib(n - 1) + fib(n - 2);
+}
+
+// Mutual recursion works too (the backend forward-declares all functions).
+fn isEven(n: int): bool { if (n == 0) return true;  return isOdd(n - 1); }
+fn isOdd(n: int): bool  { if (n == 0) return false; return isEven(n - 1); }
+
+let greeting: str = "cnano native";
+
+print factorial(6);        // 720
+print fib(10);             // 55
+print isEven(10);          // true
+print greeting + " ok";    // cnano native ok
+
+// FizzBuzz, fully native.
+for (let n: int = 1; n <= 15; n = n + 1) {
+  let by3: bool = n - (n / 3) * 3 == 0;
+  let by5: bool = n - (n / 5) * 5 == 0;
+  if (by3 and by5)  print "FizzBuzz";
+  else if (by3)     print "Fizz";
+  else if (by5)     print "Buzz";
+  else              print n;
+}

@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (177 cases)
+make test       # run the end-to-end test suite (192 cases, incl. native)
 make run        # start the REPL
 
 # run a file
@@ -24,6 +24,10 @@ make run        # start the REPL
 
 # see the bytecode AND a step-by-step VM trace (the best way to learn)
 ./build/cnano --dump examples/variables.cn
+
+# compile the typed subset to a NATIVE executable (no interpreter), then run it
+./build/cnano --native examples/native.cn -o /tmp/demo && /tmp/demo
+./build/cnano --emit-c examples/native.cn      # or just inspect the generated C
 
 # REPL (statements end with ';'; output only via `print`)
 ./build/cnano
@@ -66,6 +70,12 @@ make run        # start the REPL
   subexpressions at compile time (`2 + 3 * 4` → `14`, `"a" + "b"` → `"ab"`),
   constant **deduplication**, and an `OP_CONSTANT_LONG` form so chunks aren't
   capped at 256 constants
+- **Native compilation** (ahead-of-time): `cnano --native file.cn -o prog`
+  compiles the **statically-typed, first-order subset** to C and invokes the
+  system `cc`, producing a standalone native executable with no interpreter.
+  Types are known, so the emitted C is **unboxed** (`int64_t`/`bool`/`const
+  char*`) — genuinely fast. `--emit-c` prints the generated C. The VM still runs
+  the full dynamic language
 - **Strings**: `"double-quoted"` literals, `+` concatenates them, and they are
   **interned** so equal strings compare in O(1) by pointer
 - **Line comments** with `//` (stripped by the lexer; `/` is still division)
@@ -98,6 +108,7 @@ make run        # start the REPL
 | `src/type.{h,c}` | the type system | gradual types; `any` as the escape hatch |
 | `src/typecheck.{h,c}` | static analysis pass | tree-walking checker, two-pass for fns |
 | `src/optimize.{h,c}` | AST optimisation pass | constant folding (bottom-up rewrite) |
+| `src/codegen_c.{h,c}` | native backend | AST → C source → `cc` → executable (AOT) |
 | `src/value.{h,c}` | values + constant pool | tagged-union dynamic values |
 | `src/object.{h,c}` | heap objects: strings, functions, closures, upvalues | object model, interning |
 | `src/table.{h,c}` | hash table | open addressing, linear probing, tombstones |

@@ -77,6 +77,51 @@ check_prog_err() {
   fi
 }
 
+# check_native NAME PROGRAM EXPECTED — compile PROGRAM to a NATIVE binary via the
+# C backend, run it, and compare output. Proves the --native path produces a real
+# executable whose behaviour matches the VM. Skipped if no C compiler is found.
+HAVE_CC=0
+command -v cc >/dev/null 2>&1 && HAVE_CC=1
+check_native() {
+  local name="$1" prog="$2" expected="$3"
+  if [ "$HAVE_CC" -eq 0 ]; then
+    printf '  skip %-22s (no cc found)\n' "$name"; return
+  fi
+  printf '%s' "$prog" > "$tmp"
+  local bin="${tmp}.native"
+  if ! "$CNANO" --native "$tmp" -o "$bin" >/dev/null 2>&1; then
+    printf '  FAIL %-22s : native compile failed\n' "$name"
+    fail=$((fail + 1)); return
+  fi
+  local got; got="$("$bin" 2>/dev/null)"
+  rm -f "$bin"
+  if [ "$got" = "$expected" ]; then
+    printf '  ok   %-22s (native) ok\n' "$name"
+    pass=$((pass + 1))
+  else
+    printf '  FAIL %-22s native: expected [%s] got [%s]\n' "$name" "$expected" "$got"
+    fail=$((fail + 1))
+  fi
+}
+
+# check_native_err NAME PROGRAM — expect the --native backend to REJECT a program
+# (out-of-subset feature). The VM may still accept it; only native is checked.
+check_native_err() {
+  local name="$1" prog="$2"
+  if [ "$HAVE_CC" -eq 0 ]; then
+    printf '  skip %-22s (no cc found)\n' "$name"; return
+  fi
+  printf '%s' "$prog" > "$tmp"
+  if "$CNANO" --native "$tmp" -o "${tmp}.native" >/dev/null 2>&1; then
+    rm -f "${tmp}.native"
+    printf '  FAIL %-22s : native expected rejection, but it compiled\n' "$name"
+    fail=$((fail + 1))
+  else
+    printf '  ok   %-22s -> native rejected (as expected)\n' "$name"
+    pass=$((pass + 1))
+  fi
+}
+
 echo "Running cnano tests with: $CNANO"
 
 # --- arithmetic (from the first slice) ---
@@ -344,7 +389,26 @@ check_prog "fold-in-fn"     'fn f(){ return 6 * 7; } print f();'          "42"
 # A heavily-reused name is fine (constant dedup keeps it to one slot).
 check_prog "dedup-reuse"    'let c = 0; c = c + 1; c = c + 1; c = c + 1; print c;' "3"
 
-rm -f "$tmp"
+# --- native backend: compile to C -> a real executable (step 9) ---
+# Each program is the typed first-order subset; its native output must match.
+check_native "nat-arith"    'print 2 + 3 * 4;'                          "14"
+check_native "nat-typed-var" 'let x: int = 10; print x * x;'            "100"
+check_native "nat-bool"     'let b: bool = 1 < 2; print b;'             "true"
+check_native "nat-str"      'let s: str = "hi"; print s + "!";'         "hi!"
+check_native "nat-streq"    'print "ab" == "a" + "b";'                  "true"
+check_native "nat-fn"       'fn add(a: int, b: int): int { return a+b; } print add(3,4);' "7"
+check_native "nat-recur"    'fn f(n: int): int { if (n<=1) return 1; return n*f(n-1); } print f(6);' "720"
+check_native "nat-mutual"   'fn ev(n: int): bool { if(n==0) return true; return od(n-1); } fn od(n: int): bool { if(n==0) return false; return ev(n-1); } print ev(8);' "true"
+check_native "nat-while"    'let i: int = 0; while (i < 3) { print i; i = i + 1; }' "$(printf '0\n1\n2')"
+check_native "nat-for"      'for (let i: int = 0; i < 3; i = i + 1) print i*i;' "$(printf '0\n1\n4')"
+check_native "nat-ifelse"   'let n: int = 5; if (n > 3) print "big"; else print "small";' "big"
+check_native "nat-infer-global" 'let x = 21; print x + x;'              "42"
+check_native "nat-div0"     'let z: int = 0; print 6 / 1;'              "6"
+# Out-of-subset features must be rejected by the native backend.
+check_native_err "nat-rej-closure" 'fn mk(): int { let n: int = 0; fn inc(): int { return n; } return inc(); } print mk();'
+check_native_err "nat-rej-dynparam" 'fn f(x) { return x; } print f(1);'
+
+rm -f "$tmp" "${tmp}.native" "${tmp}.native.c" 2>/dev/null
 echo "-----------------------------------------"
 echo "passed: $pass   failed: $fail"
 [ "$fail" -eq 0 ]

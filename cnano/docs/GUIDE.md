@@ -954,7 +954,76 @@ Two smaller wins, both about the constant pool:
 
 ---
 
-## 18. Roadmap: where to go next
+## 18. Case study: native code generation (compiling to C)
+
+Roadmap step 9, completed — the leap from *interpreted* to *compiled, ahead of
+time*. Instead of feeding the AST to the bytecode compiler, a second backend
+walks it and emits **C source**, which the system `cc` turns into a standalone
+native executable. The program then runs with **no cnano runtime at all**.
+
+```
+                                  ┌→ Compiler → bytecode → VM        (default)
+... → Type checker → Optimiser →  ┤
+                                  └→ C backend → cc → native binary  (--native)
+```
+
+### 18.1 Why C is a legitimate target
+
+Emitting C ("transpiling") is a real, widely-used technique — Nim, Vala, and
+early C++ all did it. C acts as a **portable assembler**: we inherit the system
+compiler's optimiser and every CPU it targets, for a fraction of the effort of
+emitting machine code or LLVM IR by hand. The trade-off is a dependency on a C
+compiler at build time and slightly less control than raw codegen — a good
+trade for a teaching project, and a real one in production.
+
+### 18.2 Why types make this pay off — and bound the scope
+
+The backend compiles only the **statically-typed, first-order subset**. That
+restriction is the whole point: because the type checker has proven each value's
+type, the generated C is **unboxed** — a cnano `int` is a C `int64_t`, a `bool` a
+C `bool`, a `str` a `const char *`. No tagged unions, no dynamic dispatch, no
+boxing: genuinely fast native code, not an interpreter in disguise. This is a
+concrete lesson in *why static types enable optimisation*.
+
+Features needing a runtime — closures (heap upvalues), dynamic `any`, first-class
+functions — are **rejected** by the backend with a clear message pointing back to
+the VM. Splitting a language into a fast specialised path plus a general dynamic
+path is exactly how real systems layer (think JITs, or `nogc`/`unsafe` subsets).
+
+### 18.3 The mapping is mostly structural
+
+cnano and C share an expression/statement structure, so most of the backend is a
+direct transcription: `if`/`while` map to `if`/`while`, operators to operators,
+a typed `let` to a C declaration, a function to a C function. A few details carry
+real lessons:
+
+- **Name mangling.** Every cnano identifier is emitted with a `cn_` prefix, so a
+  cnano variable literally named `int` (legal — type names aren't reserved) can
+  never collide with a C keyword or our helpers.
+- **Forward declarations.** Pass 1 emits a C prototype for every function before
+  any body, so calls resolve regardless of order — the same forward-reference and
+  mutual-recursion support the type checker and VM already had, expressed in C's
+  own mechanism. Globals are likewise file-scoped first, then initialised in
+  order inside `main`.
+- **A tiny runtime prelude.** Two helpers only: `cn_concat` (string `+`) and
+  `cn_div` (turns divide-by-zero into the same controlled error+exit cnano
+  guarantees). Typed code needs almost nothing else — the contrast with the
+  bytecode VM's machinery is the lesson.
+- **Type-directed printing.** `print` picks its `printf` format from the
+  expression's inferred type (`%lld`, `true`/`false`, `%s`).
+
+### 18.4 What this demonstrates
+
+`cnano --native fib.cn -o fib` produces a real ELF/Mach-O executable that runs
+with zero interpreter overhead and — verified by the test suite — produces output
+**identical** to the VM. Seeing the same `factorial`/`fib`/FizzBuzz program run
+both ways, and reading the readable C in between (`--emit-c`), makes the whole
+"what is compilation" question concrete: it is just a structured translation from
+one representation to a lower-level one, repeated until you reach the machine.
+
+---
+
+## 19. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -987,9 +1056,19 @@ ordered so each builds on the last.
 8. ~~**Optimisations.**~~ **✅ DONE** — see §17 above. AST constant folding (with
    correct handling of div-by-zero and short-circuit), constant dedup, and
    `OP_CONSTANT_LONG` to lift the 256-constant cap.
-9. **Toward native code.** Emit textual assembly or LLVM IR instead of bytecode,
-   and you have crossed from "interpreted" to "compiled". This is the big leap to
-   a true low-level, ahead-of-time language.
+9. ~~**Toward native code.**~~ **✅ DONE** — see §18 above. A second backend
+   compiles the typed first-order subset to C, then to a standalone native
+   executable via the system `cc` (`--native` / `--emit-c`); unboxed values,
+   forward declarations, name mangling, output identical to the VM.
+
+### Beyond the roadmap
+
+Every numbered step is done. Natural next directions, each a substantial project:
+a **garbage collector** (mark-sweep — the object free list is already the hook),
+**arrays / hash maps** as first-class data, **true closures in the native
+backend** (lower upvalues to C structs), a **Pratt parser** refactor, or richer
+types (generics, unions). cnano is now a complete small language with two
+backends; these would deepen rather than complete it.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
 (free online). cnano's bytecode/VM design intentionally follows the same lineage

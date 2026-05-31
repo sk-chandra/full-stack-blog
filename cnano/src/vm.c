@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "codegen_c.h"
 #include "compiler.h"
 #include "debug.h"
 #include "object.h"
@@ -534,4 +535,24 @@ InterpretResult interpret(const char *source, bool trace) {
   push(OBJ_VAL(closure));
   call(closure, 0);
   return run(trace);
+}
+
+InterpretResult compileToC(const char *source, FILE *cFile) {
+  // Identical front end to interpret(): parse, type-check, fold. Reusing it means
+  // the native path accepts exactly the programs the VM does (and rejects the
+  // same errors), differing only in the BACKEND it feeds the AST to.
+  Program program;
+  if (!parse(source, &program)) {
+    freeProgram(&program);
+    return INTERPRET_COMPILE_ERROR;
+  }
+  if (!typecheckProgram(&program)) {
+    freeProgram(&program);
+    return INTERPRET_COMPILE_ERROR;
+  }
+  foldConstants(&program);
+
+  bool gen = emitC(&program, cFile);
+  freeProgram(&program);
+  return gen ? INTERPRET_OK : INTERPRET_COMPILE_ERROR;
 }
