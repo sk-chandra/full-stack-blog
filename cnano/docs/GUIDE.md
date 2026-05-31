@@ -1655,7 +1655,13 @@ programs define their own types, and makes failure recoverable.
     not C-style octal — a footgun deliberately avoided. Native is unaffected
     (literals decode to plain int/float values in the AST). `0..5` still lexes as
     a range, since a base prefix needs the leading `0` followed by a base letter.
-53. **Performance** (inline caching/peephole), generics, native closures, and a
+53. ~~**Bitwise compound assignment** (`&= |= ^= <<= >>=`).~~ **✅ DONE** (step
+    49) — completes the compound-assignment family. The lexer learns the five new
+    operators (including the three-char `<<=`/`>>=`, via one more `match('=')`
+    after the shift), and the parser maps each to its NodeOp in the existing
+    `a OP= b` → `a = a OP b` desugar — so no new opcodes, and they work on index
+    targets (`a[i] &= m`) and respect `const`, exactly like `+=`.
+54. **Performance** (inline caching/peephole), generics, native closures, and a
     per-module namespace for `import` — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom

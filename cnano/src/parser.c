@@ -160,6 +160,11 @@ static bool matchCompoundAssign(NodeOp *op) {
   if (match(TOKEN_STAR_EQUAL)) { *op = OP_NODE_MUL; return true; }
   if (match(TOKEN_SLASH_EQUAL)) { *op = OP_NODE_DIV; return true; }
   if (match(TOKEN_PERCENT_EQUAL)) { *op = OP_NODE_MOD; return true; }
+  if (match(TOKEN_AMP_EQUAL)) { *op = OP_NODE_BITAND; return true; }
+  if (match(TOKEN_PIPE_EQUAL)) { *op = OP_NODE_BITOR; return true; }
+  if (match(TOKEN_CARET_EQUAL)) { *op = OP_NODE_BITXOR; return true; }
+  if (match(TOKEN_LSHIFT_EQUAL)) { *op = OP_NODE_SHL; return true; }
+  if (match(TOKEN_RSHIFT_EQUAL)) { *op = OP_NODE_SHR; return true; }
   return false;
 }
 

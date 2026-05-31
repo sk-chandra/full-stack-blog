@@ -21,6 +21,11 @@ typedef enum {
   TOKEN_STAR_EQUAL,
   TOKEN_SLASH_EQUAL,
   TOKEN_PERCENT_EQUAL,
+  TOKEN_AMP_EQUAL,    // &=
+  TOKEN_PIPE_EQUAL,   // |=
+  TOKEN_CARET_EQUAL,  // ^=
+  TOKEN_LSHIFT_EQUAL, // <<=
+  TOKEN_RSHIFT_EQUAL, // >>=
   // Bitwise operators (integers only).
   TOKEN_AMP,       // &
   TOKEN_PIPE,      // |

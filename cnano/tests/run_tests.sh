@@ -719,6 +719,19 @@ check_prog "cmpd-nested" 'let m = {"a": [1,2,3]}; m["a"][1] += 100; print m["a"]
 check_prog "cmpd-loop"   'let s = 0; let i = 1; while (i <= 5) { s += i; i += 1; } print s;' "15"
 check_prog_err "cmpd-type-err" 'let x: int = 1; x += "s"; print x;'
 check_native "nat-cmpd"  'fn f(): int { let x: int = 5; x += 3; x *= 2; return x; } print f();' "16"
+# Bitwise compound assignment (step 49): &= |= ^= <<= >>=
+check_prog "cmpd-and"    'let x = 0b1100; x &= 0b1010; print x;' "8"
+check_prog "cmpd-or"     'let x = 8; x |= 1; print x;'           "9"
+check_prog "cmpd-xor"    'let x = 9; x ^= 0b1111; print x;'      "6"
+check_prog "cmpd-shl"    'let y = 1; y <<= 4; print y;'          "16"
+check_prog "cmpd-shr"    'let y = 64; y >>= 2; print y;'         "16"
+check_prog "cmpd-bit-idx" 'let a = [12]; a[0] &= 10; print a[0];' "8"
+check_prog "cmpd-shl-chain" 'let v = 1; v <<= 2; v <<= 3; print v;' "32"
+check_native "nat-cmpd-bit" 'fn f(): int { let x: int = 0xF0; x |= 0x0F; x >>= 4; return x; } print f();' "15"
+# Regression: shifts and comparisons must still lex correctly next to '='.
+check "cmpd-not-shift"   '1 << 4'                                "16"
+check "cmpd-not-le"      '3 <= 3'                                "true"
+check_prog_err "cmpd-const-bit" 'const c = 1; c <<= 2; print c;'
 
 # --- arrays (step 13) ---
 check "arr-index"        '[10, 20, 30][1]'        "20"

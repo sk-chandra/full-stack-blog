@@ -344,19 +344,19 @@ Token scanToken(void) {
       return makeToken(TOKEN_FAT_ARROW);
     return makeToken(TOKEN_EQUAL);
   case '<':
-    if (match('<'))
-      return makeToken(TOKEN_LSHIFT);
+    if (match('<')) // `<<` or `<<=`
+      return makeToken(match('=') ? TOKEN_LSHIFT_EQUAL : TOKEN_LSHIFT);
     return makeToken(match('=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
   case '>':
-    if (match('>'))
-      return makeToken(TOKEN_RSHIFT);
+    if (match('>')) // `>>` or `>>=`
+      return makeToken(match('=') ? TOKEN_RSHIFT_EQUAL : TOKEN_RSHIFT);
     return makeToken(match('=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
   case '&':
-    return makeToken(TOKEN_AMP);
+    return makeToken(match('=') ? TOKEN_AMP_EQUAL : TOKEN_AMP);
   case '|':
-    return makeToken(TOKEN_PIPE);
+    return makeToken(match('=') ? TOKEN_PIPE_EQUAL : TOKEN_PIPE);
   case '^':
-    return makeToken(TOKEN_CARET);
+    return makeToken(match('=') ? TOKEN_CARET_EQUAL : TOKEN_CARET);
   case '~':
     return makeToken(TOKEN_TILDE);
   }

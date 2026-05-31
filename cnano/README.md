@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (598 cases, incl. native + GC)
+make test       # run the end-to-end test suite (609 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -53,8 +53,9 @@ make run        # start the REPL
   (no surprise C-style octal)
 - **Variables**: `let x = …;` to declare, `x` to read, `x = …` to reassign
   (assignment is a right-associative expression, so `print a = 5;` works and
-  `a = b = 1;` chains), plus **compound assignment** `+= -= *= /= %=` on
-  variables and index targets (`a[i] += 1`, `m["k"] += 1`). **`const`** declares
+  `a = b = 1;` chains), plus **compound assignment** `+= -= *= /= %= &= |= ^=
+  <<= >>=` on variables and index targets (`a[i] += 1`, `m["k"] += 1`).
+  **`const`** declares
   an immutable binding (reassignment is a compile error; the contents of a const
   array/map are still mutable)
 - **Block scope** with `{ }` and **local variables**: `let` inside a block makes
