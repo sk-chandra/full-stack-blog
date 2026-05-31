@@ -159,6 +159,8 @@ static TokenType identifierType(void) {
     return TOKEN_PRINT;
   if (length == 3 && memcmp(s, "let", 3) == 0)
     return TOKEN_LET;
+  if (length == 5 && memcmp(s, "const", 5) == 0)
+    return TOKEN_CONST;
   if (length == 2 && memcmp(s, "if", 2) == 0)
     return TOKEN_IF;
   if (length == 4 && memcmp(s, "else", 4) == 0)

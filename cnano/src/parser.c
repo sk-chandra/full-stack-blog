@@ -677,7 +677,7 @@ static Node *block(void) {
   return newBlock(body, line);
 }
 
-static Node *varDeclaration(void); // used by forStatement's initialiser clause
+static Node *varDeclaration(bool isConst); // used by forStatement's initialiser clause
 static Type *parseType(void);      // used by forStatement's let-init clause
 
 // `if (cond) thenStmt [else elseStmt]`. The parens are required (cnano follows
@@ -999,15 +999,18 @@ static Type *parseType(void) {
 // `let NAME [: TYPE] = EXPR ;` — declare and initialise a variable. The type
 // annotation is optional; omitted means TY_ANY (stay dynamic). We require an
 // initialiser for simplicity, sidestepping the "uninitialised variable" question.
-static Node *varDeclaration(void) {
-  int line = parser.previous.line; // the 'let' keyword's line
-  consume(TOKEN_IDENTIFIER, "Expect variable name after 'let'.");
+static Node *varDeclaration(bool isConst) {
+  int line = parser.previous.line; // the 'let' / 'const' keyword's line
+  consume(TOKEN_IDENTIFIER,
+          isConst ? "Expect a name after 'const'." : "Expect variable name after 'let'.");
   ObjString *name = copyString(parser.previous.start, parser.previous.length);
   Type *declaredType = match(TOKEN_COLON) ? parseType() : typeAny();
-  consume(TOKEN_EQUAL, "Expect '=' after variable name.");
+  consume(TOKEN_EQUAL, "Expect '=' after the name.");
   Node *initializer = expression();
-  consume(TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
-  return newVarDecl(name, initializer, declaredType, line);
+  consume(TOKEN_SEMICOLON, "Expect ';' after the declaration.");
+  Node *node = newVarDecl(name, initializer, declaredType, line);
+  node->as.var.isConst = isConst;
+  return node;
 }
 
 // `fn NAME ( params ) { body }`. We parse the parameter names into a heap array,
@@ -1123,7 +1126,9 @@ static Node *declaration(void) {
   if (match(TOKEN_FN))
     return funDeclaration();
   if (match(TOKEN_LET))
-    return varDeclaration();
+    return varDeclaration(/*isConst=*/false);
+  if (match(TOKEN_CONST))
+    return varDeclaration(/*isConst=*/true);
   return statement();
 }
 

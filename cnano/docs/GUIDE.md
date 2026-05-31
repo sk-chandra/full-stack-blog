@@ -1467,8 +1467,14 @@ programs define their own types, and makes failure recoverable.
     four new parser levels; int-typed; shifts guard the amount to [0,63] (UB
     otherwise); constant-folded; supported in the native backend.
 
+30. ~~**`const` / immutable bindings.**~~ **✅ DONE** — a `const` keyword sets an
+    `isConst` flag on the binding; the type checker records it on the symbol and
+    rejects any assignment to a const (including compound). Compile-time only —
+    the binding is immutable, not its contents (`const a = [1]; a[0] = 9;` is
+    fine). Works for globals, locals, and the native subset.
+
 **Phase D — type-system depth**
-30. **Union types** (`int | str`) with narrowing.
+31. **Union types** (`int | str`) with narrowing.
 27. **Generics** (`fn first<T>(a: [T]): T`).
 
 **Phase E — compiler & runtime polish**

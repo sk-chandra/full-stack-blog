@@ -65,6 +65,7 @@ typedef struct {
   ObjString *name;
   Type *type;
   int depth;
+  bool isConst; // declared with `const` — assigning to it is an error
 } Symbol;
 
 #define MAX_SYMBOLS 1024
@@ -95,14 +96,26 @@ static void endScope(void) {
     checker.symbolCount--;
 }
 
-// Bind a name to a type in the current scope.
-static void declareSymbol(ObjString *name, Type *type) {
+// Bind a name to a type in the current scope (optionally const).
+static void declareSymbolConst(ObjString *name, Type *type, bool isConst) {
   if (checker.symbolCount == MAX_SYMBOLS)
     return; // silently ignore overflow; the compiler enforces real limits
   Symbol *s = &checker.symbols[checker.symbolCount++];
   s->name = name;
   s->type = type;
   s->depth = checker.scopeDepth;
+  s->isConst = isConst;
+}
+static void declareSymbol(ObjString *name, Type *type) {
+  declareSymbolConst(name, type, false);
+}
+
+// Whether `name` resolves to a `const` binding (innermost scope first).
+static bool symbolIsConst(ObjString *name) {
+  for (int i = checker.symbolCount - 1; i >= 0; i--)
+    if (checker.symbols[i].name == name)
+      return checker.symbols[i].isConst;
+  return false;
 }
 
 // Look up a name, innermost scope first (so shadowing resolves correctly). An
@@ -266,6 +279,12 @@ static Type *checkExpr(Node *node) {
   case NODE_ASSIGN: {
     Type *valueType = checkExpr(node->as.var.value);
     Type *varType = lookupSymbol(node->as.var.name);
+    if (symbolIsConst(node->as.var.name)) {
+      char msg[96];
+      snprintf(msg, sizeof(msg), "cannot assign to '%s' — it is const",
+               node->as.var.name->chars);
+      typeError(node->line, msg);
+    }
     if (!compatible(varType, valueType)) {
       char msg[128];
       snprintf(msg, sizeof(msg), "cannot assign %s to variable of type %s",
@@ -543,8 +562,9 @@ static void checkStatement(Node *node) {
     }
     // The variable's static type is its annotation if given, else the (possibly
     // inferred) type of its initialiser — a tiny bit of type INFERENCE.
-    declareSymbol(node->as.var.name,
-                  declared->kind != TY_ANY ? declared : valueType);
+    declareSymbolConst(node->as.var.name,
+                       declared->kind != TY_ANY ? declared : valueType,
+                       node->as.var.isConst);
     break;
   }
   case NODE_BLOCK: {

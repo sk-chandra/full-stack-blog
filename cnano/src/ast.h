@@ -141,6 +141,7 @@ typedef struct Node {
       ObjString *name;
       struct Node *value;
       Type *declaredType;
+      bool isConst; // declared with `const` — reassignment is a compile error
     } var;
     // NODE_BLOCK: a brace-delimited sequence of statements forming a new scope.
     // We reuse the Program container (a growable Node* list) — a block is, after

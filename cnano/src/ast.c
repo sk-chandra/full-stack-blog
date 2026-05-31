@@ -80,6 +80,7 @@ Node *newVarDecl(ObjString *name, Node *value, Type *declaredType, int line) {
   node->as.var.name = name;
   node->as.var.value = value;
   node->as.var.declaredType = declaredType;
+  node->as.var.isConst = false; // the parser sets this for `const` declarations
   return node;
 }
 

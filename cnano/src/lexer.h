@@ -61,6 +61,7 @@ typedef enum {
   TOKEN_NIL,
   TOKEN_PRINT,
   TOKEN_LET,
+  TOKEN_CONST,     // const — an immutable binding
   TOKEN_IF,
   TOKEN_ELSE,
   TOKEN_WHILE,

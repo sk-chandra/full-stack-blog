@@ -628,6 +628,15 @@ check_prog_err "null-wrong-inner" 'let a: int? = "no"; print a;'
 check_prog_err "null-no-narrow"  'fn f(x: int?): int { return x; } print f(1);'
 check_native_err "nat-rej-nullable" 'fn f(x: int?): int { return 0; } print f(nil);'
 
+# --- const / immutable bindings (step 30) ---
+check_prog "const-value"   'const PI = 3; print PI * 2;' "6"
+check_prog "const-typed"   'const MAX: int = 100; print MAX;' "100"
+check_prog "const-contents-mutable" 'const a = [1,2,3]; a[0] = 99; print a;' "[99, 2, 3]"
+check_prog_err "const-reassign"  'const x = 5; x = 6; print x;'
+check_prog_err "const-compound"  'const x = 5; x += 1; print x;'
+check_prog_err "const-local"     'fn f(): int { const n = 10; n = 20; return n; } print f();'
+check_native "nat-const" 'fn f(): int { const base: int = 100; return base + 1; } print f();' "101"
+
 # --- collection deletion (step 28): .remove / .removeAt ---
 check_prog "map-remove"    'let m={"a":1,"b":2,"c":3}; print m.remove("b"); print m.has("b"); print m.len();' "$(printf 'true\nfalse\n2')"
 check_prog "map-remove-absent" 'let m = {"a":1}; print m.remove("z");' "false"
