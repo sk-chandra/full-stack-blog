@@ -587,6 +587,16 @@ static void checkStatement(Node *node) {
       checkMethod(structType, node->as.structDecl.methods[i]);
     break;
   }
+  case NODE_THROW:
+    checkExpr(node->as.stmt.expr); // any value may be thrown
+    break;
+  case NODE_TRY:
+    checkStatement(node->as.tryStmt.body);
+    beginScope();
+    declareSymbol(node->as.tryStmt.catchName, typeAny()); // thrown values are dynamic
+    checkStatement(node->as.tryStmt.handler);
+    endScope();
+    break;
   case NODE_RETURN: {
     Type *retType = node->as.ret.value ? checkExpr(node->as.ret.value) : typeNil();
     if (checker.currentReturnType != NULL &&

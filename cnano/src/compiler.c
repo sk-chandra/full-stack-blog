@@ -571,6 +571,8 @@ static void emitExpr(Node *node) {
   case NODE_FUN:
   case NODE_RETURN:
   case NODE_STRUCT:
+  case NODE_THROW:
+  case NODE_TRY:
     // Statement nodes are not expressions and must never be compiled as one.
     // This case exists only to keep the switch exhaustive (so -Wall warns if a
     // future node type is forgotten).
@@ -770,6 +772,31 @@ static void emitStatement(Node *node) {
       emitByte(OP_NIL, node->line); // bare `return;` returns nil
     }
     emitByte(OP_RETURN, node->line); // ... OP_RETURN hands it back to the caller
+    break;
+  }
+
+  case NODE_THROW:
+    emitExpr(node->as.stmt.expr); // the value to raise, on top
+    emitByte(OP_THROW, node->line);
+    break;
+
+  case NODE_TRY: {
+    // OP_BEGIN_TRY registers a handler pointing at the catch code; on the normal
+    // path OP_END_TRY pops it and we JUMP over the catch. A throw inside the body
+    // unwinds to the catch, where the thrown value is on top — bound as the catch
+    // variable (a local at exactly the stack depth the handler restored to).
+    int handler = emitJump(OP_BEGIN_TRY, node->line);
+    emitStatement(node->as.tryStmt.body); // a block (its own scope)
+    emitByte(OP_END_TRY, node->line);
+    int over = emitJump(OP_JUMP, node->line);
+
+    patchJump(handler); // OP_BEGIN_TRY's offset lands here, at the catch
+    beginScope();
+    declareLocal(node->as.tryStmt.catchName, node->line); // = the thrown value
+    markInitialized();
+    emitStatement(node->as.tryStmt.handler);
+    endScope(node->line); // pops the catch variable
+    patchJump(over);
     break;
   }
 

@@ -34,9 +34,21 @@ typedef struct {
   Value *slots;
 } CallFrame;
 
+// One active `try` handler: where to jump on a throw, and the stack/frame state
+// to restore when unwinding to it.
+typedef struct {
+  uint8_t *handlerIp; // the catch code
+  Value *stackTop;    // stack depth to unwind to
+  int frameCount;     // call depth to unwind to
+} TryHandler;
+
+#define TRY_MAX 64
+
 typedef struct {
   CallFrame frames[FRAMES_MAX]; // the call stack: one frame per active call
   int frameCount;               // current call depth
+  TryHandler handlers[TRY_MAX]; // active try/catch handlers (a stack)
+  int handlerCount;
 
   Value stack[STACK_MAX];
   Value *stackTop;     // points just PAST the last pushed value

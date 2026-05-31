@@ -821,6 +821,30 @@ static Node *returnStatement(void) {
   return newReturn(value, line);
 }
 
+// `throw EXPR;` — raise a value to the nearest enclosing catch.
+static Node *throwStatement(void) {
+  int line = parser.previous.line; // the 'throw'
+  Node *value = expression();
+  consume(TOKEN_SEMICOLON, "Expect ';' after the thrown value.");
+  return newThrow(value, line);
+}
+
+// `try { body } catch (name) { handler }` — run body, and on a throw bind the
+// thrown value to `name` and run handler.
+static Node *tryStatement(void) {
+  int line = parser.previous.line; // the 'try'
+  consume(TOKEN_LBRACE, "Expect '{' after 'try'.");
+  Node *body = block();
+  consume(TOKEN_CATCH, "Expect 'catch' after the try block.");
+  consume(TOKEN_LPAREN, "Expect '(' after 'catch'.");
+  consume(TOKEN_IDENTIFIER, "Expect a catch variable name.");
+  ObjString *name = copyString(parser.previous.start, parser.previous.length);
+  consume(TOKEN_RPAREN, "Expect ')' after the catch variable.");
+  consume(TOKEN_LBRACE, "Expect '{' before the catch block.");
+  Node *handler = block();
+  return newTry(body, name, handler, line);
+}
+
 static Node *statement(void) {
   if (match(TOKEN_PRINT))
     return printStatement();
@@ -832,6 +856,10 @@ static Node *statement(void) {
     return forStatement();
   if (match(TOKEN_RETURN))
     return returnStatement();
+  if (match(TOKEN_THROW))
+    return throwStatement();
+  if (match(TOKEN_TRY))
+    return tryStatement();
   if (match(TOKEN_LBRACE))
     return block();
   return expressionStatement();

@@ -616,6 +616,17 @@ check_prog_err "null-wrong-inner" 'let a: int? = "no"; print a;'
 check_prog_err "null-no-narrow"  'fn f(x: int?): int { return x; } print f(1);'
 check_native_err "nat-rej-nullable" 'fn f(x: int?): int { return 0; } print f(nil);'
 
+# --- error handling: try / catch / throw (step 25) ---
+check_prog "try-basic"    'try { throw "boom"; print "unreached"; } catch (e) { print "caught: " + e; }' "caught: boom"
+check_prog "try-no-throw" 'try { print "ok"; } catch (e) { print "no"; }' "ok"
+check_prog "try-across-call" 'fn r(n) { if (n < 0) { throw "neg"; } return n*2; } try { print r(5); print r(-1); } catch (e) { print "err: " + e; }' "$(printf '10\nerr: neg')"
+check_prog "try-nested"   'try { try { throw "in"; } catch (e) { throw "out:" + e; } } catch (e) { print e; }' "out:in"
+check_prog "try-nonstr"   'try { throw 42; } catch (e) { print e + 1; }' "43"
+check_prog "try-return"   'fn f(): int { try { return 9; } catch (e) { return -1; } } print f(); try { throw "x"; } catch (e) { print e; }' "$(printf '9\nx')"
+check_prog "try-recover"  'fn safe(n) { try { if (n == 0) { throw "zero"; } return 100 / n; } catch (e) { return -1; } } print safe(4); print safe(0);' "$(printf '25\n-1')"
+check_prog_err "throw-uncaught" 'throw "unhandled";'
+check_native_err "nat-rej-try" 'fn f(): int { try { return 1; } catch (e) { return 2; } } print f();'
+
 # --- native backend: compile to C -> a real executable (step 9) ---
 # Each program is the typed first-order subset; its native output must match.
 check_native "nat-arith"    'print 2 + 3 * 4;'                          "14"

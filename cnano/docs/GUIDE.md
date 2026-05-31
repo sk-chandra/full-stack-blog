@@ -1433,7 +1433,13 @@ programs define their own types, and makes failure recoverable.
     **narrowed**: the checker recognises `if (x != nil)` / `if (x == nil)` guards
     and treats `x` as `T` in the proven branch (temporarily overriding its symbol
     type). Works for any inner type, including structs (`Point?`). Native rejects.
-25. **Error handling** — `try`/`catch` (stack unwinding) or `Result` + `?`.
+25. ~~**Error handling.**~~ **✅ DONE** — `throw EXPR;` and `try { } catch (e) { }`
+    via VM **stack unwinding**. A handler stack records each `try`'s catch
+    address + stack/frame depth (`OP_BEGIN_TRY`/`OP_END_TRY`); `OP_THROW` unwinds
+    to the nearest handler (closing upvalues in the abandoned frames), leaving the
+    thrown value as the catch variable; uncaught throws abort. Handlers are
+    discarded when a frame returns out of a `try`. **Phase C complete** — cnano is
+    now a practical, object-capable, null-safe language with recoverable errors.
 
 **Phase D — type-system depth**
 26. **Union types** (`int | str`) with narrowing.

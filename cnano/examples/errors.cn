@@ -1,0 +1,50 @@
+// Error handling — `throw` raises a value, `try`/`catch` recovers from it. A
+// throw unwinds the call stack (closing any open upvalues) to the nearest
+// enclosing catch; if there is none, the program aborts with the value.
+//
+//   cnano examples/errors.cn
+
+// Basic: the throw skips the rest of the try block and runs the catch.
+try {
+  print "starting";
+  throw "something broke";
+  print "never runs";
+} catch (e) {
+  print "caught: " + e;
+}
+
+// A throw propagates out of nested function calls until something catches it.
+fn parsePositive(n: int): int {
+  if (n < 0) {
+    throw "expected a positive number";
+  }
+  return n;
+}
+fn doubleIt(n: int): int {
+  return parsePositive(n) * 2;   // no try here — the throw passes straight through
+}
+try {
+  print doubleIt(21);            // 42
+  print doubleIt(-5);            // throws, caught below
+} catch (e) {
+  print "rejected: " + e;
+}
+
+// A small "safe division" that converts a thrown error into a fallback value.
+fn safeDiv(a: int, b: int): int {
+  try {
+    if (b == 0) { throw "division by zero"; }
+    return a / b;
+  } catch (e) {
+    return 0;                    // recover with a default
+  }
+}
+print safeDiv(20, 4);            // 5
+print safeDiv(20, 0);            // 0
+
+// Thrown values are ordinary values — not just strings.
+try {
+  throw 404;
+} catch (code) {
+  print "error code " + str(code);   // error code 404
+}

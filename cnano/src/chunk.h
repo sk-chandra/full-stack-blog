@@ -104,6 +104,13 @@ typedef enum {
   // top, the struct just below it. Pops the closure, adds it to the struct's
   // method table under [nameIdx], and leaves the struct on the stack.
   OP_METHOD,      // [opcode][nameIdx] : struct.methods[name] = pop()
+  // Exceptions. BEGIN_TRY registers a handler pointing at the catch code and
+  // remembers the stack/frame depth; END_TRY pops it on the no-error path. THROW
+  // pops a value and unwinds to the nearest handler (or aborts if none), leaving
+  // the thrown value on the stack as the catch variable.
+  OP_BEGIN_TRY,   // [opcode][hi][lo] : push a handler whose catch is at offset
+  OP_END_TRY,     // [opcode]         : pop the current handler (no exception)
+  OP_THROW,       // [opcode]         : pop a value and raise it
   // Create a closure from the function constant at [idx], then read 2 bytes per
   // upvalue describing where each capture comes from: [isLocal][index]. This is
   // our only VARIABLE-LENGTH instruction — its size depends on the function's

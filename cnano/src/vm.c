@@ -23,6 +23,7 @@ VM vm;
 static void resetStack(void) {
   vm.stackTop = vm.stack;
   vm.frameCount = 0;
+  vm.handlerCount = 0; // discard any active try handlers on (re)start / abort
 }
 
 void initVM(void) {
@@ -663,6 +664,44 @@ static InterpretResult run(bool trace, int stopFrame) {
       pop(); // the closure; the struct stays for the next method / define
       break;
     }
+    case OP_BEGIN_TRY: {
+      // Register a handler: where the catch code is, and the stack/frame depth to
+      // restore when unwinding to it.
+      uint16_t offset = READ_SHORT();
+      if (vm.handlerCount == TRY_MAX) {
+        runtimeError("too many nested try blocks");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      TryHandler *h = &vm.handlers[vm.handlerCount++];
+      h->handlerIp = frame->ip + offset; // forward offset, like a jump
+      h->stackTop = vm.stackTop;
+      h->frameCount = vm.frameCount;
+      break;
+    }
+    case OP_END_TRY:
+      vm.handlerCount--; // body finished without throwing; drop the handler
+      break;
+    case OP_THROW: {
+      Value thrown = pop();
+      if (vm.handlerCount == 0) {
+        // Uncaught: report (showing the value if it's a string) and abort.
+        if (IS_STRING(thrown))
+          runtimeError("uncaught exception: %s", AS_CSTRING(thrown));
+        else
+          runtimeError("uncaught exception");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      // Unwind to the nearest handler: close any upvalues in the abandoned
+      // region, restore the frame/stack depth, then hand the value to the catch.
+      TryHandler *h = &vm.handlers[--vm.handlerCount];
+      closeUpvalues(h->stackTop);
+      vm.frameCount = h->frameCount;
+      vm.stackTop = h->stackTop;
+      push(thrown); // becomes the catch variable
+      frame = &vm.frames[vm.frameCount - 1];
+      frame->ip = h->handlerIp;
+      break;
+    }
     case OP_GET_FIELD: {
       ObjString *name = READ_STRING();
       Value obj = pop();
@@ -740,6 +779,11 @@ static InterpretResult run(bool trace, int stopFrame) {
       Value result = pop();
       closeUpvalues(frame->slots);
       vm.frameCount--;
+      // Discard any try handlers registered in the frame we're leaving (e.g. a
+      // `return` inside a try block), so a later throw can't unwind into it.
+      while (vm.handlerCount > 0 &&
+             vm.handlers[vm.handlerCount - 1].frameCount > vm.frameCount)
+        vm.handlerCount--;
       if (vm.frameCount == stopFrame) {
         // We've returned out of the frame our caller was waiting on.
         if (stopFrame == 0) {

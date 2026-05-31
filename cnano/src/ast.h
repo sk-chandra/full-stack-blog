@@ -54,6 +54,8 @@ typedef enum {
   NODE_FIELD_SET, // `obj.field = v` : write a struct field, yields v
   // --- statement nodes (performed for effect, yield nothing) ---
   NODE_STRUCT,    // `struct Name { field: T, ... }` — a struct declaration
+  NODE_THROW,     // `throw EXPR;` — raise a value
+  NODE_TRY,       // `try { ... } catch (e) { ... }` — guard a block
   NODE_PRINT,      // `print EXPR;` — evaluate EXPR and print it
   NODE_EXPR_STMT,  // `EXPR;` — evaluate EXPR, then discard its value
   NODE_VAR_DECL,   // `let name = EXPR;` — declare a variable (global or local)
@@ -221,6 +223,12 @@ typedef struct Node {
     struct {
       struct Node *value;
     } ret;
+    // NODE_TRY: a guarded block, a catch variable name, and the catch block.
+    struct {
+      struct Node *body;     // a NODE_BLOCK
+      ObjString *catchName;  // the variable bound to the thrown value
+      struct Node *handler;  // a NODE_BLOCK
+    } tryStmt;
   } as;
 } Node;
 
@@ -276,6 +284,10 @@ Node *newFieldSet(Node *object, ObjString *field, Node *value, int line);
 // `struct Name { ... }`. Takes ownership of the fieldNames and fieldTypes arrays.
 Node *newStructDecl(ObjString *name, ObjString **fieldNames, Type **fieldTypes,
                     int fieldCount, int line);
+
+// `throw EXPR;` and `try { body } catch (name) { handler }`.
+Node *newThrow(Node *value, int line);
+Node *newTry(Node *body, ObjString *catchName, Node *handler, int line);
 
 // Deep-copy a PURE expression (literals, variable reads, and index reads built
 // from those). Returns NULL for anything that could have a side effect (calls,

@@ -184,6 +184,17 @@ static void foldStatement(Node *node) {
     if (node->as.ret.value != NULL)
       node->as.ret.value = foldExpr(node->as.ret.value);
     break;
+  case NODE_STRUCT:
+    for (int i = 0; i < node->as.structDecl.methodCount; i++)
+      foldProgram(node->as.structDecl.methods[i]->as.fun.body);
+    break;
+  case NODE_THROW:
+    node->as.stmt.expr = foldExpr(node->as.stmt.expr);
+    break;
+  case NODE_TRY:
+    foldStatement(node->as.tryStmt.body);
+    foldStatement(node->as.tryStmt.handler);
+    break;
   default:
     break;
   }

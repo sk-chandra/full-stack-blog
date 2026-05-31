@@ -179,6 +179,12 @@ static TokenType identifierType(void) {
     return TOKEN_RETURN;
   if (length == 6 && memcmp(s, "struct", 6) == 0)
     return TOKEN_STRUCT;
+  if (length == 3 && memcmp(s, "try", 3) == 0)
+    return TOKEN_TRY;
+  if (length == 5 && memcmp(s, "catch", 5) == 0)
+    return TOKEN_CATCH;
+  if (length == 5 && memcmp(s, "throw", 5) == 0)
+    return TOKEN_THROW;
   // Not a keyword: it's a user-defined identifier (a variable name).
   return TOKEN_IDENTIFIER;
 }

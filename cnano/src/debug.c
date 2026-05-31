@@ -146,6 +146,12 @@ int disassembleInstruction(Chunk *chunk, int offset) {
     return constantInstruction("OP_SET_FIELD", chunk, offset);
   case OP_METHOD:
     return constantInstruction("OP_METHOD", chunk, offset);
+  case OP_BEGIN_TRY:
+    return jumpInstruction("OP_BEGIN_TRY", 1, chunk, offset);
+  case OP_END_TRY:
+    return simpleInstruction("OP_END_TRY", offset);
+  case OP_THROW:
+    return simpleInstruction("OP_THROW", offset);
   case OP_CLOSURE: {
     // Variable-length: the function constant, then 2 bytes per upvalue. We print
     // the function and one line per captured upvalue describing its source.

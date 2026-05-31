@@ -189,6 +189,20 @@ Node *newStructDecl(ObjString *name, ObjString **fieldNames, Type **fieldTypes,
   return node;
 }
 
+Node *newThrow(Node *value, int line) {
+  Node *node = allocNode(NODE_THROW, line);
+  node->as.stmt.expr = value;
+  return node;
+}
+
+Node *newTry(Node *body, ObjString *catchName, Node *handler, int line) {
+  Node *node = allocNode(NODE_TRY, line);
+  node->as.tryStmt.body = body;
+  node->as.tryStmt.catchName = catchName;
+  node->as.tryStmt.handler = handler;
+  return node;
+}
+
 Node *cloneExpr(Node *node) {
   switch (node->type) {
   case NODE_INT:
@@ -327,6 +341,13 @@ void freeNode(Node *node) {
     // field name is VM-owned (interned); free the object and (set form) value.
     freeNode(node->as.field.object);
     freeNode(node->as.field.value); // tolerates NULL (the get form)
+    break;
+  case NODE_THROW:
+    freeNode(node->as.stmt.expr);
+    break;
+  case NODE_TRY:
+    freeNode(node->as.tryStmt.body);
+    freeNode(node->as.tryStmt.handler); // catchName is interned (VM-owned)
     break;
   case NODE_STRUCT:
     // name and field names are interned (VM-owned); free only the arrays and the
