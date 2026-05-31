@@ -18,15 +18,23 @@ typedef enum {
   TY_BOOL,
   TY_STR,
   TY_NIL,
+  TY_ARRAY,    // a homogeneous list; carries an element type (see Type.element)
+  TY_MAP,      // a dictionary; carries key + value types (see Type.map)
   TY_FUNCTION, // a callable; carries param/return types (see Type.fn)
 } TypeKind;
 
-// A type. Primitive types need only the `kind` tag; function types also carry
-// their signature so calls can be checked. Types are heap-allocated and owned by
-// a TypeArena (see typecheck.c) that frees them all at once — far simpler than
-// tracking each type's lifetime individually.
+// A type. Primitive types (any/int/bool/str/nil) need only the `kind` tag and are
+// shared SINGLETONS. The PARAMETRIC types — array, map, function — also carry the
+// types they are built from, which is exactly why a flat enum is no longer enough:
+// `[int]` and `[bool]` are both arrays but different types. Composite types are
+// allocated in a small arena (see type.c) and freed all at once.
 typedef struct Type {
   TypeKind kind;
+  struct Type *element; // TY_ARRAY: the element type
+  struct {
+    struct Type *key;
+    struct Type *value;
+  } map; // valid only when kind == TY_MAP
   struct {
     struct Type **params; // parameter types (heap array)
     int paramCount;
@@ -34,7 +42,25 @@ typedef struct Type {
   } fn; // valid only when kind == TY_FUNCTION
 } Type;
 
-// Human-readable name for error messages ("int", "bool", "fn", ...).
+// --- type constructors -----------------------------------------------------
+// Primitives are shared singletons (one `int` type, etc.) and are never freed.
+Type *typeAny(void);
+Type *typeInt(void);
+Type *typeBool(void);
+Type *typeStr(void);
+Type *typeNil(void);
+
+// Parametric types are allocated in the type arena and freed together by
+// freeTypes(). `typeFunction` takes ownership of the `params` array.
+Type *typeArray(Type *element);
+Type *typeMap(Type *key, Type *value);
+Type *typeFunction(Type **params, int paramCount, Type *returnType);
+
+// Free every parametric type allocated since the last call. Primitive singletons
+// are untouched. Called once after all type-consuming passes (check + codegen).
+void freeTypes(void);
+
+// Human-readable name for error messages ("int", "[int]", "{str: int}", "fn").
 const char *typeName(const Type *type);
 
 #endif // CNANO_TYPE_H

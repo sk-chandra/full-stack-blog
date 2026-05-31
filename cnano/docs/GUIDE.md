@@ -1088,7 +1088,65 @@ reachability analysis run periodically over a well-defined root set.
 
 ---
 
-## 20. Roadmap: where to go next
+## 20. Case study: a structured type system
+
+cnano's checker started with a flat `TypeKind` **enum** — `int`, `bool`, `str`,
+`nil`, `any`, and a special `fn`. That is enough while every type is atomic, but
+the moment you want `[int]` (a list of ints) or `{str: int}` (a map from strings
+to ints), an enum collapses: `[int]` and `[bool]` are both "array", yet they are
+*different types*. Step 11 generalises the representation so the checker can tell
+them apart — the foundation the upcoming array and map values will stand on.
+
+### 20.1 From enum to a tagged, recursive type
+
+A type is now a small struct (`type.h`): a `kind` tag plus, for the PARAMETRIC
+kinds, the types it is built from — an array carries its `element` type, a map its
+`key` and `value`, a function its parameters and return. Because a type can
+*contain* types, the structure is **recursive**, and so is everything that walks
+it. `[[int]]` and `{str: [int]}` fall out for free.
+
+Primitive types stay **shared singletons** (one `int` type, compared by pointer);
+only the parametric types are heap-allocated, in a small **arena** that is freed
+in one call (`freeTypes()`) once every pass that reads types — the checker *and*
+the native codegen — is done. That "allocate freely, free all at once" arena is a
+recurring pattern for compiler data with a clear, common lifetime.
+
+### 20.2 Compatibility recurses
+
+The gradual rule is unchanged at the top — `any` matches anything — but for equal
+parametric kinds, compatibility now recurses into the parts: two arrays are
+compatible iff their elements are; two maps iff both key and value are. So `[int]`
+is compatible with `[int]` and with `[any]`, but not with `[bool]`, and the error
+points at exactly the mismatch. This is **structural** typing in miniature, and
+the same three lines handle nesting to any depth.
+
+### 20.3 Two details that bite in practice
+
+- **The annotations moved onto the AST as full `Type*`.** Previously the parser
+  stored a bare `TypeKind`; now it builds a real (possibly nested) `Type` while
+  parsing `[T]` / `{K: V}`, so the structure is captured at parse time and simply
+  read later. Type names remain non-reserved — `int` is recognised only in
+  annotation position, so it is still usable as a variable name.
+- **Naming composite types needs more than one buffer.** `typeName` must format
+  strings like `"[int]"`, but error messages routinely use *two* names at once
+  (`expects %s but got %s`). A single static buffer would let the second call
+  clobber the first; a small **ring** of buffers keeps several recent names valid
+  simultaneously. A tiny detail, but the kind that produces baffling error
+  messages if you get it wrong.
+
+### 20.4 What it demonstrates
+
+There are no array or map *values* yet — this step is pure type machinery — but it
+is already exercised end-to-end: you can write `[int]`/`{str: int}` annotations on
+parameters, returns and `let`s, and the checker accepts the matching ones and
+rejects structural mismatches with precise messages. The native backend, whose
+scalar subset has no place for heap collections, cleanly rejects them. The lesson
+is that *representation drives capability*: enriching the type from an enum to a
+recursive structure is what makes every later collection feature expressible.
+
+---
+
+## 21. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -1135,9 +1193,10 @@ ordered so each builds on the last.
 
 With the collector in place, cnano is growing real aggregate data on top of it:
 
-11. **Structured type system.** Replace the flat `TypeKind` enum with a tagged
-    `Type` (so `[int]`, `{str: int}` can be expressed) — the foundation for typed
-    collections.
+11. ~~**Structured type system.**~~ **✅ DONE** — see §20 above. The flat
+    `TypeKind` enum became a tagged, recursive `Type` (arena-owned) so `[int]` and
+    `{str: int}` are expressible and checked structurally; annotations now live on
+    the AST as full `Type*`.
 12. **Method-call dispatch + builtins.** Postfix `a.method(args)`, an `OP_INVOKE`
     that dispatches on the receiver's type, and `OBJ_NATIVE` builtins (`clock`,
     `str`, …).

@@ -10,6 +10,7 @@
 #include "object.h"
 #include "optimize.h"
 #include "parser.h"
+#include "type.h"
 #include "typecheck.h"
 #include "vm.h"
 
@@ -517,6 +518,7 @@ InterpretResult interpret(const char *source, bool trace) {
   bool ok = parse(source, &program);
   if (!ok) {
     freeProgram(&program); // may hold partially-built statements
+    freeTypes();
     return INTERPRET_COMPILE_ERROR;
   }
 
@@ -526,6 +528,7 @@ InterpretResult interpret(const char *source, bool trace) {
   // ahead-of-time compiler rejecting an ill-typed program.
   if (!typecheckProgram(&program)) {
     freeProgram(&program);
+    freeTypes();
     return INTERPRET_COMPILE_ERROR;
   }
 
@@ -539,7 +542,8 @@ InterpretResult interpret(const char *source, bool trace) {
   // nested function's chunk, is owned by the VM object list — freed at shutdown,
   // not here.)
   ObjFunction *function = compile(&program);
-  freeProgram(&program); // trees no longer needed once bytecode exists
+  freeProgram(&program);   // trees no longer needed once bytecode exists
+  freeTypes();             // ...and the type arena: bytecode doesn't reference types
   if (function == NULL)
     return INTERPRET_COMPILE_ERROR;
 
@@ -566,15 +570,18 @@ InterpretResult compileToC(const char *source, FILE *cFile) {
   Program program;
   if (!parse(source, &program)) {
     freeProgram(&program);
+    freeTypes();
     return INTERPRET_COMPILE_ERROR;
   }
   if (!typecheckProgram(&program)) {
     freeProgram(&program);
+    freeTypes();
     return INTERPRET_COMPILE_ERROR;
   }
   foldConstants(&program);
 
   bool gen = emitC(&program, cFile);
   freeProgram(&program);
+  freeTypes();
   return gen ? INTERPRET_OK : INTERPRET_COMPILE_ERROR;
 }

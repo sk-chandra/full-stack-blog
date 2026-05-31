@@ -571,36 +571,45 @@ static Node *statement(void) {
   return expressionStatement();
 }
 
-// Map a just-consumed type-name token to a TypeKind. Type names are not reserved
-// keywords — they are recognised only HERE, in annotation position, so `int` etc.
-// remain usable as ordinary variable names elsewhere. The one special case is
-// `nil`, which is a keyword (the literal), so we accept that token too.
-static TypeKind tokenToTypeKind(void) {
-  if (parser.previous.type == TOKEN_NIL)
-    return TY_NIL;
-  // Otherwise it must be an identifier naming a primitive type.
-  int len = parser.previous.length;
-  const char *s = parser.previous.start;
-  if (len == 3 && memcmp(s, "int", 3) == 0)
-    return TY_INT;
-  if (len == 4 && memcmp(s, "bool", 4) == 0)
-    return TY_BOOL;
-  if (len == 3 && memcmp(s, "str", 3) == 0)
-    return TY_STR;
-  if (len == 3 && memcmp(s, "any", 3) == 0)
-    return TY_ANY;
-  errorAt(&parser.previous, "Unknown type name (expected int, bool, str, nil, or any).");
-  return TY_ANY;
-}
-
-// Parse a `: TYPE` annotation that FOLLOWS a just-consumed ':'. Used after a
-// variable name, a parameter name, and a function's parameter list.
-static TypeKind parseTypeName(void) {
-  // A type name is `nil` (a keyword) or an identifier like int/bool/str/any.
-  if (match(TOKEN_NIL) || match(TOKEN_IDENTIFIER))
-    return tokenToTypeKind();
-  errorAt(&parser.current, "Expect a type name after ':'.");
-  return TY_ANY;
+// Parse a TYPE expression and return its structured Type*. A type is one of:
+//   * a primitive name: int / bool / str / any (identifiers) or the `nil` keyword
+//   * an array type:  [ TYPE ]
+//   * a map type:     { TYPE : TYPE }
+// Types nest, so this recurses: `[[int]]` and `{str: [int]}` both parse. Type
+// names are NOT reserved keywords — they are recognised only here, in annotation
+// position, so `int` etc. remain usable as ordinary variable names elsewhere.
+static Type *parseType(void) {
+  if (match(TOKEN_LBRACKET)) { // [ ELEMENT ]
+    Type *element = parseType();
+    consume(TOKEN_RBRACKET, "Expect ']' to close an array type.");
+    return typeArray(element);
+  }
+  if (match(TOKEN_LBRACE)) { // { KEY : VALUE }
+    Type *key = parseType();
+    consume(TOKEN_COLON, "Expect ':' between a map's key and value types.");
+    Type *value = parseType();
+    consume(TOKEN_RBRACE, "Expect '}' to close a map type.");
+    return typeMap(key, value);
+  }
+  if (match(TOKEN_NIL)) // `nil` is a keyword (the literal) but also a type name
+    return typeNil();
+  if (match(TOKEN_IDENTIFIER)) {
+    int len = parser.previous.length;
+    const char *s = parser.previous.start;
+    if (len == 3 && memcmp(s, "int", 3) == 0)
+      return typeInt();
+    if (len == 4 && memcmp(s, "bool", 4) == 0)
+      return typeBool();
+    if (len == 3 && memcmp(s, "str", 3) == 0)
+      return typeStr();
+    if (len == 3 && memcmp(s, "any", 3) == 0)
+      return typeAny();
+    errorAt(&parser.previous,
+            "Unknown type name (expected int, bool, str, nil, any, [T], or {K: V}).");
+    return typeAny();
+  }
+  errorAt(&parser.current, "Expect a type after ':'.");
+  return typeAny();
 }
 
 // `let NAME [: TYPE] = EXPR ;` — declare and initialise a variable. The type
@@ -610,9 +619,7 @@ static Node *varDeclaration(void) {
   int line = parser.previous.line; // the 'let' keyword's line
   consume(TOKEN_IDENTIFIER, "Expect variable name after 'let'.");
   ObjString *name = copyString(parser.previous.start, parser.previous.length);
-  TypeKind declaredType = TY_ANY;
-  if (match(TOKEN_COLON))
-    declaredType = parseTypeName();
+  Type *declaredType = match(TOKEN_COLON) ? parseType() : typeAny();
   consume(TOKEN_EQUAL, "Expect '=' after variable name.");
   Node *initializer = expression();
   consume(TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
@@ -630,7 +637,7 @@ static Node *funDeclaration(void) {
 
   consume(TOKEN_LPAREN, "Expect '(' after function name.");
   ObjString **params = NULL;
-  TypeKind *paramTypes = NULL;
+  Type **paramTypes = NULL;
   int paramCount = 0;
   int capacity = 0;
   if (!check(TOKEN_RPAREN)) {
@@ -643,7 +650,7 @@ static Node *funDeclaration(void) {
       if (paramCount + 1 > capacity) {
         capacity = capacity < 4 ? 4 : capacity * 2;
         params = realloc(params, sizeof(ObjString *) * capacity);
-        paramTypes = realloc(paramTypes, sizeof(TypeKind) * capacity);
+        paramTypes = realloc(paramTypes, sizeof(Type *) * capacity);
         if (params == NULL || paramTypes == NULL) {
           fprintf(stderr, "cnano: out of memory parsing parameters\n");
           exit(70);
@@ -652,16 +659,14 @@ static Node *funDeclaration(void) {
       params[paramCount] =
           copyString(parser.previous.start, parser.previous.length);
       // Optional `: TYPE` per parameter; default any.
-      paramTypes[paramCount] = match(TOKEN_COLON) ? parseTypeName() : TY_ANY;
+      paramTypes[paramCount] = match(TOKEN_COLON) ? parseType() : typeAny();
       paramCount++;
     } while (match(TOKEN_COMMA));
   }
   consume(TOKEN_RPAREN, "Expect ')' after parameters.");
 
   // Optional return-type annotation: `fn f(...) : TYPE { ... }`. Default any.
-  TypeKind returnType = TY_ANY;
-  if (match(TOKEN_COLON))
-    returnType = parseTypeName();
+  Type *returnType = match(TOKEN_COLON) ? parseType() : typeAny();
 
   consume(TOKEN_LBRACE, "Expect '{' before function body.");
   Node *bodyBlock = block(); // parses up to and including the closing '}'

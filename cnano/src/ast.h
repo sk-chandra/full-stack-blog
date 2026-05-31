@@ -115,12 +115,13 @@ typedef struct Node {
     } stmt;
     // NODE_ASSIGN and NODE_VAR_DECL: a variable name plus the value expression.
     // Assignment is an expression (yields the value); declaration is a statement.
-    // `declaredType` is the optional `: T` annotation on a `let` (TY_ANY when
-    // omitted — the gradual default). Unused for NODE_ASSIGN.
+    // `declaredType` is the optional `: T` annotation on a `let` — a full Type*
+    // now (so `[int]`, `{str: int}` are expressible), `typeAny()` when omitted
+    // (the gradual default). Unused for NODE_ASSIGN.
     struct {
       ObjString *name;
       struct Node *value;
-      TypeKind declaredType;
+      Type *declaredType;
     } var;
     // NODE_BLOCK: a brace-delimited sequence of statements forming a new scope.
     // We reuse the Program container (a growable Node* list) — a block is, after
@@ -151,15 +152,15 @@ typedef struct Node {
       int argCount;
     } call;
     // NODE_FUN: a function declaration. params holds the parameter NAMES (interned
-    // ObjStrings); paramTypes the parallel `: T` annotations (TY_ANY if omitted);
-    // returnType the `: T` after the parameter list (TY_ANY if omitted); body the
-    // block of statements.
+    // ObjStrings); paramTypes the parallel `: T` annotations (typeAny() if
+    // omitted); returnType the `: T` after the parameter list (typeAny() if
+    // omitted); body the block of statements.
     struct {
       ObjString *name;
-      ObjString **params;     // heap array of parameter names
-      TypeKind *paramTypes;   // parallel heap array of annotations (TY_ANY default)
+      ObjString **params;   // heap array of parameter names
+      Type **paramTypes;    // parallel heap array of annotation Type* (typeAny default)
       int paramCount;
-      TypeKind returnType;
+      Type *returnType;
       struct Program *body;
     } fun;
     // NODE_RETURN: the optional return value (NULL for a bare `return;`).
@@ -196,7 +197,7 @@ Node *newVarGet(ObjString *name, int line);
 Node *newAssign(ObjString *name, Node *value, int line);
 Node *newPrint(Node *expr, int line);
 Node *newExprStmt(Node *expr, int line);
-Node *newVarDecl(ObjString *name, Node *value, TypeKind declaredType, int line);
+Node *newVarDecl(ObjString *name, Node *value, Type *declaredType, int line);
 Node *newBlock(Program *block, int line); // takes ownership of `block`
 Node *newLogical(bool isAnd, Node *left, Node *right, int line);
 Node *newIf(Node *condition, Node *then, Node *otherwise, int line);
@@ -204,8 +205,8 @@ Node *newWhile(Node *condition, Node *body, int line);
 // Takes ownership of the `args` array (freed by freeNode).
 Node *newCall(Node *callee, Node **args, int argCount, int line);
 // Takes ownership of `params`, `paramTypes`, and `body`.
-Node *newFun(ObjString *name, ObjString **params, TypeKind *paramTypes,
-             int paramCount, TypeKind returnType, Program *body, int line);
+Node *newFun(ObjString *name, ObjString **params, Type **paramTypes,
+             int paramCount, Type *returnType, Program *body, int line);
 Node *newReturn(Node *value, int line); // value may be NULL
 void freeNode(Node *node);
 

@@ -75,7 +75,7 @@ Node *newExprStmt(Node *expr, int line) {
   return node;
 }
 
-Node *newVarDecl(ObjString *name, Node *value, TypeKind declaredType, int line) {
+Node *newVarDecl(ObjString *name, Node *value, Type *declaredType, int line) {
   Node *node = allocNode(NODE_VAR_DECL, line);
   node->as.var.name = name;
   node->as.var.value = value;
@@ -120,8 +120,8 @@ Node *newCall(Node *callee, Node **args, int argCount, int line) {
   return node;
 }
 
-Node *newFun(ObjString *name, ObjString **params, TypeKind *paramTypes,
-             int paramCount, TypeKind returnType, Program *body, int line) {
+Node *newFun(ObjString *name, ObjString **params, Type **paramTypes,
+             int paramCount, Type *returnType, Program *body, int line) {
   Node *node = allocNode(NODE_FUN, line);
   node->as.fun.name = name;
   node->as.fun.params = params;

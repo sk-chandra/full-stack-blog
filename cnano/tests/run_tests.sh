@@ -405,6 +405,23 @@ check_prog "gc-live-survives" \
    let acc = mk(); let i = 0; let last = 0;
    while (i < 5000) { let junk = mk(); last = acc(); i = i + 1; } print last;' "5000"
 
+# --- structured type system (step 11) ---
+# Collection type annotations parse and are checked STRUCTURALLY: [int] matches
+# [int] (and [any]) but not [bool]; {str: int} likewise. The checks recurse into
+# element/key/value types and nest arbitrarily.
+check_prog "st-array-ok"      'fn id(a: [int]): [int] { return a; } print "ok";' "ok"
+check_prog "st-nested-ok"     'fn id(a: [[int]]): [[int]] { return a; } print "ok";' "ok"
+check_prog "st-map-ok"        'fn id(m: {str: int}): {str: int} { return m; } print "ok";' "ok"
+# `any` still flows freely into a typed collection slot (gradual escape hatch).
+check_prog "st-gradual"       'fn need(a: [int]): int { return 0; } fn g(x) { return need(x); } print "ok";' "ok"
+# Structural mismatches are rejected (these exit non-zero).
+check_prog_err "st-arr-ret-bad"  'fn f(a: [int]): [bool] { return a; } print 1;'
+check_prog_err "st-let-arr-int"  'let x: [int] = 5; print x;'
+check_prog_err "st-map-val-bad"  'fn f(m: {str: int}): {str: bool} { return m; } print 1;'
+check_prog_err "st-map-nest-bad" 'fn f(m: {str: [int]}): {str: int} { return m; } print 1;'
+check_prog_err "st-arg-coll-bad" 'fn need(a: [int]): int { return 0; } fn g(b: [bool]): int { return need(b); } print 1;'
+check_prog_err "st-bad-syntax"   'let x: [int = 5; print x;'
+
 # --- native backend: compile to C -> a real executable (step 9) ---
 # Each program is the typed first-order subset; its native output must match.
 check_native "nat-arith"    'print 2 + 3 * 4;'                          "14"
@@ -423,6 +440,8 @@ check_native "nat-div0"     'let z: int = 0; print 6 / 1;'              "6"
 # Out-of-subset features must be rejected by the native backend.
 check_native_err "nat-rej-closure" 'fn mk(): int { let n: int = 0; fn inc(): int { return n; } return inc(); } print mk();'
 check_native_err "nat-rej-dynparam" 'fn f(x) { return x; } print f(1);'
+# Collection-typed values need the GC runtime, so the scalar native backend rejects them.
+check_native_err "nat-rej-array"   'fn id(a: [int]): [int] { return a; } print 1;'
 
 rm -f "$tmp" "${tmp}.native" "${tmp}.native.c" 2>/dev/null
 echo "-----------------------------------------"

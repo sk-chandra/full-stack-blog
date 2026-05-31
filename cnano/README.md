@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (194 cases, incl. native + GC)
+make test       # run the end-to-end test suite (205 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -62,11 +62,14 @@ make run        # start the REPL
   returned counter keeps counting). Captured variables can be shared and mutated
   between sibling closures
 - **Optional static types** (gradual typing): annotate with `let x: int = …;`
-  and `fn add(a: int, b: int): int { … }` (types `int`/`bool`/`str`/`nil`/`any`).
-  A type-checking pass runs **before** execution and rejects mismatches (bad
+  and `fn add(a: int, b: int): int { … }`. Types are **structured** —
+  `int`/`bool`/`str`/`nil`/`any` plus the parametric `[T]` (arrays) and
+  `{K: V}` (maps), nesting arbitrarily (`[[int]]`, `{str: [int]}`). A
+  type-checking pass runs **before** execution and rejects mismatches (bad
   initialisers, wrong argument types/arity, wrong return type, calling a
-  non-function, bad operators). Unannotated code is `any` and stays fully
-  dynamic, so typed and untyped code mix freely
+  non-function, bad operators); collection types are checked **structurally**
+  (`[int]` ≠ `[bool]`, recursing into element/key/value). Unannotated code is
+  `any` and stays fully dynamic, so typed and untyped code mix freely
 - **Optimisation**: an AST **constant-folding** pass evaluates constant
   subexpressions at compile time (`2 + 3 * 4` → `14`, `"a" + "b"` → `"ab"`),
   constant **deduplication**, and an `OP_CONSTANT_LONG` form so chunks aren't
@@ -112,7 +115,7 @@ make run        # start the REPL
 | `src/lexer.{h,c}` | text → tokens | lexing, string slices, lookahead, comments |
 | `src/ast.{h,c}` | the tree + `Program` | ASTs, tagged unions, expr vs. statement |
 | `src/parser.{h,c}` | tokens → AST | recursive descent, precedence, l-values, recovery |
-| `src/type.{h,c}` | the type system | gradual types; `any` as the escape hatch |
+| `src/type.{h,c}` | the type system | gradual + structured types (`[T]`, `{K:V}`); arena-owned |
 | `src/typecheck.{h,c}` | static analysis pass | tree-walking checker, two-pass for fns |
 | `src/optimize.{h,c}` | AST optimisation pass | constant folding (bottom-up rewrite) |
 | `src/codegen_c.{h,c}` | native backend | AST → C source → `cc` → executable (AOT) |

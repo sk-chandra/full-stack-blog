@@ -16,8 +16,10 @@ typedef enum {
   TOKEN_SLASH,
   TOKEN_LPAREN,
   TOKEN_RPAREN,
-  TOKEN_LBRACE,    // { — opens a block scope
+  TOKEN_LBRACE,    // { — opens a block scope (or a map type/literal)
   TOKEN_RBRACE,    // } — closes a block scope
+  TOKEN_LBRACKET,  // [ — opens an array type/literal or an index
+  TOKEN_RBRACKET,  // ] — closes one
   TOKEN_COMMA,     // , — separates parameters and arguments
   TOKEN_COLON,     // : — introduces a type annotation
   TOKEN_SEMICOLON, // ; — terminates a statement

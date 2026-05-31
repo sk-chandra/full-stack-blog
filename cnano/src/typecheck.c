@@ -3,86 +3,41 @@
 
 #include "typecheck.h"
 
-// --- type construction (an arena owns every Type) --------------------------
-//
-// Primitive types are singletons (there is only one `int` type, etc.). Function
-// types are allocated on demand and tracked in a simple arena that we free all at
-// once when checking finishes — far simpler than per-type lifetime tracking.
-
-static Type anyType = {TY_ANY, {0}};
-static Type intType = {TY_INT, {0}};
-static Type boolType = {TY_BOOL, {0}};
-static Type strType = {TY_STR, {0}};
-static Type nilType = {TY_NIL, {0}};
-
-// Map a parsed TypeKind annotation to its singleton Type.
-static Type *primitive(TypeKind kind) {
-  switch (kind) {
-  case TY_INT:
-    return &intType;
-  case TY_BOOL:
-    return &boolType;
-  case TY_STR:
-    return &strType;
-  case TY_NIL:
-    return &nilType;
-  case TY_FUNCTION: // never produced by an annotation; fall through
-  case TY_ANY:
-  default:
-    return &anyType;
-  }
-}
-
-// Arena of heap-allocated function types, freed together at the end.
-#define MAX_FN_TYPES 1024
-static Type *fnTypeArena[MAX_FN_TYPES];
-static int fnTypeCount;
-
-static Type *newFunctionType(Type **params, int paramCount, Type *returnType) {
-  if (fnTypeCount == MAX_FN_TYPES)
-    return &anyType; // give up gracefully; treat as dynamic
-  Type *t = malloc(sizeof(Type));
-  if (t == NULL) {
-    fprintf(stderr, "cnano: out of memory allocating function type\n");
-    exit(70);
-  }
-  t->kind = TY_FUNCTION;
-  t->fn.params = params; // ownership transferred to the arena entry
-  t->fn.paramCount = paramCount;
-  t->fn.returnType = returnType;
-  fnTypeArena[fnTypeCount++] = t;
-  return t;
-}
-
-static void freeTypeArena(void) {
-  for (int i = 0; i < fnTypeCount; i++) {
-    free(fnTypeArena[i]->fn.params);
-    free(fnTypeArena[i]);
-  }
-  fnTypeCount = 0;
-}
+// Type CONSTRUCTION lives in type.c now: primitives are shared singletons
+// (typeInt(), ...) and the parametric types (array/map/function) are arena-
+// allocated and freed together by freeTypes() once every type-consuming pass is
+// done. The checker just calls those constructors — it no longer owns types.
 
 // --- compatibility: the gradual-typing rule --------------------------------
 //
 // THE core decision of a gradual type system. `any` is compatible with
 // everything in BOTH directions — that is the escape hatch that lets typed and
-// untyped code mix freely. Two known types are compatible only if they match
-// (function types match structurally). Because unannotated things are `any`, an
-// error only ever fires when BOTH sides are known and genuinely disagree.
+// untyped code mix freely. Two known types are compatible only if they match;
+// the PARAMETRIC types match STRUCTURALLY — `[int]` is compatible with `[int]`
+// (and with `[any]`), but not with `[bool]`. Because unannotated things are
+// `any`, an error only ever fires when BOTH sides are known and genuinely
+// disagree — and that rule recurses naturally into element/key/value types.
 static bool compatible(Type *a, Type *b) {
   if (a->kind == TY_ANY || b->kind == TY_ANY)
     return true;
   if (a->kind != b->kind)
     return false;
-  if (a->kind == TY_FUNCTION) {
+  switch (a->kind) {
+  case TY_ARRAY:
+    return compatible(a->element, b->element);
+  case TY_MAP:
+    return compatible(a->map.key, b->map.key) &&
+           compatible(a->map.value, b->map.value);
+  case TY_FUNCTION:
     if (a->fn.paramCount != b->fn.paramCount)
       return false;
     for (int i = 0; i < a->fn.paramCount; i++)
       if (!compatible(a->fn.params[i], b->fn.params[i]))
         return false;
     return compatible(a->fn.returnType, b->fn.returnType);
+  default:
+    return true; // same primitive kind
   }
-  return true; // same primitive kind
 }
 
 // --- the checker state -----------------------------------------------------
@@ -141,7 +96,7 @@ static Type *lookupSymbol(ObjString *name) {
   for (int i = checker.symbolCount - 1; i >= 0; i--)
     if (checker.symbols[i].name == name)
       return checker.symbols[i].type;
-  return &anyType;
+  return typeAny();
 }
 
 // --- the walk --------------------------------------------------------------
@@ -169,30 +124,30 @@ static Type *checkBinary(Node *node) {
     // be a string, treat it as concatenation requiring both string-or-any;
     // otherwise require int-or-any. This mirrors the VM's runtime dispatch.
     if (l->kind == TY_STR || r->kind == TY_STR) {
-      if (!compatible(l, &strType) || !compatible(r, &strType))
+      if (!compatible(l, typeStr()) || !compatible(r, typeStr()))
         typeError(node->line, "both operands of '+' must be str for concatenation");
-      return (l->kind == TY_ANY || r->kind == TY_ANY) ? &anyType : &strType;
+      return (l->kind == TY_ANY || r->kind == TY_ANY) ? typeAny() : typeStr();
     }
     requireInt(l, node->line, "left operand of '+'");
     requireInt(r, node->line, "right operand of '+'");
-    return (l->kind == TY_ANY || r->kind == TY_ANY) ? &anyType : &intType;
+    return (l->kind == TY_ANY || r->kind == TY_ANY) ? typeAny() : typeInt();
   case OP_NODE_SUB:
   case OP_NODE_MUL:
   case OP_NODE_DIV:
     requireInt(l, node->line, "left operand");
     requireInt(r, node->line, "right operand");
-    return &intType;
+    return typeInt();
   case OP_NODE_LESS:
   case OP_NODE_GREATER:
     requireInt(l, node->line, "left operand of comparison");
     requireInt(r, node->line, "right operand of comparison");
-    return &boolType;
+    return typeBool();
   case OP_NODE_EQUAL:
     // `==` works on any pair of types (mismatched types are simply not equal at
     // runtime), so there is nothing to reject; the result is always bool.
-    return &boolType;
+    return typeBool();
   default:
-    return &anyType;
+    return typeAny();
   }
 }
 
@@ -205,14 +160,14 @@ static Type *checkCall(Node *node) {
     argTypes[i] = checkExpr(node->as.call.args[i]);
 
   if (calleeType->kind == TY_ANY)
-    return &anyType; // dynamic callee: defer all checks to runtime
+    return typeAny(); // dynamic callee: defer all checks to runtime
 
   if (calleeType->kind != TY_FUNCTION) {
     char msg[96];
     snprintf(msg, sizeof(msg), "cannot call a value of type %s",
              typeName(calleeType));
     typeError(node->line, msg);
-    return &anyType;
+    return typeAny();
   }
 
   // Static arity check — caught before the program runs.
@@ -240,13 +195,13 @@ static Type *checkCall(Node *node) {
 static Type *checkExpr(Node *node) {
   switch (node->type) {
   case NODE_INT:
-    return &intType;
+    return typeInt();
   case NODE_BOOL:
-    return &boolType;
+    return typeBool();
   case NODE_NIL:
-    return &nilType;
+    return typeNil();
   case NODE_STRING:
-    return &strType;
+    return typeStr();
   case NODE_VAR_GET:
     return lookupSymbol(node->as.name);
   case NODE_ASSIGN: {
@@ -263,11 +218,11 @@ static Type *checkExpr(Node *node) {
   case NODE_UNARY:
     if (node->as.unary.op == OP_NODE_NEGATE) {
       requireInt(checkExpr(node->as.unary.operand), node->line, "operand of '-'");
-      return &intType;
+      return typeInt();
     }
     // `!` accepts anything (truthiness) and yields bool.
     checkExpr(node->as.unary.operand);
-    return &boolType;
+    return typeBool();
   case NODE_BINARY:
     return checkBinary(node);
   case NODE_LOGICAL:
@@ -275,16 +230,18 @@ static Type *checkExpr(Node *node) {
     // statically, so the result is `any`. We still walk both sides for errors.
     checkExpr(node->as.logical.left);
     checkExpr(node->as.logical.right);
-    return &anyType;
+    return typeAny();
   case NODE_CALL:
     return checkCall(node);
   default:
-    return &anyType; // statement nodes shouldn't appear in expression position
+    return typeAny(); // statement nodes shouldn't appear in expression position
   }
 }
 
 // Build a function's Type from its annotations (used both to register it and to
-// check its body).
+// check its body). The annotations are already full Type* on the AST, so we just
+// copy the param-type pointers into an array and hand them to typeFunction (which
+// takes ownership of that array — the type arena frees it).
 static Type *functionTypeOf(Node *fun) {
   int n = fun->as.fun.paramCount;
   Type **params = n > 0 ? malloc(sizeof(Type *) * n) : NULL;
@@ -293,8 +250,8 @@ static Type *functionTypeOf(Node *fun) {
     exit(70);
   }
   for (int i = 0; i < n; i++)
-    params[i] = primitive(fun->as.fun.paramTypes[i]);
-  return newFunctionType(params, n, primitive(fun->as.fun.returnType));
+    params[i] = fun->as.fun.paramTypes[i];
+  return typeFunction(params, n, fun->as.fun.returnType);
 }
 
 static void checkFunction(Node *node) {
@@ -306,10 +263,10 @@ static void checkFunction(Node *node) {
   // Check the body in a fresh scope, with parameters bound to their types and the
   // expected return type recorded for `return` validation.
   Type *savedReturn = checker.currentReturnType;
-  checker.currentReturnType = primitive(node->as.fun.returnType);
+  checker.currentReturnType = node->as.fun.returnType;
   beginScope();
   for (int i = 0; i < node->as.fun.paramCount; i++)
-    declareSymbol(node->as.fun.params[i], primitive(node->as.fun.paramTypes[i]));
+    declareSymbol(node->as.fun.params[i], node->as.fun.paramTypes[i]);
   Program *body = node->as.fun.body;
   for (int i = 0; i < body->count; i++)
     checkStatement(body->statements[i]);
@@ -325,8 +282,8 @@ static void checkStatement(Node *node) {
     break;
   case NODE_VAR_DECL: {
     Type *valueType = checkExpr(node->as.var.value);
-    Type *declared = primitive(node->as.var.declaredType);
-    if (node->as.var.declaredType != TY_ANY && !compatible(declared, valueType)) {
+    Type *declared = node->as.var.declaredType; // a full Type* (typeAny if omitted)
+    if (declared->kind != TY_ANY && !compatible(declared, valueType)) {
       char msg[128];
       snprintf(msg, sizeof(msg), "initialiser is %s but variable is declared %s",
                typeName(valueType), typeName(declared));
@@ -335,7 +292,7 @@ static void checkStatement(Node *node) {
     // The variable's static type is its annotation if given, else the (possibly
     // inferred) type of its initialiser — a tiny bit of type INFERENCE.
     declareSymbol(node->as.var.name,
-                  node->as.var.declaredType != TY_ANY ? declared : valueType);
+                  declared->kind != TY_ANY ? declared : valueType);
     break;
   }
   case NODE_BLOCK: {
@@ -360,7 +317,7 @@ static void checkStatement(Node *node) {
     checkFunction(node);
     break;
   case NODE_RETURN: {
-    Type *retType = node->as.ret.value ? checkExpr(node->as.ret.value) : &nilType;
+    Type *retType = node->as.ret.value ? checkExpr(node->as.ret.value) : typeNil();
     if (checker.currentReturnType != NULL &&
         !compatible(checker.currentReturnType, retType)) {
       char msg[128];
@@ -380,7 +337,6 @@ bool typecheckProgram(Program *program) {
   checker.scopeDepth = 0;
   checker.currentReturnType = NULL;
   checker.hadError = false;
-  fnTypeCount = 0;
 
   // PASS 1: register every top-level function's TYPE before checking any bodies.
   // This is what lets a function call another that is declared LATER, and lets
@@ -398,6 +354,8 @@ bool typecheckProgram(Program *program) {
   for (int i = 0; i < program->count; i++)
     checkStatement(program->statements[i]);
 
-  freeTypeArena();
+  // Note: the type arena is NOT freed here. Annotation/function Type* live on the
+  // AST and are needed by later passes (e.g. the native codegen reads them), so
+  // the driver frees all types via freeTypes() once compilation is complete.
   return !checker.hadError;
 }

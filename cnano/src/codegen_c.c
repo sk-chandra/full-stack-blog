@@ -144,6 +144,31 @@ static const char *cType(TypeKind t) {
   }
 }
 
+// Reduce a structured annotation Type* to the scalar TypeKind the native backend
+// understands. The PARAMETRIC types (array/map/function) need the GC'd runtime,
+// so they have no place in the unboxed scalar native subset — report them
+// unsupported and fall back to `any`, which the caller then rejects as "not a
+// concrete native type".
+static TypeKind annotationKind(Type *t, int line) {
+  switch (t->kind) {
+  case TY_INT:
+  case TY_BOOL:
+  case TY_STR:
+  case TY_NIL:
+  case TY_ANY:
+    return t->kind;
+  case TY_ARRAY:
+    unsupported(line, "an array-typed value");
+    return TY_ANY;
+  case TY_MAP:
+    unsupported(line, "a map-typed value");
+    return TY_ANY;
+  default:
+    unsupported(line, "a function-typed value");
+    return TY_ANY;
+  }
+}
+
 // --- expression emission ---------------------------------------------------
 
 static void emitExpr(Node *node);
@@ -328,8 +353,9 @@ static void emitStmt(Node *node, int ind, bool fileScope) {
     break;
   case NODE_VAR_DECL: {
     // Type the variable: use the annotation, else infer from the initialiser.
-    TypeKind t = node->as.var.declaredType != TY_ANY ? node->as.var.declaredType
-                                                      : inferType(node->as.var.value);
+    TypeKind t = node->as.var.declaredType->kind != TY_ANY
+                     ? annotationKind(node->as.var.declaredType, node->line)
+                     : inferType(node->as.var.value);
     if (t == TY_ANY || t == TY_NIL) {
       unsupported(node->line, "a variable without a concrete type (int/bool/str)");
       pushVar(node->as.var.name, t);
@@ -414,21 +440,21 @@ static void registerFunction(Node *fn) {
     return;
   FnSig *sig = &fnSigs[fnSigCount++];
   sig->name = fn->as.fun.name;
-  sig->ret = fn->as.fun.returnType;
+  sig->ret = annotationKind(fn->as.fun.returnType, fn->line);
   sig->paramCount = fn->as.fun.paramCount;
   for (int i = 0; i < fn->as.fun.paramCount; i++) {
-    TypeKind pt = fn->as.fun.paramTypes[i];
+    TypeKind pt = annotationKind(fn->as.fun.paramTypes[i], fn->line);
     if (pt == TY_ANY)
       unsupported(fn->line, "a function parameter without a type annotation");
     sig->params[i] = pt;
   }
-  if (fn->as.fun.returnType == TY_ANY)
+  if (fn->as.fun.returnType->kind == TY_ANY)
     unsupported(fn->line, "a function without a return-type annotation");
 }
 
 // Emit a function's C signature: `static <ret> cn_name(<params>)`.
 static void emitSignature(Node *fn) {
-  fprintf(out, "static %s ", cType(fn->as.fun.returnType));
+  fprintf(out, "static %s ", cType(annotationKind(fn->as.fun.returnType, fn->line)));
   emitName(fn->as.fun.name);
   fprintf(out, "(");
   if (fn->as.fun.paramCount == 0) {
@@ -437,7 +463,7 @@ static void emitSignature(Node *fn) {
     for (int i = 0; i < fn->as.fun.paramCount; i++) {
       if (i > 0)
         fprintf(out, ", ");
-      fprintf(out, "%s ", cType(fn->as.fun.paramTypes[i]));
+      fprintf(out, "%s ", cType(annotationKind(fn->as.fun.paramTypes[i], fn->line)));
       emitName(fn->as.fun.params[i]);
     }
   }
@@ -449,7 +475,7 @@ static void emitFunction(Node *fn) {
   fprintf(out, " {\n");
   beginScope();
   for (int i = 0; i < fn->as.fun.paramCount; i++)
-    pushVar(fn->as.fun.params[i], fn->as.fun.paramTypes[i]);
+    pushVar(fn->as.fun.params[i], annotationKind(fn->as.fun.paramTypes[i], fn->line));
   for (int i = 0; i < fn->as.fun.body->count; i++)
     emitStmt(fn->as.fun.body->statements[i], 1, false);
   endScope();
@@ -512,8 +538,9 @@ bool emitC(Program *program, FILE *outFile) {
   for (int i = 0; i < program->count; i++) {
     Node *s = program->statements[i];
     if (s->type == NODE_VAR_DECL) {
-      TypeKind t = s->as.var.declaredType != TY_ANY ? s->as.var.declaredType
-                                                     : inferType(s->as.var.value);
+      TypeKind t = s->as.var.declaredType->kind != TY_ANY
+                       ? annotationKind(s->as.var.declaredType, s->line)
+                       : inferType(s->as.var.value);
       if (t == TY_ANY || t == TY_NIL) {
         unsupported(s->line, "a global without a concrete type (int/bool/str)");
       } else {
