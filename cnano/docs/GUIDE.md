@@ -1377,7 +1377,10 @@ programs define their own types, and makes failure recoverable.
 15. ~~**Modulo `%`.**~~ **✅ DONE** — new token/opcode/`OP_NODE_MOD`, int-typed,
     zero-divisor guarded (VM + native `cn_mod`), folded when constant. The
     smallest possible "a feature across every layer" exercise.
-16. **Compound assignment** (`+=`, `-=`, `*=`, `/=`, `%=`) — parser desugaring.
+16. ~~**Compound assignment** (`+=`, `-=`, `*=`, `/=`, `%=`).~~ **✅ DONE** — pure
+    parser desugaring (`x OP= e` → `x = x OP e`) for variable AND index targets,
+    using a `cloneExpr` of the pure target so `a[i] += 1` neither double-frees nor
+    double-evaluates; no new opcodes.
 17. **`for-in` iteration** over arrays and maps.
 18. **Standard-library builtins & string/array methods** (`len`, `assert`,
     `.split`, `.contains`, `.sort`, …).

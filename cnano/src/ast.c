@@ -161,6 +161,33 @@ Node *newIndexSet(Node *object, Node *index, Node *value, int line) {
   return node;
 }
 
+Node *cloneExpr(Node *node) {
+  switch (node->type) {
+  case NODE_INT:
+    return newInt(node->as.intValue, node->line);
+  case NODE_BOOL:
+    return newBool(node->as.boolValue, node->line);
+  case NODE_NIL:
+    return newNil(node->line);
+  case NODE_STRING:
+    return newString(node->as.stringValue, node->line); // interned; shareable
+  case NODE_VAR_GET:
+    return newVarGet(node->as.name, node->line); // name is interned; shareable
+  case NODE_INDEX_GET: {
+    Node *object = cloneExpr(node->as.index.object);
+    Node *index = cloneExpr(node->as.index.index);
+    if (object == NULL || index == NULL) {
+      freeNode(object); // tolerates NULL
+      freeNode(index);
+      return NULL;
+    }
+    return newIndexGet(object, index, node->line);
+  }
+  default:
+    return NULL; // not a pure, safely-duplicable target sub-expression
+  }
+}
+
 Node *newFun(ObjString *name, ObjString **params, Type **paramTypes,
              int paramCount, Type *returnType, Program *body, int line) {
   Node *node = allocNode(NODE_FUN, line);

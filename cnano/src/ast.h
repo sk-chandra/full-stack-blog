@@ -249,6 +249,12 @@ Node *newMap(Node **keys, Node **values, int count, int line);
 // `obj[index]` (a read) and `obj[index] = value` (a write).
 Node *newIndexGet(Node *object, Node *index, int line);
 Node *newIndexSet(Node *object, Node *index, Node *value, int line);
+
+// Deep-copy a PURE expression (literals, variable reads, and index reads built
+// from those). Returns NULL for anything that could have a side effect (calls,
+// assignments, ...). Used to desugar compound assignment `a[i] += e` into
+// `a[i] = a[i] + e` without evaluating — or freeing — the target twice.
+Node *cloneExpr(Node *node);
 // Takes ownership of `params`, `paramTypes`, and `body`.
 Node *newFun(ObjString *name, ObjString **params, Type **paramTypes,
              int paramCount, Type *returnType, Program *body, int line);

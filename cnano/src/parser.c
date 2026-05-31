@@ -147,11 +147,63 @@ static Node *primary(void);
 
 static Node *expression(void) { return assignment(); }
 
+// Map a just-matched compound-assignment token to its arithmetic NodeOp.
+static bool matchCompoundAssign(NodeOp *op) {
+  if (match(TOKEN_PLUS_EQUAL)) { *op = OP_NODE_ADD; return true; }
+  if (match(TOKEN_MINUS_EQUAL)) { *op = OP_NODE_SUB; return true; }
+  if (match(TOKEN_STAR_EQUAL)) { *op = OP_NODE_MUL; return true; }
+  if (match(TOKEN_SLASH_EQUAL)) { *op = OP_NODE_DIV; return true; }
+  if (match(TOKEN_PERCENT_EQUAL)) { *op = OP_NODE_MOD; return true; }
+  return false;
+}
+
 static Node *assignment(void) {
   // Parse the left-hand side as a normal expression first. It goes through the
   // logical operators, so `a or b` and `a and b` are valid l-value *bases* even
   // though they are never valid assignment targets.
   Node *node = logicOr();
+
+  // Compound assignment `target OP= rhs` desugars to `target = target OP rhs`.
+  // We build it here so it works for both variable and index targets, reusing
+  // the plain-assignment nodes — there is no dedicated opcode.
+  NodeOp cop;
+  if (matchCompoundAssign(&cop)) {
+    int line = parser.previous.line;
+    Node *rhs = assignment(); // right-associative, like '='
+
+    if (node->type == NODE_VAR_GET) {
+      // x OP= rhs  ->  x = (x OP rhs). A variable read has no side effect, so a
+      // fresh read for the binary is safe; salvage the name and free the target.
+      ObjString *name = node->as.name;
+      Node *read = newVarGet(name, line);
+      Node *combined = newBinary(cop, read, rhs, line);
+      freeNode(node);
+      return newAssign(name, combined, line);
+    }
+
+    if (node->type == NODE_INDEX_GET) {
+      // a[i] OP= rhs  ->  a[i] = (a[i] OP rhs). Clone the (pure) object/index for
+      // the STORE; reuse the original index-get node as the READ in the binary,
+      // so neither side double-frees and side-effect-free targets evaluate alike.
+      Node *objClone = cloneExpr(node->as.index.object);
+      Node *idxClone = cloneExpr(node->as.index.index);
+      if (objClone == NULL || idxClone == NULL) {
+        errorAt(&parser.previous,
+                "compound-assignment target is too complex; write it out as "
+                "`a[i] = a[i] + x`.");
+        freeNode(objClone);
+        freeNode(idxClone);
+        freeNode(rhs);
+        return node;
+      }
+      Node *combined = newBinary(cop, node, rhs, line); // `node` is the read
+      return newIndexSet(objClone, idxClone, combined, line);
+    }
+
+    errorAt(&parser.previous, "Invalid assignment target.");
+    freeNode(rhs);
+    return node;
+  }
 
   // If a '=' follows, this was actually an assignment target.
   if (match(TOKEN_EQUAL)) {

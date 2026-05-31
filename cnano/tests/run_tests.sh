@@ -444,6 +444,17 @@ check_prog_err "m-on-int"    'print (5).len();'
 check_prog_err "m-bad-arity" 'print "hi".len(1);'
 check_prog_err "bi-bad-arity" 'print str();'
 
+# --- compound assignment (step 16) ---
+check_prog "cmpd-var"    'let x = 10; x += 5; x -= 3; x *= 2; print x;' "24"
+check_prog "cmpd-mod"    'let x = 17; x %= 5; print x;' "2"
+check_prog "cmpd-str"    'let s = "a"; s += "b"; s += "c"; print s;' "abc"
+check_prog "cmpd-array"  'let a = [10, 20, 30]; a[1] += 5; print a[1];' "25"
+check_prog "cmpd-map"    'let m = {"n": 1}; m["n"] += 41; print m["n"];' "42"
+check_prog "cmpd-nested" 'let m = {"a": [1,2,3]}; m["a"][1] += 100; print m["a"][1];' "102"
+check_prog "cmpd-loop"   'let s = 0; let i = 1; while (i <= 5) { s += i; i += 1; } print s;' "15"
+check_prog_err "cmpd-type-err" 'let x: int = 1; x += "s"; print x;'
+check_native "nat-cmpd"  'fn f(): int { let x: int = 5; x += 3; x *= 2; return x; } print f();' "16"
+
 # --- arrays (step 13) ---
 check "arr-index"        '[10, 20, 30][1]'        "20"
 check "arr-len-literal"  '[1, 2, 3].len()'        "3"

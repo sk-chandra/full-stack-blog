@@ -15,6 +15,12 @@ typedef enum {
   TOKEN_STAR,
   TOKEN_SLASH,
   TOKEN_PERCENT,   // % — integer remainder (modulo)
+  // Compound assignment: x += e desugars to x = x + e (parser, no new opcodes).
+  TOKEN_PLUS_EQUAL,
+  TOKEN_MINUS_EQUAL,
+  TOKEN_STAR_EQUAL,
+  TOKEN_SLASH_EQUAL,
+  TOKEN_PERCENT_EQUAL,
   TOKEN_LPAREN,
   TOKEN_RPAREN,
   TOKEN_LBRACE,    // { — opens a block scope (or a map type/literal)
