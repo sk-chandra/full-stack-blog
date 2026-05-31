@@ -9,7 +9,7 @@ import { chromium } from 'playwright';
 import { mkdir } from 'node:fs/promises';
 
 const PORT = 4173;
-const OUT = 'screenshots';
+const OUT = 'docs/screenshots';
 
 async function main() {
   await mkdir(OUT, { recursive: true });
