@@ -87,7 +87,7 @@ static bool forIterNative(int argCount, Value *args, Value *result) {
     ObjMap *map = AS_MAP(coll);
     ObjArray *keys = newArrayObject(); // coll is rooted on the stack; GC-safe
     for (int i = 0; i < map->capacity; i++)
-      if (map->entries[i].occupied)
+      if (map->entries[i].state == MAP_OCCUPIED)
         writeValueArray(&keys->elements, map->entries[i].key);
     *result = OBJ_VAL(keys);
     return true;
@@ -298,6 +298,27 @@ static bool arrayPush(Value receiver, int argCount, Value *args, Value *result) 
   return true;
 }
 
+// array.removeAt(i) -> any : remove and return element i, shifting the rest down.
+static bool arrayRemoveAt(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount;
+  if (!IS_INT(args[0])) {
+    runtimeError("removeAt() expects an int index");
+    return false;
+  }
+  ValueArray *e = &AS_ARRAY(receiver)->elements;
+  int64_t i = AS_INT(args[0]);
+  if (i < 0 || i >= e->count) {
+    runtimeError("removeAt index %lld out of range (length %d)", (long long)i,
+                 e->count);
+    return false;
+  }
+  *result = e->values[i];
+  for (int j = (int)i; j < e->count - 1; j++)
+    e->values[j] = e->values[j + 1];
+  e->count--;
+  return true;
+}
+
 // array.pop() -> any : remove and return the last element (error if empty).
 static bool arrayPop(Value receiver, int argCount, Value *args, Value *result) {
   (void)argCount;
@@ -474,6 +495,7 @@ static Method arrayMethods[] = {
     {"map", 1, arrayMap},
     {"filter", 1, arrayFilter},
     {"reduce", 2, arrayReduce},
+    {"removeAt", 1, arrayRemoveAt},
     {NULL, 0, NULL},
 };
 
@@ -505,7 +527,7 @@ static bool mapKeys(Value receiver, int argCount, Value *args, Value *result) {
   // sees it, and writeValueArray never collects.
   ObjArray *keys = newArrayObject();
   for (int i = 0; i < map->capacity; i++)
-    if (map->entries[i].occupied)
+    if (map->entries[i].state == MAP_OCCUPIED)
       writeValueArray(&keys->elements, map->entries[i].key);
   *result = OBJ_VAL(keys);
   return true;
@@ -518,9 +540,17 @@ static bool mapValues(Value receiver, int argCount, Value *args, Value *result) 
   ObjMap *map = AS_MAP(receiver);
   ObjArray *values = newArrayObject(); // receiver rooted; GC-safe
   for (int i = 0; i < map->capacity; i++)
-    if (map->entries[i].occupied)
+    if (map->entries[i].state == MAP_OCCUPIED)
       writeValueArray(&values->elements, map->entries[i].value);
   *result = OBJ_VAL(values);
+  return true;
+}
+
+// map.remove(key) -> bool : delete an entry; true if it was present.
+static bool mapRemove(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount;
+  *result = BOOL_VAL(isHashableKey(args[0]) &&
+                     mapDelete(AS_MAP(receiver), args[0]));
   return true;
 }
 
@@ -529,6 +559,7 @@ static Method mapMethods[] = {
     {"has", 1, mapHas},
     {"keys", 0, mapKeys},
     {"values", 0, mapValues},
+    {"remove", 1, mapRemove},
     {NULL, 0, NULL},
 };
 

@@ -135,15 +135,23 @@ static uint32_t hashValue(Value key) {
   }
 }
 
-// Find the slot for `key`: either the occupied entry holding it, or the first
-// empty entry where it would be inserted. No tombstones (maps don't delete) and
-// load < 1, so an empty slot always exists — the probe always terminates.
+// Find the slot for `key`: the occupied entry holding it, or the slot where it
+// would be inserted (preferring a tombstone passed on the way, so deletes get
+// reclaimed). Tombstones don't stop the probe; an empty bucket does. Load < 1
+// guarantees an empty bucket exists, so the probe always terminates.
 static MapEntry *findMapEntry(MapEntry *entries, int capacity, Value key) {
   uint32_t index = hashValue(key) & (capacity - 1);
+  MapEntry *tombstone = NULL;
   for (;;) {
     MapEntry *entry = &entries[index];
-    if (!entry->occupied || valuesEqual(entry->key, key))
-      return entry;
+    if (entry->state == MAP_EMPTY)
+      return tombstone != NULL ? tombstone : entry;
+    if (entry->state == MAP_TOMBSTONE) {
+      if (tombstone == NULL)
+        tombstone = entry;
+    } else if (valuesEqual(entry->key, key)) {
+      return entry; // MAP_OCCUPIED with a matching key
+    }
     index = (index + 1) & (capacity - 1);
   }
 }
@@ -155,48 +163,68 @@ static void adjustMapCapacity(ObjMap *map, int capacity) {
     exit(70);
   }
   for (int i = 0; i < capacity; i++)
-    entries[i].occupied = false;
-  // Re-insert every live entry: its bucket depends on the new capacity.
+    entries[i].state = MAP_EMPTY;
+  // Re-insert live entries only; tombstones are dropped by the rehash.
   for (int i = 0; i < map->capacity; i++) {
     MapEntry *src = &map->entries[i];
-    if (!src->occupied)
+    if (src->state != MAP_OCCUPIED)
       continue;
     MapEntry *dest = findMapEntry(entries, capacity, src->key);
     dest->key = src->key;
     dest->value = src->value;
-    dest->occupied = true;
+    dest->state = MAP_OCCUPIED;
   }
   free(map->entries);
   map->entries = entries;
   map->capacity = capacity;
+  map->tombstones = 0;
 }
 
 bool mapGet(ObjMap *map, Value key, Value *out) {
   if (map->count == 0)
     return false;
   MapEntry *entry = findMapEntry(map->entries, map->capacity, key);
-  if (!entry->occupied)
+  if (entry->state != MAP_OCCUPIED)
     return false;
   *out = entry->value;
   return true;
 }
 
 void mapSet(ObjMap *map, Value key, Value value) {
-  if (map->count + 1 > map->capacity * MAP_MAX_LOAD) {
+  // Grow when live + tombstones would exceed the load factor (tombstones count,
+  // since they still lengthen probe sequences).
+  if (map->count + map->tombstones + 1 > map->capacity * MAP_MAX_LOAD) {
     int capacity = map->capacity < 8 ? 8 : map->capacity * 2;
     adjustMapCapacity(map, capacity);
   }
   MapEntry *entry = findMapEntry(map->entries, map->capacity, key);
-  if (!entry->occupied)
+  if (entry->state != MAP_OCCUPIED) {
+    if (entry->state == MAP_TOMBSTONE)
+      map->tombstones--; // reusing a tombstone
     map->count++;
+  }
   entry->key = key;
   entry->value = value;
-  entry->occupied = true;
+  entry->state = MAP_OCCUPIED;
+}
+
+bool mapDelete(ObjMap *map, Value key) {
+  if (map->count == 0)
+    return false;
+  MapEntry *entry = findMapEntry(map->entries, map->capacity, key);
+  if (entry->state != MAP_OCCUPIED)
+    return false;
+  entry->state = MAP_TOMBSTONE; // keep the slot so probe chains stay intact
+  entry->value = NIL_VAL;
+  map->count--;
+  map->tombstones++;
+  return true;
 }
 
 ObjMap *newMapObject(void) {
   ObjMap *map = (ObjMap *)allocateObject(sizeof(ObjMap), OBJ_MAP);
   map->count = 0;
+  map->tombstones = 0;
   map->capacity = 0;
   map->entries = NULL;
   return map;
@@ -280,7 +308,7 @@ void printObject(Value value) {
     printf("{");
     bool first = true;
     for (int i = 0; i < map->capacity; i++) {
-      if (!map->entries[i].occupied)
+      if (map->entries[i].state != MAP_OCCUPIED)
         continue;
       if (!first)
         printf(", ");

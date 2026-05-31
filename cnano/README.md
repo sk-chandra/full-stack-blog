@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (380 cases, incl. native + GC)
+make test       # run the end-to-end test suite (386 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -85,11 +85,13 @@ make run        # start the REPL
 - **Arrays**: `[1, 2, 3]` literals, indexing `a[i]` and `a[i] = v`
   (bounds-checked), nesting (`m[1][0]`), and methods `.len()`/`.push(x)`/`.pop()`.
   A heap object **managed by the GC** (elements are traced). Typed as `[T]` and
-  checked structurally, or `[any]` to stay fully dynamic/heterogeneous
+  checked structurally, or `[any]` to stay fully dynamic/heterogeneous. Also
+  `.removeAt(i)`
 - **Maps**: `{"a": 1, "b": 2}` literals with **any hashable key** (int, bool,
-  nil, str — its own value-keyed hash table), `m[k]` get/set sharing the array
-  index opcodes, and methods `.len()`/`.has(k)`/`.keys()`/`.values()`. GC-traced
-  keys *and* values; typed as `{K: V}` and checked structurally
+  nil, str — its own value-keyed hash table with **tombstone**-based deletion),
+  `m[k]` get/set sharing the array index opcodes, and methods
+  `.len()`/`.has(k)`/`.keys()`/`.values()`/`.remove(k)`. GC-traced keys *and*
+  values; typed as `{K: V}` and checked structurally
 - **Structs**: `struct Point { x: int, y: int }` declares a record type;
   `Point(1, 2)` constructs an instance, `p.x` / `p.x = v` access fields (the same
   `.` that calls methods). **Methods** live in the struct body and receive the

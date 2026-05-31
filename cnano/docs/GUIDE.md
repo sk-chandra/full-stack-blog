@@ -1455,8 +1455,15 @@ programs define their own types, and makes failure recoverable.
     < $end) { body; i = i + 1; } }`), reusing the while-increment so break/continue
     work. End-exclusive; the upper bound is evaluated once. No new runtime.
 
+28. ~~**Collection deletion** — `map.remove(k)` / `array.removeAt(i)`.~~ **✅
+    DONE** — `ObjMap` entries gained a 3-state byte (empty/occupied/**tombstone**)
+    so a `.remove` leaves the probe chain intact; `mapDelete`/`mapSet` track live
+    count vs. tombstones for the load factor, and a rehash drops tombstones.
+    `array.removeAt(i)` shifts the tail down. (Mirrors the string `table.c`'s
+    tombstone scheme.)
+
 **Phase D — type-system depth**
-28. **Union types** (`int | str`) with narrowing.
+29. **Union types** (`int | str`) with narrowing.
 27. **Generics** (`fn first<T>(a: [T]): T`).
 
 **Phase E — compiler & runtime polish**

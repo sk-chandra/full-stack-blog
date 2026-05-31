@@ -97,7 +97,7 @@ static void blackenObject(Obj *object) {
     // A map keeps every live key AND value reachable.
     ObjMap *map = (ObjMap *)object;
     for (int i = 0; i < map->capacity; i++) {
-      if (map->entries[i].occupied) {
+      if (map->entries[i].state == MAP_OCCUPIED) {
         markValue(map->entries[i].key);
         markValue(map->entries[i].value);
       }

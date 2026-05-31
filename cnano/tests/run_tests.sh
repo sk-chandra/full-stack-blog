@@ -616,6 +616,14 @@ check_prog_err "null-wrong-inner" 'let a: int? = "no"; print a;'
 check_prog_err "null-no-narrow"  'fn f(x: int?): int { return x; } print f(1);'
 check_native_err "nat-rej-nullable" 'fn f(x: int?): int { return 0; } print f(nil);'
 
+# --- collection deletion (step 28): .remove / .removeAt ---
+check_prog "map-remove"    'let m={"a":1,"b":2,"c":3}; print m.remove("b"); print m.has("b"); print m.len();' "$(printf 'true\nfalse\n2')"
+check_prog "map-remove-absent" 'let m = {"a":1}; print m.remove("z");' "false"
+check_prog "map-remove-reuse" 'let m={"x":1}; m.remove("x"); m["x"]=99; print m["x"]; print m.len();' "$(printf '99\n1')"
+check_prog "map-remove-probe" 'let m={}; for (let i in 0..20){ m[i]=i*i; } m.remove(5); m.remove(10); print m.has(15); print m[15]; print m.len();' "$(printf 'true\n225\n18')"
+check_prog "arr-removeat"  'let a=[10,20,30,40]; print a.removeAt(1); print a;' "$(printf '20\n[10, 30, 40]')"
+check_prog_err "arr-removeat-oob" 'let a=[1]; a.removeAt(5); print a;'
+
 # --- integer ranges in for-in (step 27) ---
 check_prog "range-basic"   'for (let i in 0..4) print i;' "$(printf '0\n1\n2\n3')"
 check_prog "range-sum"     'let s=0; for (let i in 1..101) { s+=i; } print s;' "5050"

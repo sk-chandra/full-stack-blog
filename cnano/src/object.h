@@ -100,15 +100,21 @@ typedef struct {
 // table; because maps don't support deletion (yet), there are no tombstones — an
 // entry is simply occupied or not (we can't use a sentinel key, since nil is a
 // legal key).
+// A bucket's state. Tombstones (deleted-but-not-empty) keep linear-probe chains
+// intact after a `.remove`, so a later lookup of a still-present key doesn't stop
+// early at the hole.
+enum { MAP_EMPTY = 0, MAP_OCCUPIED, MAP_TOMBSTONE };
+
 typedef struct {
   Value key;
   Value value;
-  bool occupied;
+  uint8_t state; // MAP_EMPTY / MAP_OCCUPIED / MAP_TOMBSTONE
 } MapEntry;
 
 typedef struct {
   Obj obj; // MUST be first
-  int count;
+  int count;      // LIVE entries (what .len() reports)
+  int tombstones; // deleted slots still occupying the probe sequence
   int capacity;
   MapEntry *entries;
 } ObjMap;
@@ -225,6 +231,8 @@ bool structHasField(ObjStruct *s, ObjString *name);
 // is hashable — callers MUST check isHashableKey first and report a clean error.
 bool mapGet(ObjMap *map, Value key, Value *out);
 void mapSet(ObjMap *map, Value key, Value value);
+// Remove `key`; returns true if it was present (leaves a tombstone behind).
+bool mapDelete(ObjMap *map, Value key);
 
 // Only primitive values and strings can be map keys. Heap aggregates (arrays,
 // maps, functions, ...) are not hashable — using one as a key is a runtime error.
