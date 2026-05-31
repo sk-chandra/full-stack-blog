@@ -1390,7 +1390,13 @@ programs define their own types, and makes failure recoverable.
     `len/type/assert/abs/min/max`; string `.upper/.lower/.contains/.indexOf/
     .substring`; array `.contains/.indexOf/.join/.sort` (in-place, homogeneous);
     map `.values`. All additive in builtins.c — no VM/checker changes.
-19. **Higher-order collection methods** (`.map`/`.filter`/`.reduce`).
+19. ~~**Higher-order collection methods** (`.map`/`.filter`/`.reduce`).~~ **✅
+    DONE** — arrays gain `.map/.filter/.reduce` that call a cnano function back
+    from C. Made the VM **re-entrant**: `run()` takes a `stopFrame` and a new
+    `callFromVM` pushes the callee+args, runs until that frame returns, and yields
+    the result. The accumulator is rooted on the VM stack across callbacks, so it
+    survives a GC triggered inside one (verified under `gcstress`). **Phase A
+    (ergonomics) complete.**
 
 **Phase B — user-defined types**
 20. **Structs / records** — named fields, `.` get/set, `ObjInstance`, named types.

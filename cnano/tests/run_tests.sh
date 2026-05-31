@@ -481,6 +481,18 @@ check "m-arr-join"     '[1,2,3].join(", ")'    "1, 2, 3"
 check_prog "m-map-values" 'let m={"a":10,"b":20}; let v=m.values(); v.sort(); print v;' "[10, 20]"
 check_prog_err "m-sort-mixed" 'let a=[1,"two"]; a.sort(); print a;'
 
+# --- higher-order collection methods (step 19) ---
+# These call a cnano function back from C (re-entrant VM). Under `make gcstress`
+# they double as the torture test: the result/accumulator must survive a GC
+# triggered inside a callback.
+check_prog "ho-map"     'fn d(x){return x*2;} print [1,2,3,4].map(d);' "[2, 4, 6, 8]"
+check_prog "ho-map-closure" 'fn mk(){let n=10; fn a(x){return x+n;} return a;} print [1,2,3].map(mk());' "[11, 12, 13]"
+check_prog "ho-filter"  'fn ev(x){return x%2==0;} print [1,2,3,4,5,6].filter(ev);' "[2, 4, 6]"
+check_prog "ho-reduce"  'fn s(a,b){return a+b;} print [1,2,3,4,5].reduce(s, 0);' "15"
+check_prog "ho-chain"   'fn sq(x){return x*x;} fn big(x){return x>5;} fn s(a,b){return a+b;} print [1,2,3,4].map(sq).filter(big).reduce(s,0);' "25"
+check_prog "ho-reduce-str" 'fn cat(a,b){return a+str(b);} print [1,2,3].reduce(cat, "n:");' "n:123"
+check_prog_err "ho-callback-err" 'fn bad(x){return x/0;} print [1,2].map(bad);'
+
 # --- compound assignment (step 16) ---
 check_prog "cmpd-var"    'let x = 10; x += 5; x -= 3; x *= 2; print x;' "24"
 check_prog "cmpd-mod"    'let x = 17; x %= 5; print x;' "2"

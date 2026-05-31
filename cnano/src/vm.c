@@ -58,14 +58,14 @@ void freeVM(void) {
   free(vm.grayStack); // the grey worklist is plain malloc memory, freed by hand
 }
 
-static void push(Value value) {
+void push(Value value) {
   // (A production VM checks for overflow here; our expressions can't exceed
   // STACK_MAX, but it's worth knowing this is where that guard belongs.)
   *vm.stackTop = value;
   vm.stackTop++;
 }
 
-static Value pop(void) {
+Value pop(void) {
   vm.stackTop--;
   return *vm.stackTop;
 }
@@ -231,8 +231,12 @@ static void closeUpvalues(Value *last) {
   }
 }
 
-// The fetch-decode-execute loop — the core of the whole project.
-static InterpretResult run(bool trace) {
+// The fetch-decode-execute loop — the core of the whole project. `stopFrame` is
+// the call depth at which to hand control back to the caller: 0 for the top-level
+// interpret() (run until the script frame returns), or the depth captured by a
+// native callback (callFromVM), so re-entering the VM from C returns cleanly once
+// the called function is done rather than running the whole program again.
+static InterpretResult run(bool trace, int stopFrame) {
   // The currently executing frame. We cache it in a local for speed and re-cache
   // it whenever we call into or return from a function (the only times it
   // changes). All reads of bytecode and locals now go through `frame`.
@@ -639,8 +643,16 @@ static InterpretResult run(bool trace) {
       Value result = pop();
       closeUpvalues(frame->slots);
       vm.frameCount--;
-      if (vm.frameCount == 0) {
-        pop(); // discard the top-level script's reserved slot 0
+      if (vm.frameCount == stopFrame) {
+        // We've returned out of the frame our caller was waiting on.
+        if (stopFrame == 0) {
+          pop(); // top level: discard the script's reserved slot 0
+          return INTERPRET_OK;
+        }
+        // A native callback (callFromVM) is waiting: leave the result on top
+        // where the callee sat, for it to pop.
+        vm.stackTop = frame->slots;
+        push(result);
         return INTERPRET_OK;
       }
       vm.stackTop = frame->slots; // reclaim the callee's window
@@ -710,7 +722,29 @@ InterpretResult interpret(const char *source, bool trace) {
   // Execution is about to begin: the operand stack, frames and globals are now
   // valid GC roots, and the AST has been freed. Safe to turn the collector on.
   vm.gcEnabled = true;
-  return run(trace);
+  return run(trace, /*stopFrame=*/0);
+}
+
+bool callFromVM(Value callee, Value *args, int argCount, Value *result) {
+  // Push the callee and its arguments, then dispatch. We remember the current
+  // frame depth so we know when "our" call has returned.
+  int stop = vm.frameCount;
+  push(callee);
+  for (int i = 0; i < argCount; i++)
+    push(args[i]);
+  if (!callValue(callee, argCount))
+    return false; // arity/callability error already reported
+
+  if (vm.frameCount == stop) {
+    // A native callee ran inline (no frame pushed); its result is already on top.
+    *result = pop();
+    return true;
+  }
+  // A cnano closure frame was pushed: run until it returns back to our depth.
+  if (run(false, stop) != INTERPRET_OK)
+    return false;
+  *result = pop();
+  return true;
 }
 
 InterpretResult compileToC(const char *source, FILE *cFile) {

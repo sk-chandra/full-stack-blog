@@ -74,6 +74,18 @@ void freeVM(void);
 // method — using the same machinery as the VM's own checks.
 void runtimeError(const char *format, ...);
 
+// Stack access for builtins that need to root temporaries across a re-entrant
+// call (e.g. an accumulator that must survive a GC triggered inside a callback).
+void push(Value value);
+Value pop(void);
+
+// Call a cnano callable (closure) FROM C, used by higher-order builtins like
+// array.map(fn). Pushes `callee` and the `argCount` arguments, runs the VM until
+// that call returns, and writes the result through `*result`. Returns false if
+// the call raised a runtime error. This is the VM being re-entered from within a
+// native — the mechanism that lets C and cnano code call each other freely.
+bool callFromVM(Value callee, Value *args, int argCount, Value *result);
+
 // Compile + run `source` (a sequence of statements). If `trace` is true, dump
 // every function's chunk and print the stack at each step — the best way to learn
 // how the VM "thinks". Programs produce output via `print`.

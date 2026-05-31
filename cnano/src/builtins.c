@@ -395,6 +395,74 @@ static bool arraySort(Value r, int a, Value *args, Value *out) {
   return true;
 }
 
+// Higher-order methods call a cnano function back from C (callFromVM). The killer
+// GC subtlety: a callback can allocate and trigger a collection, so any value we
+// are accumulating must be reachable from a GC root. We therefore push the result
+// array (or accumulator) onto the VM stack for the duration and pop it at the end
+// — the same discipline the VM itself uses. The receiver array stays rooted too
+// (it is still on the stack as OP_INVOKE's receiver), so reading its elements is
+// safe even though a callback might mutate it.
+
+// [1,2,3].map(fn) -> array : a new array of fn(element) for each element.
+static bool arrayMap(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount;
+  Value fn = args[0];
+  ObjArray *out = newArrayObject();
+  push(OBJ_VAL(out)); // root the result across callbacks
+  for (int i = 0; i < AS_ARRAY(receiver)->elements.count; i++) {
+    Value elem = AS_ARRAY(receiver)->elements.values[i];
+    Value mapped;
+    if (!callFromVM(fn, &elem, 1, &mapped)) {
+      pop();
+      return false;
+    }
+    writeValueArray(&out->elements, mapped);
+  }
+  pop(); // unroot
+  *result = OBJ_VAL(out);
+  return true;
+}
+
+// [1,2,3].filter(fn) -> array : the elements for which fn(element) is truthy.
+static bool arrayFilter(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount;
+  Value fn = args[0];
+  ObjArray *out = newArrayObject();
+  push(OBJ_VAL(out));
+  for (int i = 0; i < AS_ARRAY(receiver)->elements.count; i++) {
+    Value elem = AS_ARRAY(receiver)->elements.values[i];
+    Value keep;
+    if (!callFromVM(fn, &elem, 1, &keep)) {
+      pop();
+      return false;
+    }
+    if (!isFalseyValue(keep))
+      writeValueArray(&out->elements, elem);
+  }
+  pop();
+  *result = OBJ_VAL(out);
+  return true;
+}
+
+// [1,2,3].reduce(fn, init) -> any : fold left, acc = fn(acc, element).
+static bool arrayReduce(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount;
+  Value fn = args[0];
+  Value acc = args[1];
+  push(acc); // root the running accumulator across callbacks
+  for (int i = 0; i < AS_ARRAY(receiver)->elements.count; i++) {
+    Value callArgs[2] = {acc, AS_ARRAY(receiver)->elements.values[i]};
+    if (!callFromVM(fn, callArgs, 2, &acc)) {
+      pop();
+      return false;
+    }
+    vm.stackTop[-1] = acc; // keep the rooted slot in sync with the new accumulator
+  }
+  pop();
+  *result = acc;
+  return true;
+}
+
 static Method arrayMethods[] = {
     {"len", 0, arrayLen},
     {"push", 1, arrayPush},
@@ -403,6 +471,9 @@ static Method arrayMethods[] = {
     {"indexOf", 1, arrayIndexOf},
     {"join", 1, arrayJoin},
     {"sort", 0, arraySort},
+    {"map", 1, arrayMap},
+    {"filter", 1, arrayFilter},
+    {"reduce", 2, arrayReduce},
     {NULL, 0, NULL},
 };
 
