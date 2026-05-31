@@ -118,7 +118,8 @@ static void compileNative(const char *path, const char *outBinary) {
   // Invoke the system C compiler. We inherit its optimiser and target — the whole
   // point of transpiling to C. -O2 so the generated binary is genuinely fast.
   char cmd[2048];
-  snprintf(cmd, sizeof(cmd), "cc -O2 -o \"%s\" \"%s\"", outBinary, cPath);
+  // -lm: the generated C uses <math.h> (sqrt/pow/… and isnan/isinf) for floats.
+  snprintf(cmd, sizeof(cmd), "cc -O2 -o \"%s\" \"%s\" -lm", outBinary, cPath);
   int rc = system(cmd);
   if (rc != 0) {
     fprintf(stderr, "cnano: the C compiler failed on generated code.\n");

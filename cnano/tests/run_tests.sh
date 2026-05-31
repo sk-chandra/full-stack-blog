@@ -155,7 +155,22 @@ check "float-type"      'type(3.14)'       "float"
 check_prog "float-str"  'print "pi=" + str(3.14);' "pi=3.14"
 check_prog "float-typed-fn" 'fn avg(a: float, b: float): float { return (a+b)/2.0; } print avg(1.0, 4.0);' "2.5"
 check_prog_err "float-mod-err" 'print 3.5 % 2;'
-check_native_err "nat-rej-float" 'fn f(x: float): float { return x; } print f(1.0);'
+# float is a scalar, so the native backend now supports it (step 39). Arithmetic,
+# comparisons, division (IEEE, by-zero -> inf/nan) and the numeric built-ins all
+# lower to C, matching the VM byte-for-byte.
+check_native "nat-float-id"   'fn f(x: float): float { return x; } print f(1.5);' "1.5"
+check_native "nat-float-arith" 'fn h(a: float, b: float): float { return sqrt(a*a + b*b); } print h(3.0, 4.0);' "5.0"
+check_native "nat-float-div"  'fn d(a: float, b: float): float { return a / b; } print d(7.0, 2.0);' "3.5"
+check_native "nat-float-divzero" 'fn d(a: float, b: float): float { return a / b; } print d(1.0, 0.0);' "inf"
+check_native "nat-float-cmp"  'fn lt(a: float, b: float): bool { return a < b; } print lt(2.0, 3.0);' "true"
+check_native "nat-float-whole" 'fn f(x: float): float { return x * 2.0; } print f(3.0);' "6.0"
+check_native "nat-float-math" 'print pow(2.0, 10.0);' "1024.0"
+check_native "nat-float-neg"  'fn f(x: float): float { return -x; } print f(3.5);' "-3.5"
+check_native "nat-abs-int"    'print abs(-7);' "7"
+check_native "nat-abs-float"  'print abs(-3.5);' "3.5"
+check_native "nat-min-float"  'print min(2.5, 1.5);' "1.5"
+check_native "nat-max-int"    'print max(4, 9);' "9"
+check_native "nat-float-global" 'let pi: float = 3.0; fn area(r: float): float { return pi * r * r; } print area(2.0);' "12.0"
 check "bit-and"         "12 & 10"          "8"
 check "bit-or"          "12 | 10"          "14"
 check "bit-xor"        "12 ^ 10"          "6"

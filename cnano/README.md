@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (468 cases, incl. native + GC)
+make test       # run the end-to-end test suite (484 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -129,9 +129,13 @@ make run        # start the REPL
 - **Native compilation** (ahead-of-time): `cnano --native file.cn -o prog`
   compiles the **statically-typed, first-order subset** to C and invokes the
   system `cc`, producing a standalone native executable with no interpreter.
-  Types are known, so the emitted C is **unboxed** (`int64_t`/`bool`/`const
-  char*`) — genuinely fast. `--emit-c` prints the generated C. The VM still runs
-  the full dynamic language
+  Types are known, so the emitted C is **unboxed** (`int64_t`/`double`/`bool`/
+  `const char*`) — genuinely fast. floats lower to C `double` and the numeric
+  built-ins (`sqrt`/`floor`/`ceil`/`round`/`pow`/`abs`/`min`/`max`) lower onto
+  `<math.h>`, byte-for-byte matching the VM. `--emit-c` prints the generated C.
+  The VM still runs the full dynamic language; anything outside the scalar
+  subset (collections, structs, closures, nullable/union, `nil`) is cleanly
+  rejected rather than miscompiled
 - **Garbage collection**: a **mark-and-sweep** tracing collector reclaims dead
   heap objects *while the program runs* (an allocation-churning loop stays at
   bounded memory instead of growing forever). Tri-colour marking with an explicit

@@ -82,28 +82,58 @@ static TypeKind inferType(Node *node); // fwd
 static TypeKind inferBinary(Node *n) {
   TypeKind l = inferType(n->as.binary.left);
   TypeKind r = inferType(n->as.binary.right);
+  bool anyFloat = l == TY_FLOAT || r == TY_FLOAT; // int op float promotes to float
   switch (n->as.binary.op) {
   case OP_NODE_ADD:
-    return (l == TY_STR || r == TY_STR) ? TY_STR : TY_INT;
+    if (l == TY_STR || r == TY_STR)
+      return TY_STR;
+    return anyFloat ? TY_FLOAT : TY_INT;
   case OP_NODE_SUB:
   case OP_NODE_MUL:
   case OP_NODE_DIV:
+    return anyFloat ? TY_FLOAT : TY_INT;
   case OP_NODE_MOD:
   case OP_NODE_BITAND:
   case OP_NODE_BITOR:
   case OP_NODE_BITXOR:
   case OP_NODE_SHL:
   case OP_NODE_SHR:
-    return TY_INT;
+    return TY_INT; // integer-only ops (the checker forbids float operands)
   default:
     return TY_BOOL; // comparisons / equality
   }
+}
+
+// True if `name` is the built-in `target` (length-checked, no NUL needed).
+static bool nameIs(ObjString *name, const char *target) {
+  int len = (int)strlen(target);
+  return name->length == len && memcmp(name->chars, target, len) == 0;
+}
+
+// Return type of a numeric built-in call (step 36), or TY_ANY if `name` is not a
+// built-in we lower natively. sqrt/floor/ceil/round/pow always yield a float;
+// abs/min/max preserve the (promoted) type of their arguments.
+static TypeKind builtinReturnType(ObjString *name, Node *call) {
+  if (nameIs(name, "sqrt") || nameIs(name, "floor") || nameIs(name, "ceil") ||
+      nameIs(name, "round") || nameIs(name, "pow"))
+    return TY_FLOAT;
+  if (nameIs(name, "abs") && call->as.call.argCount == 1)
+    return inferType(call->as.call.args[0]);
+  if ((nameIs(name, "min") || nameIs(name, "max")) &&
+      call->as.call.argCount == 2)
+    return (inferType(call->as.call.args[0]) == TY_FLOAT ||
+            inferType(call->as.call.args[1]) == TY_FLOAT)
+               ? TY_FLOAT
+               : TY_INT;
+  return TY_ANY;
 }
 
 static TypeKind inferType(Node *node) {
   switch (node->type) {
   case NODE_INT:
     return TY_INT;
+  case NODE_FLOAT:
+    return TY_FLOAT;
   case NODE_BOOL:
     return TY_BOOL;
   case NODE_STRING:
@@ -115,7 +145,10 @@ static TypeKind inferType(Node *node) {
   case NODE_ASSIGN:
     return lookupVar(node->as.var.name);
   case NODE_UNARY:
-    return node->as.unary.op == OP_NODE_NEGATE ? TY_INT : TY_BOOL;
+    // `-x` keeps x's numeric type (int or float); `!`/`~` are bool/int.
+    if (node->as.unary.op == OP_NODE_NEGATE)
+      return inferType(node->as.unary.operand);
+    return node->as.unary.op == OP_NODE_BITNOT ? TY_INT : TY_BOOL;
   case NODE_BINARY:
     return inferBinary(node);
   case NODE_LOGICAL: {
@@ -126,8 +159,11 @@ static TypeKind inferType(Node *node) {
   case NODE_CALL: {
     if (node->as.call.callee->type != NODE_VAR_GET)
       return TY_ANY;
-    FnSig *sig = lookupFn(node->as.call.callee->as.name);
-    return sig ? sig->ret : TY_ANY;
+    ObjString *fname = node->as.call.callee->as.name;
+    FnSig *sig = lookupFn(fname);
+    if (sig)
+      return sig->ret;
+    return builtinReturnType(fname, node); // numeric built-in (or TY_ANY)
   }
   default:
     return TY_ANY;
@@ -139,6 +175,8 @@ static const char *cType(TypeKind t) {
   switch (t) {
   case TY_INT:
     return "int64_t";
+  case TY_FLOAT:
+    return "double";
   case TY_BOOL:
     return "bool";
   case TY_STR:
@@ -163,11 +201,10 @@ static TypeKind annotationKind(Type *t, int line) {
   case TY_NIL:
   case TY_ANY:
     return t->kind;
+  case TY_FLOAT:
+    return TY_FLOAT; // float is a scalar — it fits the unboxed native subset
   case TY_ARRAY:
     unsupported(line, "an array-typed value");
-    return TY_ANY;
-  case TY_FLOAT:
-    unsupported(line, "a float value");
     return TY_ANY;
   case TY_NULLABLE:
     unsupported(line, "a nullable-typed value");
@@ -210,9 +247,22 @@ static void emitBinary(Node *node) {
     return;
   }
 
+  if (op == OP_NODE_DIV &&
+      (inferType(l) == TY_FLOAT || inferType(r) == TY_FLOAT)) {
+    // Float division is IEEE-defined even by zero (gives inf/nan) — emit a plain
+    // C `/`, exactly mirroring the VM's float path. (Int `/` still goes through
+    // the checked helper below, since C integer divide-by-zero is undefined.)
+    fprintf(out, "(");
+    emitExpr(l);
+    fprintf(out, " / ");
+    emitExpr(r);
+    fprintf(out, ")");
+    return;
+  }
+
   if (op == OP_NODE_DIV || op == OP_NODE_MOD) {
-    // Route division/modulo through a helper that turns a zero divisor into a
-    // runtime error + exit, preserving cnano's "no host crash" guarantee.
+    // Route integer division/modulo through a helper that turns a zero divisor
+    // into a runtime error + exit, preserving cnano's "no host crash" guarantee.
     fprintf(out, op == OP_NODE_DIV ? "cn_div(" : "cn_mod(");
     emitExpr(l);
     fprintf(out, ", ");
@@ -252,6 +302,80 @@ static void emitBinary(Node *node) {
   fprintf(out, ")");
 }
 
+// Lower a numeric built-in call (step 36) to C. Returns false if `name` is not a
+// built-in we handle (the caller then treats it as an unknown function). The
+// floats math maps straight onto <math.h>; abs/min/max preserve argument type.
+static bool emitBuiltinCall(Node *node, ObjString *name) {
+  Node **args = node->as.call.args;
+  int argc = node->as.call.argCount;
+
+  // Unary float math: sqrt/floor/ceil/round all take one number, yield a float.
+  const char *unaryFn = NULL;
+  if (nameIs(name, "sqrt")) unaryFn = "sqrt";
+  else if (nameIs(name, "floor")) unaryFn = "floor";
+  else if (nameIs(name, "ceil")) unaryFn = "ceil";
+  else if (nameIs(name, "round")) unaryFn = "round";
+  if (unaryFn != NULL) {
+    if (argc != 1) {
+      unsupported(node->line, "a math built-in with the wrong argument count");
+      return true;
+    }
+    fprintf(out, "%s((double)(", unaryFn);
+    emitExpr(args[0]);
+    fprintf(out, "))");
+    return true;
+  }
+
+  if (nameIs(name, "pow")) {
+    if (argc != 2) {
+      unsupported(node->line, "pow() with the wrong argument count");
+      return true;
+    }
+    fprintf(out, "pow((double)(");
+    emitExpr(args[0]);
+    fprintf(out, "), (double)(");
+    emitExpr(args[1]);
+    fprintf(out, "))");
+    return true;
+  }
+
+  if (nameIs(name, "abs")) {
+    if (argc != 1) {
+      unsupported(node->line, "abs() with the wrong argument count");
+      return true;
+    }
+    if (inferType(args[0]) == TY_FLOAT) {
+      fprintf(out, "fabs((double)(");
+      emitExpr(args[0]);
+      fprintf(out, "))");
+    } else {
+      fprintf(out, "(int64_t)llabs((long long)(");
+      emitExpr(args[0]);
+      fprintf(out, "))");
+    }
+    return true;
+  }
+
+  if (nameIs(name, "min") || nameIs(name, "max")) {
+    if (argc != 2) {
+      unsupported(node->line, "min()/max() with the wrong argument count");
+      return true;
+    }
+    bool isMin = nameIs(name, "min");
+    bool isFloat = inferType(args[0]) == TY_FLOAT || inferType(args[1]) == TY_FLOAT;
+    const char *helper = isFloat ? (isMin ? "cn_fmin" : "cn_fmax")
+                                 : (isMin ? "cn_imin" : "cn_imax");
+    fprintf(out, "%s(", helper);
+    emitExpr(args[0]);
+    fprintf(out, ", ");
+    emitExpr(args[1]);
+    fprintf(out, ")");
+    return true;
+  }
+
+  return false; // not a built-in we lower natively
+}
+
 static void emitExpr(Node *node) {
   switch (node->type) {
   case NODE_INT:
@@ -282,9 +406,20 @@ static void emitExpr(Node *node) {
   case NODE_NIL:
     unsupported(node->line, "a nil value in an expression");
     break;
-  case NODE_FLOAT:
-    unsupported(node->line, "a float literal");
+  case NODE_FLOAT: {
+    // Emit a C double literal that round-trips exactly (%.17g). Append ".0" if
+    // %g produced no point/exponent, so "3" never reads back as an int literal.
+    char buf[40];
+    int n = snprintf(buf, sizeof(buf), "%.17g", node->as.floatValue);
+    bool hasPoint = false;
+    for (int i = 0; i < n; i++)
+      if (buf[i] == '.' || buf[i] == 'e' || buf[i] == 'E') {
+        hasPoint = true;
+        break;
+      }
+    fprintf(out, "%s%s", buf, hasPoint ? "" : ".0");
     break;
+  }
   case NODE_VAR_GET:
     emitName(node->as.name);
     break;
@@ -317,7 +452,11 @@ static void emitExpr(Node *node) {
       unsupported(node->line, "calling a non-named (first-class) function");
       break;
     }
-    emitName(node->as.call.callee->as.name);
+    ObjString *fname = node->as.call.callee->as.name;
+    // A user function takes precedence; otherwise try the numeric built-ins.
+    if (lookupFn(fname) == NULL && emitBuiltinCall(node, fname))
+      break;
+    emitName(fname);
     fprintf(out, "(");
     for (int i = 0; i < node->as.call.argCount; i++) {
       if (i > 0)
@@ -374,6 +513,13 @@ static void emitPrint(Node *expr, int ind) {
     emitExpr(expr);
     fprintf(out, "));\n");
     break;
+  case TY_FLOAT:
+    // Float formatting matches the VM's printValue exactly (trailing ".0" for
+    // whole values; "nan"/"inf"/"-inf" for the non-finite cases).
+    fprintf(out, "cn_print_float(");
+    emitExpr(expr);
+    fprintf(out, ");\n");
+    break;
   case TY_BOOL:
     fprintf(out, "printf(\"%%s\\n\", (");
     emitExpr(expr);
@@ -417,7 +563,7 @@ static void emitStmt(Node *node, int ind, bool fileScope) {
                      ? annotationKind(node->as.var.declaredType, node->line)
                      : inferType(node->as.var.value);
     if (t == TY_ANY || t == TY_NIL) {
-      unsupported(node->line, "a variable without a concrete type (int/bool/str)");
+      unsupported(node->line, "a variable without a concrete type (int/bool/str/float)");
       pushVar(node->as.var.name, t);
       break;
     }
@@ -571,7 +717,26 @@ static void emitPrelude(void) {
           "#include <stdlib.h>\n"
           "#include <stdbool.h>\n"
           "#include <stdint.h>\n"
-          "#include <string.h>\n\n"
+          "#include <string.h>\n"
+          "#include <math.h>\n\n"
+          // Float printing — byte-for-byte identical to the VM's formatFloat.
+          "static void cn_print_float(double v) {\n"
+          "  if (isnan(v)) { printf(\"nan\\n\"); return; }\n"
+          "  if (isinf(v)) { printf(v < 0 ? \"-inf\\n\" : \"inf\\n\"); return; }\n"
+          "  char buf[32];\n"
+          "  int n = snprintf(buf, sizeof(buf), \"%g\", v);\n"
+          "  bool looksFloat = false;\n"
+          "  for (int i = 0; i < n; i++)\n"
+          "    if (buf[i]=='.'||buf[i]=='e'||buf[i]=='E'||buf[i]=='n'||buf[i]=='i')"
+          " { looksFloat = true; break; }\n"
+          "  if (!looksFloat && n + 2 < (int)sizeof(buf)) { buf[n++]='.'; buf[n++]='0'; buf[n]=0; }\n"
+          "  printf(\"%s\\n\", buf);\n"
+          "}\n\n"
+          // min/max preserve the chosen operand (matching the VM's <=/>= tie rule).
+          "static int64_t cn_imin(int64_t a, int64_t b) { return a <= b ? a : b; }\n"
+          "static int64_t cn_imax(int64_t a, int64_t b) { return a >= b ? a : b; }\n"
+          "static double cn_fmin(double a, double b) { return a <= b ? a : b; }\n"
+          "static double cn_fmax(double a, double b) { return a >= b ? a : b; }\n\n"
           "static const char *cn_concat(const char *a, const char *b) {\n"
           "  size_t la = strlen(a), lb = strlen(b);\n"
           "  char *r = malloc(la + lb + 1);\n"
@@ -628,7 +793,7 @@ bool emitC(Program *program, FILE *outFile) {
                        ? annotationKind(s->as.var.declaredType, s->line)
                        : inferType(s->as.var.value);
       if (t == TY_ANY || t == TY_NIL) {
-        unsupported(s->line, "a global without a concrete type (int/bool/str)");
+        unsupported(s->line, "a global without a concrete type (int/bool/str/float)");
       } else {
         fprintf(out, "static %s ", cType(t));
         emitName(s->as.var.name);

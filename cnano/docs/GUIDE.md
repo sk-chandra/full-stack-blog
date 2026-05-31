@@ -980,10 +980,13 @@ trade for a teaching project, and a real one in production.
 
 The backend compiles only the **statically-typed, first-order subset**. That
 restriction is the whole point: because the type checker has proven each value's
-type, the generated C is **unboxed** — a cnano `int` is a C `int64_t`, a `bool` a
-C `bool`, a `str` a `const char *`. No tagged unions, no dynamic dispatch, no
-boxing: genuinely fast native code, not an interpreter in disguise. This is a
-concrete lesson in *why static types enable optimisation*.
+type, the generated C is **unboxed** — a cnano `int` is a C `int64_t`, a `float`
+a C `double`, a `bool` a C `bool`, a `str` a `const char *`. No tagged unions, no
+dynamic dispatch, no boxing: genuinely fast native code, not an interpreter in
+disguise. This is a concrete lesson in *why static types enable optimisation*.
+(Floats fit because they are scalars, and because the checker forbids implicit
+int-to-float coercion at value boundaries — so a `double` in the generated C
+always holds what the VM would hold, never an int the VM kept as an int.)
 
 Features needing a runtime — closures (heap upvalues), dynamic `any`, first-class
 functions — are **rejected** by the backend with a clear message pointing back to
@@ -1005,12 +1008,16 @@ real lessons:
   mutual-recursion support the type checker and VM already had, expressed in C's
   own mechanism. Globals are likewise file-scoped first, then initialised in
   order inside `main`.
-- **A tiny runtime prelude.** Two helpers only: `cn_concat` (string `+`) and
-  `cn_div` (turns divide-by-zero into the same controlled error+exit cnano
-  guarantees). Typed code needs almost nothing else — the contrast with the
-  bytecode VM's machinery is the lesson.
+- **A tiny runtime prelude.** A handful of helpers: `cn_concat` (string `+`),
+  `cn_div`/`cn_mod` (turn divide-by-zero into the same controlled error+exit
+  cnano guarantees), `cn_print_float` (float formatting identical to the VM's),
+  and `cn_imin`/`cn_imax`/`cn_fmin`/`cn_fmax`. Typed code needs almost nothing
+  else — the contrast with the bytecode VM's machinery is the lesson.
 - **Type-directed printing.** `print` picks its `printf` format from the
-  expression's inferred type (`%lld`, `true`/`false`, `%s`).
+  expression's inferred type (`%lld`, `cn_print_float`, `true`/`false`, `%s`).
+- **Built-ins lowered to C.** The numeric built-ins map straight onto `<math.h>`
+  (`sqrt`/`floor`/`ceil`/`round`/`pow`), with `abs`/`min`/`max` dispatching on the
+  argument type — so float-heavy code compiles natively without a runtime.
 
 ### 18.4 What this demonstrates
 
@@ -1502,7 +1509,16 @@ programs define their own types, and makes failure recoverable.
     the lexer treats `\` as escaping the next char (so `\"`/`\${` don't end the
     string / start a hole); the parser decodes escapes (plain strings and each
     interpolation literal run), and the native backend re-escapes them for C.
-42. **Native-backend extensions** — closures (and/or simple arrays) lowered to C.
+42. **Native-backend extensions** — ~~floats lowered to C~~ **✅ DONE** (step 39):
+    `float` is a scalar, so it joins the unboxed native subset as C `double` —
+    arithmetic with int→float promotion, comparisons, IEEE division (by zero →
+    inf/nan, no host crash), float literals via `%.17g`, and the numeric
+    built-ins (`sqrt`/`floor`/`ceil`/`round`/`pow` onto `<math.h>`; `abs`/`min`/
+    `max` preserving argument type via small helpers). A `cn_print_float` prelude
+    helper mirrors the VM's `formatFloat` byte-for-byte, so VM and native output
+    are identical. (The checker forbids implicit int→float coercion at value
+    boundaries, which is exactly what makes the unboxed `double` representation
+    sound.) Closures / simple arrays lowered to C are still open.
 43. ~~**Floating-point numbers.**~~ **✅ DONE** (step 35) — a `VAL_FLOAT`/`TY_FLOAT`
     double; `3.14` literals (the lexer requires a digit after `.`, so `0..5` stays
     a range); VM arithmetic promotes int→float (`5 + 2.5`), `/` stays integer for
@@ -1514,7 +1530,7 @@ programs define their own types, and makes failure recoverable.
     (int or float, preserving type), plus `sqrt/floor/ceil/round/pow` via `math.h`
     (the Makefile now links `-lm`).
 45. **Performance** (inline caching/peephole), **modules/imports**, generics,
-    native floats/closures — larger, still open.
+    native closures — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
 (free online). cnano's bytecode/VM design intentionally follows the same lineage

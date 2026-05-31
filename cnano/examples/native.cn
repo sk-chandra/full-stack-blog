@@ -5,12 +5,19 @@
 //   cnano --native examples/native.cn -o demo  # build a real binary
 //   ./demo
 //
-// Because every type is known, the generated C uses unboxed int64_t / bool /
-// const char* — genuinely fast native code, then optimised by the system cc.
+// Because every type is known, the generated C uses unboxed int64_t / double /
+// bool / const char* — genuinely fast native code, then optimised by the system
+// cc. floats lower to C `double`, and the numeric built-ins (sqrt/pow/...) lower
+// straight onto <math.h>.
 
 fn factorial(n: int): int {
   if (n <= 1) return 1;
   return n * factorial(n - 1);
+}
+
+// Floats are scalars, so they compile natively too (double + <math.h>).
+fn hypotenuse(a: float, b: float): float {
+  return sqrt(a * a + b * b);
 }
 
 fn fib(n: int): int {
@@ -28,6 +35,8 @@ print factorial(6);        // 720
 print fib(10);             // 55
 print isEven(10);          // true
 print greeting + " ok";    // cnano native ok
+print hypotenuse(3.0, 4.0); // 5.0
+print pow(2.0, 10.0);      // 1024.0
 
 // FizzBuzz, fully native.
 for (let n: int = 1; n <= 15; n = n + 1) {
