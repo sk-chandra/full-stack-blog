@@ -1506,7 +1506,10 @@ programs define their own types, and makes failure recoverable.
     with a trailing `.0` for whole values. (A subtle bug caught along the way: the
     `AS_NUM` macro evaluates its argument twice, so the arithmetic macros must
     `pop()` into a local first.) Native rejects floats for now.
-44. **Performance** (inline caching/peephole), **modules/imports**, generics,
+44. ~~**Math builtins.**~~ **✅ DONE** (step 36) — `abs/min/max` made numeric
+    (int or float, preserving type), plus `sqrt/floor/ceil/round/pow` via `math.h`
+    (the Makefile now links `-lm`).
+45. **Performance** (inline caching/peephole), **modules/imports**, generics,
     native floats/closures, type-pattern `match` arms — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom

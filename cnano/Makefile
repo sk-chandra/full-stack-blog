@@ -12,6 +12,7 @@
 CC      := cc
 CFLAGS  := -std=c11 -Wall -Wextra -O2
 DBGFLAGS:= -std=c11 -Wall -Wextra -g -O0 -fsanitize=address,undefined
+LDLIBS  := -lm   # math.h (sqrt/pow/floor/...) in the builtins
 
 SRC_DIR := src
 BUILD   := build
@@ -23,7 +24,7 @@ TARGET  := $(BUILD)/cnano
 all: $(TARGET)
 
 $(TARGET): $(SOURCES) | $(BUILD)
-	$(CC) $(CFLAGS) $(SOURCES) -o $(TARGET)
+	$(CC) $(CFLAGS) $(SOURCES) -o $(TARGET) $(LDLIBS)
 
 $(BUILD):
 	mkdir -p $(BUILD)
@@ -34,7 +35,7 @@ run: all
 # A separate debug build wired with AddressSanitizer + UBSan. Run your programs
 # through this when something misbehaves; it pinpoints memory and UB bugs.
 debug: | $(BUILD)
-	$(CC) $(DBGFLAGS) $(SOURCES) -o $(BUILD)/cnano-debug
+	$(CC) $(DBGFLAGS) $(SOURCES) -o $(BUILD)/cnano-debug $(LDLIBS)
 
 test: all
 	./tests/run_tests.sh ./$(TARGET)
@@ -44,7 +45,7 @@ test: all
 # a live object gets freed and ASan reports a use-after-free. Identical output to
 # the normal build means the GC never reclaims something still in use.
 gcstress: | $(BUILD)
-	$(CC) $(DBGFLAGS) -DDEBUG_STRESS_GC $(SOURCES) -o $(BUILD)/cnano-gcstress
+	$(CC) $(DBGFLAGS) -DDEBUG_STRESS_GC $(SOURCES) -o $(BUILD)/cnano-gcstress $(LDLIBS)
 	./tests/run_tests.sh ./$(BUILD)/cnano-gcstress
 
 clean:

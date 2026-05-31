@@ -1,4 +1,5 @@
 #include <ctype.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -145,32 +146,62 @@ static bool assertNative(int argCount, Value *args, Value *result) {
 
 static bool absNative(int argCount, Value *args, Value *result) {
   (void)argCount;
-  if (!IS_INT(args[0])) {
-    runtimeError("abs() expects an int");
+  if (IS_INT(args[0])) {
+    int64_t n = AS_INT(args[0]);
+    *result = INT_VAL(n < 0 ? -n : n);
+  } else if (IS_FLOAT(args[0])) {
+    double d = AS_FLOAT(args[0]);
+    *result = FLOAT_VAL(d < 0 ? -d : d);
+  } else {
+    runtimeError("abs() expects a number");
     return false;
   }
-  int64_t n = AS_INT(args[0]);
-  *result = INT_VAL(n < 0 ? -n : n);
   return true;
 }
 
+// min/max keep the ORIGINAL value (preserving int vs float), comparing as numbers.
 static bool minNative(int argCount, Value *args, Value *result) {
   (void)argCount;
-  if (!IS_INT(args[0]) || !IS_INT(args[1])) {
-    runtimeError("min() expects two ints");
+  if (!IS_NUM(args[0]) || !IS_NUM(args[1])) {
+    runtimeError("min() expects two numbers");
     return false;
   }
-  *result = INT_VAL(AS_INT(args[0]) < AS_INT(args[1]) ? AS_INT(args[0]) : AS_INT(args[1]));
+  *result = AS_NUM(args[0]) <= AS_NUM(args[1]) ? args[0] : args[1];
   return true;
 }
 
 static bool maxNative(int argCount, Value *args, Value *result) {
   (void)argCount;
-  if (!IS_INT(args[0]) || !IS_INT(args[1])) {
-    runtimeError("max() expects two ints");
+  if (!IS_NUM(args[0]) || !IS_NUM(args[1])) {
+    runtimeError("max() expects two numbers");
     return false;
   }
-  *result = INT_VAL(AS_INT(args[0]) > AS_INT(args[1]) ? AS_INT(args[0]) : AS_INT(args[1]));
+  *result = AS_NUM(args[0]) >= AS_NUM(args[1]) ? args[0] : args[1];
+  return true;
+}
+
+// Float math, all returning a float. sqrt/floor/ceil/round take one number;
+// pow takes two. They accept ints (promoted) and yield floats.
+static bool mathUnary(Value *args, Value *result, double (*fn)(double),
+                      const char *name) {
+  if (!IS_NUM(args[0])) {
+    runtimeError("%s() expects a number", name);
+    return false;
+  }
+  *result = FLOAT_VAL(fn(AS_NUM(args[0])));
+  return true;
+}
+static bool sqrtNative(int a, Value *args, Value *r) { (void)a; return mathUnary(args, r, sqrt, "sqrt"); }
+static bool floorNative(int a, Value *args, Value *r) { (void)a; return mathUnary(args, r, floor, "floor"); }
+static bool ceilNative(int a, Value *args, Value *r) { (void)a; return mathUnary(args, r, ceil, "ceil"); }
+static bool roundNative(int a, Value *args, Value *r) { (void)a; return mathUnary(args, r, round, "round"); }
+static bool powNative(int a, Value *args, Value *r) {
+  (void)a;
+  if (!IS_NUM(args[0]) || !IS_NUM(args[1])) {
+    runtimeError("pow() expects two numbers");
+    return false;
+  }
+  *r = FLOAT_VAL(pow(AS_NUM(args[0]), AS_NUM(args[1])));
   return true;
 }
 
@@ -188,6 +219,11 @@ void defineBuiltins(void) {
       {"abs", absNative, 1},
       {"min", minNative, 2},
       {"max", maxNative, 2},
+      {"sqrt", sqrtNative, 1},
+      {"floor", floorNative, 1},
+      {"ceil", ceilNative, 1},
+      {"round", roundNative, 1},
+      {"pow", powNative, 2},
       {"$for_iter", forIterNative, 1}, // internal: backs for-in (unlexable name)
   };
   for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
