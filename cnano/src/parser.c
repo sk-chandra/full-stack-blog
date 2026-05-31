@@ -513,6 +513,31 @@ static Node *call(void) {
   return node;
 }
 
+// Decode a string literal's escape sequences (`\n \t \r \" \\ \$`, and `\X`
+// passes X through) into a fresh interned ObjString.
+static ObjString *decodeEscapes(const char *text, int len) {
+  char *buf = malloc(len + 1);
+  if (buf == NULL) {
+    fprintf(stderr, "cnano: out of memory decoding a string\n");
+    exit(70);
+  }
+  int o = 0;
+  for (int i = 0; i < len; i++) {
+    if (text[i] == '\\' && i + 1 < len) {
+      char e = text[++i];
+      buf[o++] = e == 'n'    ? '\n'
+                 : e == 't'  ? '\t'
+                 : e == 'r'  ? '\r'
+                             : e; // \" \\ \$ and any other -> the char itself
+    } else {
+      buf[o++] = text[i];
+    }
+  }
+  ObjString *s = copyString(buf, o);
+  free(buf);
+  return s;
+}
+
 // Parse one embedded `${ ... }` expression: lex+parse `text[0..len)` on a fresh
 // temporary buffer, saving and restoring the outer lexer/parser cursor so the
 // surrounding parse continues undisturbed.
@@ -547,9 +572,13 @@ static Node *interpolate(const char *text, int len, int line) {
   Node *result = NULL;
   int seg = 0;
   for (int i = 0; i < len;) {
+    if (text[i] == '\\') { // an escape stays part of the literal run
+      i += 2;
+      continue;
+    }
     if (text[i] == '$' && i + 1 < len && text[i + 1] == '{') {
-      if (i > seg) { // flush the literal run before the hole
-        Node *lit = newString(copyString(text + seg, i - seg), line);
+      if (i > seg) { // flush the literal run before the hole (decoding escapes)
+        Node *lit = newString(decodeEscapes(text + seg, i - seg), line);
         result = result ? newBinary(OP_NODE_ADD, result, lit, line) : lit;
       }
       int depth = 1, j = i + 2; // find the matching '}'
@@ -574,7 +603,7 @@ static Node *interpolate(const char *text, int len, int line) {
     }
   }
   if (len > seg) {
-    Node *lit = newString(copyString(text + seg, len - seg), line);
+    Node *lit = newString(decodeEscapes(text + seg, len - seg), line);
     result = result ? newBinary(OP_NODE_ADD, result, lit, line) : lit;
   }
   return result ? result : newString(copyString("", 0), line);
@@ -599,11 +628,17 @@ static Node *primary(void) {
     const char *text = parser.previous.start + 1;
     int len = parser.previous.length - 2;
     int line = parser.previous.line;
-    // If it contains `${`, it's an interpolation; otherwise a plain literal.
-    for (int i = 0; i + 1 < len; i++)
+    // If it contains an (unescaped) `${`, it's an interpolation; otherwise a
+    // plain literal whose escapes we decode now.
+    for (int i = 0; i + 1 < len; i++) {
+      if (text[i] == '\\') {
+        i++;
+        continue;
+      }
       if (text[i] == '$' && text[i + 1] == '{')
         return interpolate(text, len, line);
-    return newString(copyString(text, len), line);
+    }
+    return newString(decodeEscapes(text, len), line);
   }
   if (match(TOKEN_IDENTIFIER)) {
     // Intern the variable's name so it can be used as a hash-table key. We build

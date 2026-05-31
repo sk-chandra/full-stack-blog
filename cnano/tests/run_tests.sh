@@ -627,6 +627,14 @@ check_prog "match-no-default" 'match (5) { 1 => print "x"; } print "after";' "af
 check_prog "match-in-loop" 'for (let i in 0..5) { match (i) { 3 => break; _ => print i; } }' "$(printf '0\n1\n2')"
 check_native "nat-match" 'fn c(n: int): int { match (n) { 0 => return 100; 1 => return 200; _ => return 0; } } print c(1);' "200"
 
+# --- string escape sequences (step 34) ---
+check_prog "esc-newline"   'print "a\nb";' "$(printf 'a\nb')"
+check_prog "esc-tab-len"   'print "x\ty".len();' "3"
+check_prog "esc-quote"     'print "say \"hi\"";' 'say "hi"'
+check_prog "esc-backslash" 'print "a\\b".len();' "3"
+check_prog "esc-dollar"    'let x=5; print "\${x}=${x}";' '${x}=5'
+check_native "nat-esc"     'fn g(): str { return "a\nb\"c"; } print g();' "$(printf 'a\nb"c')"
+
 # --- string interpolation (step 32) ---
 check_prog "interp-basic"  'let name = "world"; print "Hello, ${name}!";' "Hello, world!"
 check_prog "interp-expr"   'let a=3; let b=4; print "${a} + ${b} = ${a+b}";' "3 + 4 = 7"

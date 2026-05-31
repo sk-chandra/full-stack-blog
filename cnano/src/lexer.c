@@ -147,6 +147,14 @@ static Token string(void) {
     char c = peek();
     if (c == '\0')
       break; // end of source -> unterminated (handled below)
+    if (c == '\\') {
+      // A backslash escapes the next character (so `\"` doesn't end the string
+      // and `\${` isn't an interpolation). The parser decodes the escapes later.
+      advance();
+      if (!isAtEnd())
+        advance();
+      continue;
+    }
     if (c == '"' && interp == 0)
       break; // the real closing quote
     if (c == '$' && lexer.current[1] == '{') {

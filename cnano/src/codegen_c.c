@@ -257,12 +257,25 @@ static void emitExpr(Node *node) {
   case NODE_BOOL:
     fprintf(out, "%s", node->as.boolValue ? "true" : "false");
     break;
-  case NODE_STRING:
-    // Emit a C string literal. We rely on the source bytes being printable; a
-    // production compiler would escape them. For our tests this is sufficient.
-    fprintf(out, "\"%.*s\"", node->as.stringValue->length,
-            node->as.stringValue->chars);
+  case NODE_STRING: {
+    // Emit a C string literal, re-escaping the (already-decoded) bytes so a
+    // newline, quote or backslash in the cnano string stays valid C.
+    ObjString *s = node->as.stringValue;
+    putc('"', out);
+    for (int i = 0; i < s->length; i++) {
+      char c = s->chars[i];
+      switch (c) {
+      case '"': fputs("\\\"", out); break;
+      case '\\': fputs("\\\\", out); break;
+      case '\n': fputs("\\n", out); break;
+      case '\t': fputs("\\t", out); break;
+      case '\r': fputs("\\r", out); break;
+      default: putc(c, out); break;
+      }
+    }
+    putc('"', out);
     break;
+  }
   case NODE_NIL:
     unsupported(node->line, "a nil value in an expression");
     break;

@@ -1494,8 +1494,12 @@ programs define their own types, and makes failure recoverable.
 39. **Performance** — inline caching + a bytecode peephole pass + a benchmark.
 40. ~~**Pattern matching** (`match`).~~ **✅ DONE** (step 33) — value dispatch,
     desugared to an evaluate-once if/else-if chain over `==` with `_` default.
-41. **Native-backend extensions** — closures (and/or simple arrays) lowered to C.
-42. **Performance** (inline caching/peephole), **modules/imports**, **floats**,
+41. ~~**String escape sequences** (`\n \t \" \\ \$`).~~ **✅ DONE** (step 34) —
+    the lexer treats `\` as escaping the next char (so `\"`/`\${` don't end the
+    string / start a hole); the parser decodes escapes (plain strings and each
+    interpolation literal run), and the native backend re-escapes them for C.
+42. **Native-backend extensions** — closures (and/or simple arrays) lowered to C.
+43. **Performance** (inline caching/peephole), **modules/imports**, **floats**,
     type-pattern arms in `match` — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom

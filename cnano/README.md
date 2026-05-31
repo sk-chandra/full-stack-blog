@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (431 cases, incl. native + GC)
+make test       # run the end-to-end test suite (437 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -137,7 +137,9 @@ make run        # start the REPL
 - **Strings**: `"double-quoted"` literals, `+` concatenates them, and they are
   **interned** so equal strings compare in O(1) by pointer. **Interpolation**
   `"x = ${expr}"` embeds any expression (auto-converted with `str()`); the lexer
-  is interpolation-aware so nested quotes and nested `${…}` work
+  is interpolation-aware so nested quotes and nested `${…}` work. **Escape
+  sequences** `\n \t \r \" \\` (and `\$` to escape interpolation), correctly
+  re-escaped in the native backend too
 - **Line comments** with `//` (stripped by the lexer; `/` is still division)
 - Four runtime types: **integers** (64-bit signed), **booleans**, **nil**, and
   heap **strings**, represented with a tagged union + an object header (see
