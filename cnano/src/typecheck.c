@@ -564,14 +564,24 @@ bool typecheckProgram(Program *program) {
     Node *s = program->statements[i];
     if (s->type != NODE_STRUCT)
       continue;
-    int n = s->as.structDecl.fieldCount;
+    // If the struct defines `init`, the constructor takes ITS parameters;
+    // otherwise it takes one argument per field, in order.
+    Node *init = NULL;
+    for (int m = 0; m < s->as.structDecl.methodCount; m++)
+      if (s->as.structDecl.methods[m]->as.fun.name == copyString("init", 4)) {
+        init = s->as.structDecl.methods[m];
+        break;
+      }
+    int n = init != NULL ? init->as.fun.paramCount : s->as.structDecl.fieldCount;
+    Type **paramTypesArr =
+        init != NULL ? init->as.fun.paramTypes : s->as.structDecl.fieldTypes;
     Type **params = n > 0 ? malloc(sizeof(Type *) * n) : NULL;
     if (n > 0 && params == NULL) {
       fprintf(stderr, "cnano: out of memory building a constructor type\n");
       exit(70);
     }
     for (int f = 0; f < n; f++)
-      params[f] = resolve(s->as.structDecl.fieldTypes[f], s->line);
+      params[f] = resolve(paramTypesArr[f], s->line);
     Type *structType = resolve(typeStructRef(s->as.structDecl.name), s->line);
     declareSymbol(s->as.structDecl.name, typeFunction(params, n, structType));
   }

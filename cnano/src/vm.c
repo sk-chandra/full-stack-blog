@@ -43,6 +43,13 @@ void initVM(void) {
   initTable(&vm.globals);
   initTable(&vm.strings);
 
+  // Intern the constructor method name once so construction can look it up by
+  // pointer without allocating. (Set NULL first: copyString interns into
+  // vm.strings, and a GC there must not read an uninitialised field — though GC
+  // is off here, this keeps the invariant honest.)
+  vm.initString = NULL;
+  vm.initString = copyString("init", 4);
+
   // Register the built-in functions (clock, str, ...) as globals. They allocate
   // objects, which is fine: this runs before any program, with GC still off.
   defineBuiltins();
@@ -174,11 +181,20 @@ static bool callValue(Value callee, int argCount) {
   if (IS_CLOSURE(callee))
     return call(AS_CLOSURE(callee), argCount);
   if (IS_STRUCT(callee)) {
-    // Calling a struct CONSTRUCTS an instance: each argument fills the next
-    // declared field, in order. The instance is allocated while the args are
-    // still on the stack (rooted), and tableSet never collects, so it is safe
-    // before we push it.
+    // Calling a struct CONSTRUCTS an instance.
     ObjStruct *s = AS_STRUCT(callee);
+    Value initFn;
+    if (tableGet(&s->methods, vm.initString, &initFn)) {
+      // Custom constructor: allocate the instance, drop it into the callee slot
+      // so it becomes the initialiser's slot 0 (`self`), then run init — which
+      // is compiled to return `self`, so the call expression yields the instance.
+      ObjInstance *instance = newInstance(s);
+      vm.stackTop[-argCount - 1] = OBJ_VAL(instance);
+      return call(AS_CLOSURE(initFn), argCount); // arity checked inside call()
+    }
+    // No init: positional field fill. The instance is allocated while the args
+    // are still on the stack (rooted), and tableSet never collects, so it is
+    // safe before we push it.
     if (argCount != s->fieldCount) {
       runtimeError("%s expects %d field%s but got %d", s->name->chars,
                    s->fieldCount, s->fieldCount == 1 ? "" : "s", argCount);

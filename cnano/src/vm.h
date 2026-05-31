@@ -42,6 +42,7 @@ typedef struct {
   Value *stackTop;     // points just PAST the last pushed value
   Table globals;       // global variable store: name (ObjString*) -> Value
   Table strings;       // string intern pool, used as a set of all live strings
+  ObjString *initString; // the interned name "init" (the constructor method)
   ObjUpvalue *openUpvalues; // open upvalues, sorted by stack slot (highest first)
   Obj *objects;        // head of the intrusive list of every heap object
 

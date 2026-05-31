@@ -46,7 +46,8 @@ typedef struct {
 // final OP_RETURN does.
 typedef enum {
   TYPE_FUNCTION,
-  TYPE_METHOD, // a struct method: slot 0 is the receiver, `self`
+  TYPE_METHOD,      // a struct method: slot 0 is the receiver, `self`
+  TYPE_INITIALIZER, // a method named `init`: implicitly returns `self`
   TYPE_SCRIPT,
 } FunctionType;
 
@@ -96,7 +97,9 @@ static void initCompilerState(CompilerState *state, FunctionType type) {
   // For a METHOD, slot 0 holds the receiver: name it `self` so the body can refer
   // to it as an ordinary local. For plain functions slot 0 is the (unnamed)
   // callee. Interning makes the body's `self` reads resolve here by pointer.
-  local->name = (type == TYPE_METHOD) ? copyString("self", 4) : NULL;
+  local->name = (type == TYPE_METHOD || type == TYPE_INITIALIZER)
+                    ? copyString("self", 4)
+                    : NULL;
   local->isCaptured = false;
 }
 
@@ -723,7 +726,11 @@ static void emitStatement(Node *node) {
     // which stays on the stack throughout.
     for (int i = 0; i < node->as.structDecl.methodCount; i++) {
       Node *m = node->as.structDecl.methods[i];
-      compileFunction(m, TYPE_METHOD);
+      // A method literally named `init` is the constructor: compile it so it
+      // returns `self`. (copyString interns, so the pointer compare is exact.)
+      FunctionType mt = m->as.fun.name == copyString("init", 4) ? TYPE_INITIALIZER
+                                                                : TYPE_METHOD;
+      compileFunction(m, mt);
       int methodNameIdx = identifierConstant(m->as.fun.name, m->line);
       emitByte(OP_METHOD, m->line);
       emitByte((uint8_t)methodNameIdx, m->line);
@@ -745,6 +752,16 @@ static void emitStatement(Node *node) {
     // `return` is only legal inside a function, not in the top-level script.
     if (current->type == TYPE_SCRIPT) {
       compileError(node->line, "can't return from top-level code");
+      break;
+    }
+    if (current->type == TYPE_INITIALIZER) {
+      // An initializer always yields the new instance, so it cannot return a
+      // value; a bare `return;` is allowed and returns `self` (slot 0).
+      if (node->as.ret.value != NULL)
+        compileError(node->line, "can't return a value from an initializer");
+      emitByte(OP_GET_LOCAL, node->line);
+      emitByte(0, node->line); // slot 0 == self
+      emitByte(OP_RETURN, node->line);
       break;
     }
     if (node->as.ret.value != NULL) {
@@ -788,10 +805,16 @@ static ObjFunction *compileFunction(Node *node, FunctionType type) {
   for (int i = 0; i < body->count; i++)
     emitStatement(body->statements[i]);
 
-  // Every function ends with an implicit `return nil;` so falling off the end is
-  // well-defined. (We don't bother closing the scope with POPs — OP_RETURN tears
-  // down the whole frame at once.)
-  emitByte(OP_NIL, node->line);
+  // Every function ends with an implicit return so falling off the end is
+  // well-defined: an initializer returns `self` (slot 0); everything else nil.
+  // (We don't bother closing the scope with POPs — OP_RETURN tears the frame
+  // down at once.)
+  if (type == TYPE_INITIALIZER) {
+    emitByte(OP_GET_LOCAL, node->line);
+    emitByte(0, node->line);
+  } else {
+    emitByte(OP_NIL, node->line);
+  }
   emitByte(OP_RETURN, node->line);
 
   ObjFunction *function = current->function;

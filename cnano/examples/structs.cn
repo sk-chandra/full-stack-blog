@@ -57,3 +57,18 @@ let r = Rect(3, 4);
 print r.area();         // 12
 r.scale(2);
 print r.describe();     // Rect area=48
+
+// A method named `init` is the CONSTRUCTOR: it runs on `Type(args)`, receives the
+// new instance as `self`, and can validate inputs or compute derived fields. Its
+// parameters need not match the fields one-for-one.
+struct Circle {
+  radius: int,
+  area: int
+  fn init(r: int) {
+    self.radius = r;
+    self.area = 3 * r * r;   // derived from the argument
+  }
+}
+let circ = Circle(10);
+print circ.radius;      // 10
+print circ.area;        // 300

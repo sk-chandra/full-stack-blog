@@ -1415,8 +1415,16 @@ programs define their own types, and makes failure recoverable.
     with the receiver as slot 0 (clox's `this` machinery). Method bodies are
     type-checked with `self` bound to the struct type. Methods mutate fields and
     call each other (`self.area()`).
-22. **Constructors / initializers.**
-23. *(optional)* **single inheritance + `super`.**
+22. ~~**Constructors / initializers.**~~ **✅ DONE** — a method named `init` is
+    the constructor: `Point(args)` allocates the instance, runs `init` with it as
+    `self` (compiled with `TYPE_INITIALIZER` to implicitly return `self`; a
+    value-returning `return` is a compile error), and yields the instance. Its
+    parameters need not match the fields, so it can validate or compute derived
+    fields. The checker types construction against `init`'s parameters when
+    present. Without `init`, positional field construction still works.
+23. ~~*(optional)* single inheritance + `super`.~~ **SKIPPED** by design — kept
+    the model as "structs + methods + constructors" (composition over
+    inheritance) rather than add a parent chain. **Phase B complete.**
 
 **Phase C — errors & optional values**
 24. **Nullable / optional types** (`T?`) with flow narrowing.

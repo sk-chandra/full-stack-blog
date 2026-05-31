@@ -596,6 +596,16 @@ check_prog_err "method-unknown"   'struct P { x: int } print P(1).nope();'
 check_prog_err "method-body-type" 'struct P { x: int fn bad(): str { return self.x; } } print P(1).bad();'
 check_prog_err "method-self-field" 'struct P { x: int fn f(): int { return self.z; } } print P(1).f();'
 
+# --- constructors / init (step 22) ---
+check_prog "init-basic"     'struct T { c: int fn init(v: int) { self.c = v; } } print T(100).c;' "100"
+check_prog "init-derived"   'struct Circle { r: int, area: int fn init(radius: int) { self.r = radius; self.area = 3*radius*radius; } } let c = Circle(10); print c.area;' "300"
+check_prog "init-arity"     'struct R { lo: int, hi: int, span: int fn init(a: int, b: int) { self.lo=a; self.hi=b; self.span=b-a; } } print R(3, 10).span;' "7"
+check_prog "init-and-method" 'struct Acct { bal: int fn init(b: int) { self.bal = b; } fn deposit(x: int) { self.bal += x; } } let a = Acct(50); a.deposit(25); print a.bal;' "75"
+check_prog "no-init-positional" 'struct P { x: int, y: int } let p = P(1, 2); print p.x + p.y;' "3"
+check_prog_err "init-return-val"  'struct P { x: int fn init(v: int) { self.x = v; return 5; } } let p = P(1); print p;'
+check_prog_err "init-arg-type"    'struct T { c: int fn init(v: int) { self.c = v; } } let t = T("hot"); print t;'
+check_prog_err "init-arity-err"   'struct T { c: int fn init(v: int) { self.c = v; } } let t = T(1, 2); print t;'
+
 # --- native backend: compile to C -> a real executable (step 9) ---
 # Each program is the typed first-order subset; its native output must match.
 check_native "nat-arith"    'print 2 + 3 * 4;'                          "14"

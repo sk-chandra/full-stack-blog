@@ -164,6 +164,9 @@ static void markRoots(void) {
   // 4. The global-variable table (both the name keys and the values).
   markTable(&vm.globals);
 
+  // 5. The interned "init" name (used to find constructors).
+  markObject((Obj *)vm.initString);
+
   // NOTE: vm.strings (the string intern pool) is deliberately NOT a root. It is a
   // WEAK table — it must not, by itself, keep a string alive. We prune its dead
   // entries in collectGarbage() after tracing, just before sweeping.
