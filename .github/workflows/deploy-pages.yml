@@ -1,0 +1,94 @@
+name: Deploy to GitHub Pages
+
+# Builds the frontend as a static SPA (client-side sample pricing, no backend
+# needed) and publishes it to GitHub Pages. Also captures UI screenshots and
+# uploads them as a downloadable artifact.
+
+on:
+  push:
+    branches:
+      - claude/hotel-price-platform-1IaW7
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Build static site
+        env:
+          VITE_STATIC: 'true'
+          VITE_BASE: /full-stack-blog/
+        run: npm run build
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
+
+  screenshots:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      # Build at root base so `vite preview` serves at "/".
+      - name: Build static site (root base)
+        env:
+          VITE_STATIC: 'true'
+        run: npm run build
+      - name: Install Playwright + Chromium
+        run: |
+          npm i -D playwright
+          npx playwright install --with-deps chromium
+      - name: Capture screenshots
+        run: node scripts/screenshots.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: app-screenshots
+          path: docs/screenshots/
+          if-no-files-found: error
+      # Commit the rendered screenshots back so they're viewable on GitHub.
+      # [skip ci] prevents this push from re-triggering the workflow.
+      - name: Commit screenshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/screenshots
+          if git diff --cached --quiet; then
+            echo "No screenshot changes."
+            exit 0
+          fi
+          git commit -m "docs: update app screenshots [skip ci]"
+          git pull --rebase origin "$GITHUB_REF_NAME"
+          git push origin "HEAD:$GITHUB_REF_NAME"
