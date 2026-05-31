@@ -152,6 +152,11 @@ about it here previews how you would later manage heap objects at runtime.
 
 ## 4. The parser: tokens → AST (`parser.{h,c}`)
 
+> The grammar shown here is the original arithmetic-only version, kept for
+> teaching the core idea. It has since grown comparison/equality levels (§9) and
+> a top statement layer (§10). The current full grammar lives in the header of
+> `parser.c`.
+
 cnano uses **recursive descent**: one function per grammar rule, and the C call
 stack mirrors the nesting of the expression. The grammar (in the file header):
 
@@ -284,7 +289,7 @@ This is roadmap step 1, completed. It is worth its own section because going fro
 language". Here is everything it touched and why — a template for how a single
 feature ripples through every stage of a compiler.
 
-### 10.1 The representation: from `int64_t` to a tagged union
+### 9.1 The representation: from `int64_t` to a tagged union
 
 Before, `Value` was literally `int64_t`. With more than one type, a value must
 say *what it is*, so `value.h` now holds a **tagged union**:
@@ -308,7 +313,7 @@ now built the core of a dynamic value system.
 > (hiding a type tag inside the unused bits of a 64-bit IEEE float) — a great
 > advanced exercise once this version makes sense.
 
-### 10.2 The ripple through every stage
+### 9.2 The ripple through every stage
 
 Adding the type forced a coordinated change across the whole pipeline — this
 fan-out is the lesson:
@@ -324,7 +329,7 @@ fan-out is the lesson:
 
 When people say a language feature is "cross-cutting," *this* is what they mean.
 
-### 10.3 Three design decisions worth internalising
+### 9.3 Three design decisions worth internalising
 
 - **Keep the core small with desugaring.** The grammar offers `!=`, `<=`, `>=`,
   but the AST/compiler/VM only know `==`, `<`, `>`, and `!`. The parser
@@ -343,7 +348,7 @@ When people say a language feature is "cross-cutting," *this* is what they mean.
   keeps ints and bools as genuinely distinct types — the opposite of
   JavaScript's `==`. It is the first whiff of a *type system*.
 
-### 10.4 Runtime type checking — the robustness core
+### 9.4 Runtime type checking — the robustness core
 
 A typed value system is useless unless the VM *enforces* it. Arithmetic and
 ordering now check `IS_INT` on both operands **before** unwrapping (`BINARY_OP`
@@ -355,7 +360,82 @@ errors is the difference between a toy and a usable tool.
 
 ---
 
-## 10. Roadmap: where to go next
+## 10. Case study: statements, `print`, and the expression/statement split
+
+This is roadmap step 2, completed. It is where cnano stops being "evaluate one
+expression" and becomes "run a program" — a list of statements executed in
+order. The headline idea is the **expression vs. statement distinction**, the
+most important structural concept in language design.
+
+### 10.1 Expression vs. statement — values vs. effects
+
+- An **expression** *computes a value*: `1 + 2`, `a < b`, `true`. In our VM,
+  compiling an expression always leaves exactly **one** value on the stack.
+- A **statement** *performs an action* and yields **no** value: `print x;`, or a
+  bare `expr;` evaluated only for its (future) side effects. In our VM, a
+  statement is **stack-neutral** — it ends with the stack at the height it
+  started.
+
+Those two contracts (one in `emitExpr`, the opposite in `emitStatement` in
+`compiler.c`) are the backbone of the whole step. Keeping them crisp is what
+makes everything that follows — variables, blocks, control flow — compose
+cleanly.
+
+### 10.2 `OP_POP`: why expression statements must clean up
+
+Consider `1 + 2;` — an expression statement. The expression pushes `3`, but the
+statement uses nothing. If we left `3` on the stack, every such statement would
+leak one slot and the stack would grow without bound. So `emitStatement` emits an
+**`OP_POP`** after the expression to discard its value. This is the concrete
+reason a stack VM needs a pop instruction at all, and forgetting it is a classic
+bug. `print x;` is the same shape but pops *via* `OP_PRINT` (which consumes its
+operand), so it too nets to zero. Run `--dump` on `1+2; print 7;` and you'll see
+`OP_ADD, OP_POP` then `OP_CONSTANT, OP_PRINT`.
+
+### 10.3 Output becomes an explicit effect
+
+Previously the REPL auto-printed the final value — output was a side effect of
+the *host*, not the language. Now the only way a program produces output is
+`print`, compiled to `OP_PRINT`. `OP_RETURN` no longer carries a result; it just
+halts. This is a real design stance: a program's observable behaviour is the
+effects it explicitly performs, not whatever happened to be left lying around.
+
+### 10.4 Program structure and a new owner
+
+The parser's entry point changed from "return one expression tree" to "fill a
+`Program`" — a growable array of statement nodes (same dynamic-array pattern as
+`Chunk`/`ValueArray`). `Program` *owns* its statements; `freeProgram` frees each
+tree then the array. The grammar grew a new top layer:
+
+```
+program   -> statement* EOF ;
+statement -> "print" expression ";" | expression ";" ;
+```
+
+Note how cleanly the new layer sits *above* the entire expression grammar from
+steps 0–1 — we added structure without disturbing what already worked.
+
+### 10.5 Better errors: panic-mode recovery
+
+With multiple statements, stopping at the first syntax error is unfriendly. The
+parser now enters **panic mode** on an error (suppressing cascade messages),
+then `synchronize()` skips tokens until a statement boundary (just past a `;`, or
+at a keyword like `print`) and resumes. One run can now report several
+*independent* errors — exactly how real compilers behave. `hadError` (did
+anything fail?) and `panicMode` (are we mid-recovery?) are deliberately separate
+flags.
+
+### 10.6 A free addition: line comments
+
+Because the step needed example programs worth annotating, the lexer learned
+`//` line comments. The lesson is *where* they live: comments are stripped inside
+`skipWhitespace`, never becoming tokens, because they carry no meaning for the
+parser. Distinguishing `//` from a single `/` (division) requires **two**
+characters of lookahead (`peekNext`) — a small but real lexer technique.
+
+---
+
+## 11. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -363,9 +443,9 @@ ordered so each builds on the last.
 1. ~~**Booleans, `nil`, and comparisons.**~~ **✅ DONE** — see §9 above for a
    full write-up. `Value` is now a tagged union; `<  <=  >  >=  ==  !=  !` work;
    the VM type-checks operands at runtime.
-2. **Statements and `print`.** Introduce a statement grammar, a `;` terminator,
-   and an `OP_PRINT`. Programs become sequences of statements rather than one
-   expression. Add `OP_POP` to discard expression-statement results.
+2. ~~**Statements and `print`.**~~ **✅ DONE** — see §10 above. Programs are now
+   statement sequences; `print`/`OP_PRINT`, expression statements/`OP_POP`,
+   panic-mode error recovery, and `//` comments all landed.
 3. **Global variables.** Add an identifier token, `let`/assignment syntax, and
    `OP_DEFINE_GLOBAL` / `OP_GET_GLOBAL` / `OP_SET_GLOBAL` backed by a hash
    table. You will build the hash table — a great data-structures exercise.

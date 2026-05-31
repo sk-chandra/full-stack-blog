@@ -1,0 +1,12 @@
+// A program is now a SEQUENCE of statements, run top to bottom.
+// Each `print` writes one line. Expression statements (like the `42;` below)
+// are evaluated but their value is discarded — useful later for calls/assignment.
+
+print 1 + 2 * 3;        // 7
+print 10 / 2 - 1;       // 4
+print 5 > 3;            // true
+print (1 == 1) != false; // true
+
+42;                     // expression statement: computed, then thrown away (no output)
+
+print nil;              // nil

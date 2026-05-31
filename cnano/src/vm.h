@@ -20,7 +20,6 @@ typedef struct {
   uint8_t *ip;         // instruction pointer: the NEXT byte to read
   Value stack[STACK_MAX];
   Value *stackTop;     // points just PAST the last pushed value
-  Value lastResult;    // value produced by the most recent OP_RETURN
 } VM;
 
 // The result of a run, so the CLI can pick the right process exit code.
@@ -33,9 +32,10 @@ typedef enum {
 void initVM(void);
 void freeVM(void);
 
-// Compile + run `source`. If `trace` is true, dump the chunk and print the
-// stack at every step — the best way to learn how the VM "thinks".
-// On success, the final value is written to *out (may be NULL to ignore).
-InterpretResult interpret(const char *source, bool trace, Value *out);
+// Compile + run `source` (a sequence of statements). If `trace` is true, dump
+// the chunk and print the stack at every step — the best way to learn how the VM
+// "thinks". Programs now produce output via `print`, so there is no return value
+// to hand back.
+InterpretResult interpret(const char *source, bool trace);
 
 #endif // CNANO_VM_H

@@ -171,17 +171,18 @@ static InterpretResult run(bool trace) {
     case OP_GREATER:
       BINARY_OP(BOOL_VAL, >);
       break;
-    case OP_RETURN: {
-      Value result = pop();
-      if (trace) {
-        printf("== result ==\n");
-      }
-      printValue(result);
+    case OP_PRINT:
+      // The only way a cnano program produces output. It pops its operand, so
+      // like every statement-level op it is stack-neutral overall.
+      printValue(pop());
       printf("\n");
-      // Stash the result for the caller before returning.
-      vm.lastResult = result;
+      break;
+    case OP_POP:
+      pop(); // discard the result of an expression statement
+      break;
+    case OP_RETURN:
+      // End of program. Nothing to return — output already happened via print.
       return INTERPRET_OK;
-    }
     }
   }
 
@@ -190,17 +191,20 @@ static InterpretResult run(bool trace) {
 #undef BINARY_OP
 }
 
-InterpretResult interpret(const char *source, bool trace, Value *out) {
-  // 1. Parse source text into an AST.
-  Node *tree = parse(source);
-  if (tree == NULL)
+InterpretResult interpret(const char *source, bool trace) {
+  // 1. Parse source text into a Program (a list of statement trees).
+  Program program;
+  bool ok = parse(source, &program);
+  if (!ok) {
+    freeProgram(&program); // may hold partially-built statements
     return INTERPRET_COMPILE_ERROR;
+  }
 
-  // 2. Compile the AST into a chunk of bytecode.
+  // 2. Compile the program into a chunk of bytecode.
   Chunk chunk;
   initChunk(&chunk);
-  compile(tree, &chunk);
-  freeNode(tree); // the tree is no longer needed once bytecode exists
+  compile(&program, &chunk);
+  freeProgram(&program); // trees no longer needed once bytecode exists
 
   if (trace)
     disassembleChunk(&chunk, "compiled bytecode");
@@ -209,9 +213,6 @@ InterpretResult interpret(const char *source, bool trace, Value *out) {
   vm.chunk = &chunk;
   vm.ip = vm.chunk->code;
   InterpretResult result = run(trace);
-
-  if (out != NULL && result == INTERPRET_OK)
-    *out = vm.lastResult;
 
   freeChunk(&chunk);
   return result;

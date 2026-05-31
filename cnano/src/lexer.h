@@ -16,6 +16,7 @@ typedef enum {
   TOKEN_SLASH,
   TOKEN_LPAREN,
   TOKEN_RPAREN,
+  TOKEN_SEMICOLON, // ; — terminates a statement
   // One- or two-character operators. Some of these share a first character
   // (`!` vs `!=`, `<` vs `<=`), so the lexer must peek at the SECOND character
   // to decide which token it is — the first taste of multi-character lexing.
@@ -32,6 +33,7 @@ typedef enum {
   TOKEN_TRUE,
   TOKEN_FALSE,
   TOKEN_NIL,
+  TOKEN_PRINT,
   // Bookkeeping
   TOKEN_ERROR, // lexing failed; `start`/`length` point at a human message
   TOKEN_EOF,   // end of input — lets the parser stop without special-casing

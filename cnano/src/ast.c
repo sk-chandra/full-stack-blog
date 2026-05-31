@@ -44,6 +44,18 @@ Node *newBinary(NodeOp op, Node *left, Node *right, int line) {
   return node;
 }
 
+Node *newPrint(Node *expr, int line) {
+  Node *node = allocNode(NODE_PRINT, line);
+  node->as.stmt.expr = expr;
+  return node;
+}
+
+Node *newExprStmt(Node *expr, int line) {
+  Node *node = allocNode(NODE_EXPR_STMT, line);
+  node->as.stmt.expr = expr;
+  return node;
+}
+
 // Post-order traversal: free children before the parent so we never follow a
 // dangling pointer. Recursion mirrors the tree's own shape — the natural way to
 // walk a tree in any compiler stage.
@@ -62,6 +74,40 @@ void freeNode(Node *node) {
     freeNode(node->as.binary.left);
     freeNode(node->as.binary.right);
     break;
+  case NODE_PRINT:
+  case NODE_EXPR_STMT:
+    freeNode(node->as.stmt.expr);
+    break;
   }
   free(node);
+}
+
+// --- Program: a growable list of statements --------------------------------
+
+void initProgram(Program *program) {
+  program->count = 0;
+  program->capacity = 0;
+  program->statements = NULL;
+}
+
+void writeProgram(Program *program, Node *statement) {
+  if (program->capacity < program->count + 1) {
+    int oldCapacity = program->capacity;
+    program->capacity = oldCapacity < 8 ? 8 : oldCapacity * 2;
+    program->statements =
+        realloc(program->statements, sizeof(Node *) * program->capacity);
+    if (program->statements == NULL) {
+      fprintf(stderr, "cnano: out of memory growing program\n");
+      exit(70);
+    }
+  }
+  program->statements[program->count++] = statement;
+}
+
+void freeProgram(Program *program) {
+  // Own every statement: free each tree, then the array holding the pointers.
+  for (int i = 0; i < program->count; i++)
+    freeNode(program->statements[i]);
+  free(program->statements);
+  initProgram(program);
 }

@@ -11,7 +11,8 @@
 #include "ast.h"
 #include "chunk.h"
 
-// Compile `tree` into `chunk`. The chunk should already be initialised.
-void compile(Node *tree, Chunk *chunk);
+// Compile a whole `program` (its sequence of statements) into `chunk`. The
+// chunk should already be initialised.
+void compile(Program *program, Chunk *chunk);
 
 #endif // CNANO_COMPILER_H

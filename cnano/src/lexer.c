@@ -72,8 +72,19 @@ static Token errorToken(const char *message) {
   return token;
 }
 
-// Skip spaces, tabs, carriage returns, newlines. We track newlines so error
-// messages can report the right line. (Comments would also be skipped here.)
+// Peek at the SECOND-next character without consuming anything. Needed to spot
+// `//` (a comment) versus a lone `/` (division) during whitespace skipping.
+static char peekNext(void) {
+  if (isAtEnd())
+    return '\0';
+  return lexer.current[1];
+}
+
+// Skip spaces, tabs, carriage returns, newlines — and line comments. Comments
+// are handled HERE, alongside whitespace, rather than as real tokens, because by
+// the time the parser runs they should have vanished entirely: they carry no
+// meaning, only documentation. We track newlines so error messages stay on the
+// right line.
 static void skipWhitespace(void) {
   for (;;) {
     char c = peek();
@@ -86,6 +97,17 @@ static void skipWhitespace(void) {
     case '\n':
       lexer.line++;
       advance();
+      break;
+    case '/':
+      // A `//` line comment runs to the end of the line (but NOT past the
+      // newline, so the line counter still ticks on the next loop iteration).
+      // A single `/` is division, so we must look ahead before consuming.
+      if (peekNext() == '/') {
+        while (peek() != '\n' && !isAtEnd())
+          advance();
+      } else {
+        return; // it's the division operator; let scanToken handle it
+      }
       break;
     default:
       return;
@@ -117,6 +139,8 @@ static TokenType identifierType(void) {
     return TOKEN_FALSE;
   if (length == 3 && memcmp(s, "nil", 3) == 0)
     return TOKEN_NIL;
+  if (length == 5 && memcmp(s, "print", 5) == 0)
+    return TOKEN_PRINT;
   // Not a keyword. cnano has no user identifiers yet (that arrives with
   // variables in roadmap step 3), so an unknown word is an error for now.
   return TOKEN_ERROR;
@@ -159,6 +183,8 @@ Token scanToken(void) {
     return makeToken(TOKEN_LPAREN);
   case ')':
     return makeToken(TOKEN_RPAREN);
+  case ';':
+    return makeToken(TOKEN_SEMICOLON);
   // Operators that may be one or two characters. match('=') peeks ahead.
   case '!':
     return makeToken(match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);

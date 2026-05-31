@@ -34,7 +34,12 @@ typedef enum {
   OP_EQUAL,    // [opcode]        : b = pop; a = pop; push (a == b)  (any types)
   OP_LESS,     // [opcode]        : b = pop; a = pop; push (a < b)   (ints only)
   OP_GREATER,  // [opcode]        : b = pop; a = pop; push (a > b)   (ints only)
-  OP_RETURN,   // [opcode]        : end execution; result is top of stack
+  // Statement-level opcodes. Unlike the operators above, these consume a value
+  // WITHOUT pushing one back — they exist for their effect on output or the
+  // stack, mirroring the expression/statement split in the language itself.
+  OP_PRINT,    // [opcode]        : pop one value and print it, then a newline
+  OP_POP,      // [opcode]        : pop one value and discard it
+  OP_RETURN,   // [opcode]        : end execution (no value)
 } OpCode;
 
 typedef struct {

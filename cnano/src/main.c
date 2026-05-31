@@ -40,7 +40,7 @@ static char *readFile(const char *path) {
 
 static void runFile(const char *path, bool trace) {
   char *source = readFile(path);
-  InterpretResult result = interpret(source, trace, NULL);
+  InterpretResult result = interpret(source, trace);
   free(source);
 
   // Map interpreter outcomes onto conventional Unix exit codes so cnano plays
@@ -53,7 +53,9 @@ static void runFile(const char *path, bool trace) {
 
 static void repl(void) {
   char line[1024];
-  printf("cnano REPL — type an arithmetic expression, Ctrl-D to quit.\n");
+  printf("cnano REPL — type statements, Ctrl-D to quit.\n");
+  printf("  e.g.  print 1 + 2;     print 3 < 5;\n");
+  printf("  (output only appears via `print`; statements end with ';')\n");
   for (;;) {
     printf("> ");
     if (!fgets(line, sizeof(line), stdin)) {
@@ -61,7 +63,7 @@ static void repl(void) {
       break;
     }
     // Ignore errors in the REPL so one typo doesn't end the session.
-    interpret(line, false, NULL);
+    interpret(line, false);
   }
 }
 

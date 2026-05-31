@@ -23,12 +23,24 @@
 
 #include "common.h"
 
+// cnano now has TWO categories of node, and the distinction is the single most
+// important structural idea in language design:
+//   * an EXPRESSION computes and yields a value   (1 + 2, a < b, true)
+//   * a STATEMENT performs an action for its effect, yielding NO value
+//     (print x;  or an expression evaluated only for its side effects)
+// A program is a *sequence of statements*; each statement may contain
+// expressions. We keep both in one Node type for simplicity, but the comments
+// and the compiler treat the two categories differently — see compiler.c.
 typedef enum {
+  // --- expression nodes (yield a value onto the VM stack) ---
   NODE_INT,     // a literal integer
   NODE_BOOL,    // a literal `true` or `false`
   NODE_NIL,     // the literal `nil`
   NODE_UNARY,   // a prefix operator applied to one child (e.g. -x, !x)
   NODE_BINARY,  // an operator with a left and right child (e.g. a + b, a < b)
+  // --- statement nodes (performed for effect, yield nothing) ---
+  NODE_PRINT,      // `print EXPR;` — evaluate EXPR and print it
+  NODE_EXPR_STMT,  // `EXPR;` — evaluate EXPR, then discard its value
 } NodeType;
 
 // The operator carried by unary/binary nodes. Keeping this separate from the
@@ -74,8 +86,28 @@ typedef struct Node {
       struct Node *left;
       struct Node *right;
     } binary;
+    // Both statement kinds wrap exactly one expression child: print evaluates
+    // then prints it; an expression statement evaluates then discards it.
+    struct {
+      struct Node *expr;
+    } stmt;
   } as;
 } Node;
+
+// A whole program: a growable list of top-level statement nodes, executed in
+// order. This is the same dynamic-array pattern as ValueArray/Chunk — count,
+// capacity, double-on-full. Separating "the program" from "a node" keeps the
+// recursive Node type clean while still letting the parser produce many
+// statements.
+typedef struct {
+  int count;
+  int capacity;
+  Node **statements; // array of owned Node* (each a statement)
+} Program;
+
+void initProgram(Program *program);
+void freeProgram(Program *program); // frees every statement, then the array
+void writeProgram(Program *program, Node *statement);
 
 // Constructors. Each allocates a node on the heap and fills it in. The parser
 // owns these; freeNode walks the tree and releases the whole thing.
@@ -84,6 +116,8 @@ Node *newBool(bool value, int line);
 Node *newNil(int line);
 Node *newUnary(NodeOp op, Node *operand, int line);
 Node *newBinary(NodeOp op, Node *left, Node *right, int line);
+Node *newPrint(Node *expr, int line);
+Node *newExprStmt(Node *expr, int line);
 void freeNode(Node *node);
 
 #endif // CNANO_AST_H

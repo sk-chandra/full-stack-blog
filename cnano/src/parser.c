@@ -6,7 +6,16 @@
 #include "parser.h"
 
 // The grammar we implement, written in EBNF. Each rule below becomes a function.
-// Lower rules bind tighter (higher precedence):
+//
+// A program is now a SEQUENCE OF STATEMENTS, not a single expression. The top of
+// the grammar is therefore about statements; expressions sit underneath:
+//
+//   program    -> statement* EOF ;
+//   statement  -> printStmt | exprStmt ;
+//   printStmt  -> "print" expression ";" ;
+//   exprStmt   -> expression ";" ;
+//
+// Lower expression rules bind tighter (higher precedence):
 //
 //   expression -> equality ;
 //   equality   -> comparison ( ( "==" | "!=" ) comparison )* ;
@@ -36,7 +45,8 @@
 typedef struct {
   Token current;  // the next token to consume (one-token lookahead)
   Token previous; // the most recently consumed token
-  bool hadError;
+  bool hadError;  // did ANY error occur during the whole parse?
+  bool panicMode; // are we currently recovering from an error?
 } Parser;
 
 static Parser parser;
@@ -44,10 +54,13 @@ static Parser parser;
 // --- error reporting -------------------------------------------------------
 
 static void errorAt(Token *token, const char *message) {
-  // Only report the first error per parse; after an error the parser state is
-  // unreliable and further messages tend to be noise.
-  if (parser.hadError)
+  // panicMode suppresses the cascade of bogus errors that follows a real one,
+  // until we resynchronise at a statement boundary (see synchronize()). Without
+  // this, one mistake produces a wall of confusing messages. hadError stays set
+  // for the whole parse so the caller knows compilation must be aborted.
+  if (parser.panicMode)
     return;
+  parser.panicMode = true;
   parser.hadError = true;
   fprintf(stderr, "[line %d] Error", token->line);
   if (token->type == TOKEN_EOF) {
@@ -209,17 +222,69 @@ static Node *primary(void) {
   return NULL;
 }
 
-Node *parse(const char *source) {
+// --- statements ------------------------------------------------------------
+
+static Node *statement(void);
+
+// After a syntax error we "panic": skip tokens until we reach a likely
+// statement boundary, so parsing can resume and report further independent
+// errors instead of one cascade. We stop just after a ';' (the end of the bad
+// statement) or just before a token that clearly begins a new statement. This
+// is classic panic-mode error recovery.
+static void synchronize(void) {
+  parser.panicMode = false;
+  while (parser.current.type != TOKEN_EOF) {
+    if (parser.previous.type == TOKEN_SEMICOLON)
+      return; // just finished a statement; the next one can parse cleanly
+    switch (parser.current.type) {
+    case TOKEN_PRINT:
+      return; // a keyword that starts a statement — resume here
+    default:
+      break;
+    }
+    advance();
+  }
+}
+
+static Node *printStatement(void) {
+  int line = parser.previous.line; // the 'print' keyword's line
+  Node *value = expression();
+  consume(TOKEN_SEMICOLON, "Expect ';' after value.");
+  return newPrint(value, line);
+}
+
+static Node *expressionStatement(void) {
+  int line = parser.current.line;
+  Node *expr = expression();
+  consume(TOKEN_SEMICOLON, "Expect ';' after expression.");
+  // The wrapper records that this expression's value is to be DISCARDED — the
+  // compiler will emit an OP_POP after it. Distinguishing this from `print`
+  // here, at parse time, keeps the compiler simple.
+  return newExprStmt(expr, line);
+}
+
+static Node *statement(void) {
+  if (match(TOKEN_PRINT))
+    return printStatement();
+  return expressionStatement();
+}
+
+bool parse(const char *source, Program *out) {
   initLexer(source);
+  initProgram(out);
   parser.hadError = false;
+  parser.panicMode = false;
   advance(); // prime `current` with the first token
 
-  Node *tree = expression();
-  consume(TOKEN_EOF, "Expect end of expression.");
-
-  if (parser.hadError) {
-    freeNode(tree); // freeNode tolerates NULL and partial trees
-    return NULL;
+  // The program loop: parse statements until end of file. On a syntax error we
+  // synchronize and keep going, collecting as many independent errors as we can
+  // in a single run — much friendlier than stopping at the first.
+  while (!check(TOKEN_EOF)) {
+    Node *stmt = statement();
+    writeProgram(out, stmt);
+    if (parser.panicMode)
+      synchronize();
   }
-  return tree;
+
+  return !parser.hadError;
 }
