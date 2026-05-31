@@ -456,6 +456,31 @@ check_prog_err "forin-noncoll" 'for (let x in 5) print x;'
 check_prog "for-cstyle-still" 'let s = 0; for (let i = 0; i < 5; i = i + 1) { s += i; } print s;' "10"
 check_prog "for-cstyle-typed" 'let s = 0; for (let i: int = 0; i < 4; i += 1) { s += i; } print s;' "6"
 
+# --- standard library: builtins + string/array/map methods (step 18) ---
+check "bi-len-str"   'len("hello")'            "5"
+check "bi-len-arr"   'len([1,2,3,4])'          "4"
+check "bi-type-int"  'type(5)'                 "int"
+check "bi-type-arr"  'type([1])'               "array"
+check "bi-type-map"  'type({"a":1})'           "map"
+check "bi-abs"       'abs(-7)'                 "7"
+check "bi-min"       'min(3, 8)'               "3"
+check "bi-max"       'max(3, 8)'               "8"
+check_prog "bi-assert-ok"  'assert(1 < 2); print "ok";' "ok"
+check_prog_err "bi-assert-fail" 'assert(2 < 1); print "x";'
+check "m-str-upper"  '"Hello".upper()'         "HELLO"
+check "m-str-lower"  '"Hello".lower()'         "hello"
+check "m-str-contains" '"hello".contains("ell")' "true"
+check "m-str-indexof"  '"hello".indexOf("l")'  "2"
+check "m-str-substr"   '"hello world".substring(6, 11)' "world"
+check_prog_err "m-substr-oob" 'print "hi".substring(0, 9);'
+check_prog "m-arr-sort" 'let a=[3,1,2]; a.sort(); print a;' "[1, 2, 3]"
+check_prog "m-arr-sort-str" 'let w=["c","a","b"]; w.sort(); print w.join("-");' "a-b-c"
+check "m-arr-contains" '[1,2,3].contains(2)'   "true"
+check "m-arr-indexof"  '[10,20,30].indexOf(30)' "2"
+check "m-arr-join"     '[1,2,3].join(", ")'    "1, 2, 3"
+check_prog "m-map-values" 'let m={"a":10,"b":20}; let v=m.values(); v.sort(); print v;' "[10, 20]"
+check_prog_err "m-sort-mixed" 'let a=[1,"two"]; a.sort(); print a;'
+
 # --- compound assignment (step 16) ---
 check_prog "cmpd-var"    'let x = 10; x += 5; x -= 3; x *= 2; print x;' "24"
 check_prog "cmpd-mod"    'let x = 17; x %= 5; print x;' "2"

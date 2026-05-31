@@ -1386,8 +1386,10 @@ programs define their own types, and makes failure recoverable.
     yields the array to walk (arrays → elements, maps → keys), so one shape covers
     both even when the type is dynamic. Disambiguated from C-style `for` with one
     token of lookahead after `let NAME`; added the `in` keyword.
-18. **Standard-library builtins & string/array methods** (`len`, `assert`,
-    `.split`, `.contains`, `.sort`, …).
+18. ~~**Standard-library builtins & string/array methods.**~~ **✅ DONE** — free
+    `len/type/assert/abs/min/max`; string `.upper/.lower/.contains/.indexOf/
+    .substring`; array `.contains/.indexOf/.join/.sort` (in-place, homogeneous);
+    map `.values`. All additive in builtins.c — no VM/checker changes.
 19. **Higher-order collection methods** (`.map`/`.filter`/`.reduce`).
 
 **Phase B — user-defined types**

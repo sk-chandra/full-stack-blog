@@ -1,4 +1,6 @@
+#include <ctype.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
 
@@ -6,6 +8,22 @@
 #include "object.h"
 #include "table.h"
 #include "vm.h" // vm.globals, runtimeError
+
+// Find `needle` (nlen bytes) inside `hay` (hlen bytes); return its start index or
+// -1. A plain byte search (not strstr) so embedded NULs and explicit lengths work.
+static int findSub(const char *hay, int hlen, const char *needle, int nlen) {
+  if (nlen == 0)
+    return 0;
+  for (int i = 0; i + nlen <= hlen; i++)
+    if (memcmp(hay + i, needle, nlen) == 0)
+      return i;
+  return -1;
+}
+
+// cnano's truthiness, duplicated from the VM for assert() (nil/false are falsey).
+static bool isFalseyValue(Value v) {
+  return IS_NIL(v) || (IS_BOOL(v) && !AS_BOOL(v));
+}
 
 // Compare an interned method/argument name to a C string literal. Method names
 // arrive as ObjString*; the dispatch tables below use plain C strings.
@@ -78,6 +96,81 @@ static bool forIterNative(int argCount, Value *args, Value *result) {
   return false;
 }
 
+// len(x) -> int : the length of a string, array, or map (free-function form of
+// the .len() method, which many languages also provide).
+static bool lenNative(int argCount, Value *args, Value *result) {
+  (void)argCount;
+  Value v = args[0];
+  if (IS_STRING(v))
+    *result = INT_VAL(AS_STRING(v)->length);
+  else if (IS_ARRAY(v))
+    *result = INT_VAL(AS_ARRAY(v)->elements.count);
+  else if (IS_MAP(v))
+    *result = INT_VAL(AS_MAP(v)->count);
+  else {
+    runtimeError("len() expects a string, array, or map");
+    return false;
+  }
+  return true;
+}
+
+// type(x) -> str : the runtime type name of any value.
+static bool typeNative(int argCount, Value *args, Value *result) {
+  (void)argCount;
+  Value v = args[0];
+  const char *name = IS_INT(v)     ? "int"
+                     : IS_BOOL(v)  ? "bool"
+                     : IS_NIL(v)   ? "nil"
+                     : IS_STRING(v) ? "str"
+                     : IS_ARRAY(v) ? "array"
+                     : IS_MAP(v)   ? "map"
+                                   : "fn"; // closures and natives
+  *result = OBJ_VAL(copyString(name, (int)strlen(name)));
+  return true;
+}
+
+// assert(cond) -> nil : abort with a runtime error if cond is falsey.
+static bool assertNative(int argCount, Value *args, Value *result) {
+  (void)argCount;
+  if (isFalseyValue(args[0])) {
+    runtimeError("assertion failed");
+    return false;
+  }
+  *result = NIL_VAL;
+  return true;
+}
+
+static bool absNative(int argCount, Value *args, Value *result) {
+  (void)argCount;
+  if (!IS_INT(args[0])) {
+    runtimeError("abs() expects an int");
+    return false;
+  }
+  int64_t n = AS_INT(args[0]);
+  *result = INT_VAL(n < 0 ? -n : n);
+  return true;
+}
+
+static bool minNative(int argCount, Value *args, Value *result) {
+  (void)argCount;
+  if (!IS_INT(args[0]) || !IS_INT(args[1])) {
+    runtimeError("min() expects two ints");
+    return false;
+  }
+  *result = INT_VAL(AS_INT(args[0]) < AS_INT(args[1]) ? AS_INT(args[0]) : AS_INT(args[1]));
+  return true;
+}
+
+static bool maxNative(int argCount, Value *args, Value *result) {
+  (void)argCount;
+  if (!IS_INT(args[0]) || !IS_INT(args[1])) {
+    runtimeError("max() expects two ints");
+    return false;
+  }
+  *result = INT_VAL(AS_INT(args[0]) > AS_INT(args[1]) ? AS_INT(args[0]) : AS_INT(args[1]));
+  return true;
+}
+
 void defineBuiltins(void) {
   struct {
     const char *name;
@@ -86,6 +179,12 @@ void defineBuiltins(void) {
   } table[] = {
       {"clock", clockNative, 0},
       {"str", strNative, 1},
+      {"len", lenNative, 1},
+      {"type", typeNative, 1},
+      {"assert", assertNative, 1},
+      {"abs", absNative, 1},
+      {"min", minNative, 2},
+      {"max", maxNative, 2},
       {"$for_iter", forIterNative, 1}, // internal: backs for-in (unlexable name)
   };
   for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
@@ -115,8 +214,69 @@ static bool strLen(Value receiver, int argCount, Value *args, Value *result) {
   return true;
 }
 
+// Build a new string by applying a per-char transform (toupper/tolower). The temp
+// buffer is plain malloc (not a GC object); the receiver stays rooted on the stack.
+static bool strMapCase(Value receiver, Value *result, int (*fn)(int)) {
+  ObjString *s = AS_STRING(receiver);
+  char *buf = malloc(s->length + 1);
+  if (buf == NULL) {
+    runtimeError("out of memory");
+    return false;
+  }
+  for (int i = 0; i < s->length; i++)
+    buf[i] = (char)fn((unsigned char)s->chars[i]);
+  *result = OBJ_VAL(copyString(buf, s->length));
+  free(buf);
+  return true;
+}
+static bool strUpper(Value r, int a, Value *args, Value *out) {
+  (void)a; (void)args; return strMapCase(r, out, toupper);
+}
+static bool strLower(Value r, int a, Value *args, Value *out) {
+  (void)a; (void)args; return strMapCase(r, out, tolower);
+}
+
+// "abc".contains("b") -> bool ; "abc".indexOf("b") -> int (-1 if absent).
+static bool strContains(Value r, int a, Value *args, Value *out) {
+  (void)a;
+  if (!IS_STRING(args[0])) { runtimeError("contains() expects a string"); return false; }
+  ObjString *s = AS_STRING(r), *sub = AS_STRING(args[0]);
+  *out = BOOL_VAL(findSub(s->chars, s->length, sub->chars, sub->length) >= 0);
+  return true;
+}
+static bool strIndexOf(Value r, int a, Value *args, Value *out) {
+  (void)a;
+  if (!IS_STRING(args[0])) { runtimeError("indexOf() expects a string"); return false; }
+  ObjString *s = AS_STRING(r), *sub = AS_STRING(args[0]);
+  *out = INT_VAL(findSub(s->chars, s->length, sub->chars, sub->length));
+  return true;
+}
+
+// "hello".substring(start, end) -> str : the half-open slice [start, end).
+static bool strSubstring(Value r, int a, Value *args, Value *out) {
+  (void)a;
+  if (!IS_INT(args[0]) || !IS_INT(args[1])) {
+    runtimeError("substring() expects two int indices");
+    return false;
+  }
+  ObjString *s = AS_STRING(r);
+  int64_t start = AS_INT(args[0]), end = AS_INT(args[1]);
+  if (start < 0 || end > s->length || start > end) {
+    runtimeError("substring(%lld, %lld) out of range (length %d)",
+                 (long long)start, (long long)end, s->length);
+    return false;
+  }
+  *out = OBJ_VAL(copyString(s->chars + start, (int)(end - start)));
+  return true;
+}
+
 static Method stringMethods[] = {
     {"len", 0, strLen},
+    {"upper", 0, strUpper},
+    {"lower", 0, strLower},
+    {"contains", 1, strContains},
+    {"indexOf", 1, strIndexOf},
+    {"substring", 2, strSubstring},
     {NULL, 0, NULL},
 };
 
@@ -151,10 +311,98 @@ static bool arrayPop(Value receiver, int argCount, Value *args, Value *result) {
   return true;
 }
 
+// [1,2,3].contains(2) -> bool ; .indexOf(2) -> int (-1 if absent). Uses the
+// language's own value equality, so it works for any element type.
+static bool arrayContains(Value r, int a, Value *args, Value *out) {
+  (void)a;
+  ValueArray *e = &AS_ARRAY(r)->elements;
+  for (int i = 0; i < e->count; i++)
+    if (valuesEqual(e->values[i], args[0])) { *out = BOOL_VAL(true); return true; }
+  *out = BOOL_VAL(false);
+  return true;
+}
+static bool arrayIndexOf(Value r, int a, Value *args, Value *out) {
+  (void)a;
+  ValueArray *e = &AS_ARRAY(r)->elements;
+  for (int i = 0; i < e->count; i++)
+    if (valuesEqual(e->values[i], args[0])) { *out = INT_VAL(i); return true; }
+  *out = INT_VAL(-1);
+  return true;
+}
+
+// Grow a heap byte buffer and append `n` bytes — used to assemble join() without
+// ever holding an unrooted intermediate string across an allocation.
+static void appendBytes(char **buf, int *len, int *cap, const char *src, int n) {
+  if (*len + n > *cap) {
+    while (*len + n > *cap)
+      *cap = *cap < 16 ? 16 : *cap * 2;
+    *buf = realloc(*buf, *cap);
+    if (*buf == NULL) { fprintf(stderr, "cnano: out of memory in join()\n"); exit(70); }
+  }
+  memcpy(*buf + *len, src, n);
+  *len += n;
+}
+
+// [a,b,c].join(sep) -> str : string each element and concatenate with `sep`.
+static bool arrayJoin(Value r, int a, Value *args, Value *out) {
+  (void)a;
+  if (!IS_STRING(args[0])) { runtimeError("join() separator must be a string"); return false; }
+  ObjString *sep = AS_STRING(args[0]);
+  ValueArray *e = &AS_ARRAY(r)->elements;
+  char *buf = NULL;
+  int len = 0, cap = 0;
+  for (int i = 0; i < e->count; i++) {
+    if (i > 0)
+      appendBytes(&buf, &len, &cap, sep->chars, sep->length);
+    // Copy each element's bytes immediately; don't retain the ObjString* across
+    // the next stringify (which may allocate and trigger a collection).
+    ObjString *s = stringify(e->values[i]);
+    appendBytes(&buf, &len, &cap, s->chars, s->length);
+  }
+  *out = OBJ_VAL(copyString(buf ? buf : "", len));
+  free(buf);
+  return true;
+}
+
+// qsort comparator: numeric for ints, lexicographic for strings (arrSort has
+// already verified the array is homogeneous, so only one branch ever fires).
+static int compareValues(const void *pa, const void *pb) {
+  Value a = *(const Value *)pa, b = *(const Value *)pb;
+  if (IS_INT(a) && IS_INT(b))
+    return (AS_INT(a) > AS_INT(b)) - (AS_INT(a) < AS_INT(b));
+  ObjString *x = AS_STRING(a), *y = AS_STRING(b);
+  int n = x->length < y->length ? x->length : y->length;
+  int c = memcmp(x->chars, y->chars, n);
+  return c != 0 ? c : (x->length > y->length) - (x->length < y->length);
+}
+
+// [3,1,2].sort() -> nil : sort IN PLACE, ascending. The array must be all ints or
+// all strings (mixed types have no obvious order, so that is a clean error).
+static bool arraySort(Value r, int a, Value *args, Value *out) {
+  (void)a; (void)args;
+  ValueArray *e = &AS_ARRAY(r)->elements;
+  bool allInt = true, allStr = true;
+  for (int i = 0; i < e->count; i++) {
+    if (!IS_INT(e->values[i])) allInt = false;
+    if (!IS_STRING(e->values[i])) allStr = false;
+  }
+  if (e->count > 1 && !allInt && !allStr) {
+    runtimeError("sort() needs an array of all ints or all strings");
+    return false;
+  }
+  qsort(e->values, e->count, sizeof(Value), compareValues);
+  *out = NIL_VAL;
+  return true;
+}
+
 static Method arrayMethods[] = {
     {"len", 0, arrayLen},
     {"push", 1, arrayPush},
     {"pop", 0, arrayPop},
+    {"contains", 1, arrayContains},
+    {"indexOf", 1, arrayIndexOf},
+    {"join", 1, arrayJoin},
+    {"sort", 0, arraySort},
     {NULL, 0, NULL},
 };
 
@@ -192,10 +440,24 @@ static bool mapKeys(Value receiver, int argCount, Value *args, Value *result) {
   return true;
 }
 
+// map.values() -> array : a new array of the map's values (bucket order).
+static bool mapValues(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount;
+  (void)args;
+  ObjMap *map = AS_MAP(receiver);
+  ObjArray *values = newArrayObject(); // receiver rooted; GC-safe
+  for (int i = 0; i < map->capacity; i++)
+    if (map->entries[i].occupied)
+      writeValueArray(&values->elements, map->entries[i].value);
+  *result = OBJ_VAL(values);
+  return true;
+}
+
 static Method mapMethods[] = {
     {"len", 0, mapLen},
     {"has", 1, mapHas},
     {"keys", 0, mapKeys},
+    {"values", 0, mapValues},
     {NULL, 0, NULL},
 };
 

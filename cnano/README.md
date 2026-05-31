@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (284 cases, incl. native + GC)
+make test       # run the end-to-end test suite (307 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -65,10 +65,12 @@ make run        # start the REPL
   via upvalues, and those variables outlive the frame that created them (so a
   returned counter keeps counting). Captured variables can be shared and mutated
   between sibling closures
-- **Builtins & methods**: native functions implemented in C (`clock()`,
-  `str(x)`) registered as globals, plus **method-call syntax** `receiver.method(args)`
-  that dispatches on the receiver's type via a fused `OP_INVOKE` (e.g.
-  `"hello".len()`)
+- **Builtins & methods**: native functions implemented in C — `clock()`,
+  `str(x)`, `len(x)`, `type(x)`, `assert(c)`, `abs/min/max` — registered as
+  globals, plus **method-call syntax** `receiver.method(args)` that dispatches on
+  the receiver's type via a fused `OP_INVOKE`. A small standard library: strings
+  have `.len/.upper/.lower/.contains/.indexOf/.substring`; arrays add
+  `.contains/.indexOf/.join/.sort`; maps add `.values`
 - **Arrays**: `[1, 2, 3]` literals, indexing `a[i]` and `a[i] = v`
   (bounds-checked), nesting (`m[1][0]`), and methods `.len()`/`.push(x)`/`.pop()`.
   A heap object **managed by the GC** (elements are traced). Typed as `[T]` and
