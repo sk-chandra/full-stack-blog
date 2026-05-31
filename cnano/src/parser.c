@@ -628,6 +628,42 @@ static Node *interpolate(const char *text, int len, int line) {
   return result ? result : newString(copyString("", 0), line);
 }
 
+// Decode a just-consumed NUMBER token into an int or float literal node. Handles
+// the `0x`/`0b`/`0o` base prefixes and `_` digit separators the lexer permits:
+// we copy the lexeme into a small buffer, drop the separators, and hand the clean
+// digits to strtoll (with the right base) or strtod.
+static Node *numberLiteral(void) {
+  const char *s = parser.previous.start;
+  int len = parser.previous.length;
+  int line = parser.previous.line;
+
+  char buf[64];
+  int n = 0;
+  bool isFloat = false;
+  for (int i = 0; i < len && n < (int)sizeof(buf) - 1; i++) {
+    if (s[i] == '_')
+      continue; // strip digit separators
+    if (s[i] == '.')
+      isFloat = true; // (base-prefixed literals never contain '.')
+    buf[n++] = s[i];
+  }
+  buf[n] = '\0';
+
+  // Base prefixes. strtoll understands a leading "0x", but not "0b"/"0o", so we
+  // skip those two prefixes ourselves and parse the remaining digits in base 2/8.
+  if (n > 2 && buf[0] == '0' && (buf[1] == 'x' || buf[1] == 'X'))
+    return newInt((int64_t)strtoll(buf, NULL, 16), line);
+  if (n > 2 && buf[0] == '0' && (buf[1] == 'b' || buf[1] == 'B'))
+    return newInt((int64_t)strtoll(buf + 2, NULL, 2), line);
+  if (n > 2 && buf[0] == '0' && (buf[1] == 'o' || buf[1] == 'O'))
+    return newInt((int64_t)strtoll(buf + 2, NULL, 8), line);
+  if (isFloat)
+    return newFloat(strtod(buf, NULL), line);
+  // Plain decimal — base 10 explicitly, so a leading-zero literal like 017 is the
+  // integer 17, NOT C-style octal (a deliberate footgun avoided).
+  return newInt((int64_t)strtoll(buf, NULL, 10), line);
+}
+
 static Node *primary(void) {
   if (match(TOKEN_FN)) {
     // An anonymous function expression (lambda): `fn(params) { … }` or the
@@ -637,21 +673,8 @@ static Node *primary(void) {
     // level; `fn` reaching here is always anonymous.)
     return finishFunction(copyString("lambda", 6), parser.previous.line);
   }
-  if (match(TOKEN_NUMBER)) {
-    // A '.' in the token's text means a float literal; otherwise an integer.
-    // strtoll/strtod parse the slice in place (they stop at the first character
-    // that can't continue the number, and the token is followed by more source).
-    const char *s = parser.previous.start;
-    bool isFloat = false;
-    for (int i = 0; i < parser.previous.length; i++)
-      if (s[i] == '.') {
-        isFloat = true;
-        break;
-      }
-    if (isFloat)
-      return newFloat(strtod(s, NULL), parser.previous.line);
-    return newInt(strtoll(s, NULL, 10), parser.previous.line);
-  }
+  if (match(TOKEN_NUMBER))
+    return numberLiteral();
   if (match(TOKEN_TRUE))
     return newBool(true, parser.previous.line);
   if (match(TOKEN_FALSE))

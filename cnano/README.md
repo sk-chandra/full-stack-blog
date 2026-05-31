@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (584 cases, incl. native + GC)
+make test       # run the end-to-end test suite (598 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -47,6 +47,10 @@ make run        # start the REPL
 
 - **Programs are sequences of statements**, each ending with `;`, run top to
   bottom. Output happens only via `print EXPR;`
+- **Number literals**: decimals and floats (`42`, `3.14`), plus `0xFF`
+  hexadecimal, `0b1010` binary, `0o17` octal, and `_` digit separators
+  (`1_000_000`, `0xFF_FF`). A leading-zero literal like `017` is decimal `17`
+  (no surprise C-style octal)
 - **Variables**: `let x = …;` to declare, `x` to read, `x = …` to reassign
   (assignment is a right-associative expression, so `print a = 5;` works and
   `a = b = 1;` chains), plus **compound assignment** `+= -= *= /= %=` on

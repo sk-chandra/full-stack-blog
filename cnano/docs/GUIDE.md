@@ -1647,7 +1647,15 @@ programs define their own types, and makes failure recoverable.
     the compiler emits body-then-condition (vs condition-then-body), with
     `continue` jumping to the condition re-test and `break`/local cleanup working
     exactly as in `while`. Lowers to C's own `do/while` in the native backend.
-52. **Performance** (inline caching/peephole), generics, native closures, and a
+52. ~~**Numeric literal forms.**~~ **✅ DONE** (step 48) — `0x`/`0b`/`0o` base
+    prefixes and `_` digit separators (`1_000_000`, `0xFF_FF`). The lexer
+    validates the shape (and requires ≥1 digit after a prefix); the parser strips
+    `_` and decodes with the right base (skipping the `0b`/`0o` prefix that
+    strtoll doesn't know). A leading-zero literal like `017` stays decimal `17`,
+    not C-style octal — a footgun deliberately avoided. Native is unaffected
+    (literals decode to plain int/float values in the AST). `0..5` still lexes as
+    a range, since a base prefix needs the leading `0` followed by a base letter.
+53. **Performance** (inline caching/peephole), generics, native closures, and a
     per-module namespace for `import` — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom

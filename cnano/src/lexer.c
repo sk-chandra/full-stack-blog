@@ -128,14 +128,45 @@ static void skipWhitespace(void) {
 // Scan a run of digits into a single NUMBER token. (No decimals yet — integers
 // only in this slice. Adding floats later means handling a '.' followed by more
 // digits right here.)
+static bool isHexDigit(char c) {
+  return isDigit(c) || (c >= 'a' && c <= 'f') || (c >= 'A' && c <= 'F');
+}
+
 static Token number(void) {
-  while (isDigit(peek()))
+  // The leading digit was already consumed, so lexer.start[0] is it. A `0x`/`0b`/
+  // `0o` prefix selects hexadecimal/binary/octal; `_` may separate digits in any
+  // base (`1_000_000`, `0xFF_FF`). The parser decodes the value (base + strips
+  // `_`); the lexer only validates the shape.
+  if (lexer.start[0] == '0' && (peek() == 'x' || peek() == 'X' || peek() == 'b' ||
+                                peek() == 'B' || peek() == 'o' || peek() == 'O')) {
+    char base = peek();
+    advance(); // consume the base letter
+    bool isHex = base == 'x' || base == 'X';
+    bool isBin = base == 'b' || base == 'B';
+    int digits = 0;
+    for (;;) {
+      char p = peek();
+      if (p == '_') { advance(); continue; } // a separator, skip
+      bool ok = isHex  ? isHexDigit(p)
+                : isBin ? (p == '0' || p == '1')
+                        : (p >= '0' && p <= '7'); // octal
+      if (!ok)
+        break;
+      advance();
+      digits++;
+    }
+    if (digits == 0)
+      return errorToken("a numeric base prefix (0x/0b/0o) needs at least one digit");
+    return makeToken(TOKEN_NUMBER);
+  }
+
+  while (isDigit(peek()) || peek() == '_')
     advance();
   // A fractional part makes it a float — but ONLY if a digit follows the dot, so
   // `0..5` (a range) still scans as the integer `0` and then `..`.
   if (peek() == '.' && isDigit(peekNext())) {
     advance(); // consume '.'
-    while (isDigit(peek()))
+    while (isDigit(peek()) || peek() == '_')
       advance();
   }
   return makeToken(TOKEN_NUMBER);
