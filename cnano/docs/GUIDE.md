@@ -1437,10 +1437,15 @@ programs define their own types, and makes failure recoverable.
     yields the array to walk (arrays → elements, maps → keys), so one shape covers
     both even when the type is dynamic. Disambiguated from C-style `for` with one
     token of lookahead after `let NAME`; added the `in` keyword.
-18. ~~**Standard-library builtins & string/array methods.**~~ **✅ DONE** — free
-    `len/type/assert/abs/min/max`; string `.upper/.lower/.contains/.indexOf/
-    .substring`; array `.contains/.indexOf/.join/.sort` (in-place, homogeneous);
-    map `.values`. All additive in builtins.c — no VM/checker changes.
+18. ~~**Standard-library builtins & string/array methods.**~~ **✅ DONE** (more
+    in step 41) — free `len/type/assert/abs/min/max`; string `.upper/.lower/
+    .contains/.indexOf/.substring`, plus (step 41) `.trim/.startsWith/.endsWith/
+    .replace/.repeat/.split`; array `.contains/.indexOf/.join/.sort` (in-place,
+    homogeneous), plus (step 41) `.reverse/.slice` (copying); map `.values`. All
+    additive in builtins.c — no VM/checker changes (a method call type-checks as
+    `any`, so the whole feature is one growing C method table that `invokeMethod`
+    already walks; `.split`/`.reverse`/`.slice` build a fresh array and root it on
+    the stack so the allocating appends are GC-safe under `make gcstress`).
 19. ~~**Higher-order collection methods** (`.map`/`.filter`/`.reduce`).~~ **✅
     DONE** — arrays gain `.map/.filter/.reduce` that call a cnano function back
     from C. Made the VM **re-entrant**: `run()` takes a `stopFrame` and a new

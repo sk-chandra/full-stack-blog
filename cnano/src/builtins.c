@@ -315,6 +315,136 @@ static bool strSubstring(Value r, int a, Value *args, Value *out) {
   return true;
 }
 
+// "  hi  ".trim() -> str : a copy with leading/trailing ASCII whitespace removed.
+static bool strTrim(Value r, int a, Value *args, Value *out) {
+  (void)a; (void)args;
+  ObjString *s = AS_STRING(r);
+  int start = 0, end = s->length;
+  while (start < end && isspace((unsigned char)s->chars[start]))
+    start++;
+  while (end > start && isspace((unsigned char)s->chars[end - 1]))
+    end--;
+  *out = OBJ_VAL(copyString(s->chars + start, end - start));
+  return true;
+}
+
+// "abc".startsWith("ab") / .endsWith("bc") -> bool. An empty prefix/suffix is
+// always present; one longer than the string never is.
+static bool strStartsWith(Value r, int a, Value *args, Value *out) {
+  (void)a;
+  if (!IS_STRING(args[0])) { runtimeError("startsWith() expects a string"); return false; }
+  ObjString *s = AS_STRING(r), *p = AS_STRING(args[0]);
+  *out = BOOL_VAL(p->length <= s->length &&
+                  memcmp(s->chars, p->chars, p->length) == 0);
+  return true;
+}
+static bool strEndsWith(Value r, int a, Value *args, Value *out) {
+  (void)a;
+  if (!IS_STRING(args[0])) { runtimeError("endsWith() expects a string"); return false; }
+  ObjString *s = AS_STRING(r), *p = AS_STRING(args[0]);
+  *out = BOOL_VAL(p->length <= s->length &&
+                  memcmp(s->chars + s->length - p->length, p->chars, p->length) == 0);
+  return true;
+}
+
+// "a.b.c".replace(".", "/") -> str : replace EVERY non-overlapping occurrence of
+// `old` with `new`. An empty `old` is a no-op (returns the string unchanged),
+// which avoids an infinite loop.
+static bool strReplace(Value r, int a, Value *args, Value *out) {
+  (void)a;
+  if (!IS_STRING(args[0]) || !IS_STRING(args[1])) {
+    runtimeError("replace() expects two strings");
+    return false;
+  }
+  ObjString *s = AS_STRING(r), *oldS = AS_STRING(args[0]), *newS = AS_STRING(args[1]);
+  if (oldS->length == 0) { // nothing to find: return the original unchanged
+    *out = r;
+    return true;
+  }
+  // Build the result in a growable buffer (its size isn't known up front).
+  int cap = s->length + 1, len = 0;
+  char *buf = malloc(cap);
+  if (buf == NULL) { runtimeError("out of memory"); return false; }
+  for (int i = 0; i < s->length;) {
+    bool match = i + oldS->length <= s->length &&
+                 memcmp(s->chars + i, oldS->chars, oldS->length) == 0;
+    int add = match ? newS->length : 1;
+    if (len + add + 1 > cap) {
+      while (len + add + 1 > cap) cap *= 2;
+      char *grown = realloc(buf, cap);
+      if (grown == NULL) { free(buf); runtimeError("out of memory"); return false; }
+      buf = grown;
+    }
+    if (match) {
+      memcpy(buf + len, newS->chars, newS->length);
+      len += newS->length;
+      i += oldS->length;
+    } else {
+      buf[len++] = s->chars[i++];
+    }
+  }
+  *out = OBJ_VAL(copyString(buf, len));
+  free(buf);
+  return true;
+}
+
+// "ab".repeat(3) -> "ababab". A count of 0 (or negative) yields "".
+static bool strRepeat(Value r, int a, Value *args, Value *out) {
+  (void)a;
+  if (!IS_INT(args[0])) { runtimeError("repeat() expects an int count"); return false; }
+  ObjString *s = AS_STRING(r);
+  int64_t n = AS_INT(args[0]);
+  if (n <= 0 || s->length == 0) {
+    *out = OBJ_VAL(copyString("", 0));
+    return true;
+  }
+  if (n > (int64_t)(1 << 24) / (s->length + 1)) { // guard a runaway allocation
+    runtimeError("repeat(%lld) result too large", (long long)n);
+    return false;
+  }
+  int total = (int)n * s->length;
+  char *buf = malloc(total + 1);
+  if (buf == NULL) { runtimeError("out of memory"); return false; }
+  for (int i = 0; i < (int)n; i++)
+    memcpy(buf + i * s->length, s->chars, s->length);
+  *out = OBJ_VAL(copyString(buf, total));
+  free(buf);
+  return true;
+}
+
+// "a,b,c".split(",") -> ["a","b","c"] : split on each occurrence of `sep`. An
+// empty separator splits into individual characters. Returns a [str] array.
+static bool strSplit(Value r, int a, Value *args, Value *out) {
+  (void)a;
+  if (!IS_STRING(args[0])) { runtimeError("split() expects a string separator"); return false; }
+  ObjString *s = AS_STRING(r), *sep = AS_STRING(args[0]);
+  ObjArray *parts = newArrayObject();
+  push(OBJ_VAL(parts)); // root: copyString below may trigger GC
+  if (sep->length == 0) {
+    // Empty separator: one single-character string per byte.
+    for (int i = 0; i < s->length; i++)
+      writeValueArray(&parts->elements, OBJ_VAL(copyString(s->chars + i, 1)));
+  } else {
+    int start = 0;
+    for (int i = 0; i + sep->length <= s->length;) {
+      if (memcmp(s->chars + i, sep->chars, sep->length) == 0) {
+        writeValueArray(&parts->elements,
+                        OBJ_VAL(copyString(s->chars + start, i - start)));
+        i += sep->length;
+        start = i;
+      } else {
+        i++;
+      }
+    }
+    // The final segment (after the last separator, possibly empty).
+    writeValueArray(&parts->elements,
+                    OBJ_VAL(copyString(s->chars + start, s->length - start)));
+  }
+  pop(); // unroot
+  *out = OBJ_VAL(parts);
+  return true;
+}
+
 static Method stringMethods[] = {
     {"len", 0, strLen},
     {"upper", 0, strUpper},
@@ -322,6 +452,12 @@ static Method stringMethods[] = {
     {"contains", 1, strContains},
     {"indexOf", 1, strIndexOf},
     {"substring", 2, strSubstring},
+    {"trim", 0, strTrim},
+    {"startsWith", 1, strStartsWith},
+    {"endsWith", 1, strEndsWith},
+    {"replace", 2, strReplace},
+    {"repeat", 1, strRepeat},
+    {"split", 1, strSplit},
     {NULL, 0, NULL},
 };
 
@@ -529,6 +665,43 @@ static bool arrayReduce(Value receiver, int argCount, Value *args, Value *result
   return true;
 }
 
+// [1,2,3].reverse() -> [3,2,1] : a NEW array with the elements in reverse order
+// (the receiver is left unchanged, matching .map/.filter/.sort's copy semantics).
+static bool arrayReverse(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount; (void)args;
+  ValueArray *src = &AS_ARRAY(receiver)->elements;
+  ObjArray *out = newArrayObject();
+  push(OBJ_VAL(out)); // root across the (allocating) appends
+  for (int i = src->count - 1; i >= 0; i--)
+    writeValueArray(&out->elements, src->values[i]);
+  pop();
+  *result = OBJ_VAL(out);
+  return true;
+}
+
+// [1,2,3,4].slice(1, 3) -> [2,3] : a new array of the half-open range [start,end).
+static bool arraySlice(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount;
+  if (!IS_INT(args[0]) || !IS_INT(args[1])) {
+    runtimeError("slice() expects two int indices");
+    return false;
+  }
+  ValueArray *src = &AS_ARRAY(receiver)->elements;
+  int64_t start = AS_INT(args[0]), end = AS_INT(args[1]);
+  if (start < 0 || end > src->count || start > end) {
+    runtimeError("slice(%lld, %lld) out of range (length %d)", (long long)start,
+                 (long long)end, src->count);
+    return false;
+  }
+  ObjArray *out = newArrayObject();
+  push(OBJ_VAL(out));
+  for (int64_t i = start; i < end; i++)
+    writeValueArray(&out->elements, src->values[i]);
+  pop();
+  *result = OBJ_VAL(out);
+  return true;
+}
+
 static Method arrayMethods[] = {
     {"len", 0, arrayLen},
     {"push", 1, arrayPush},
@@ -541,6 +714,8 @@ static Method arrayMethods[] = {
     {"filter", 1, arrayFilter},
     {"reduce", 2, arrayReduce},
     {"removeAt", 1, arrayRemoveAt},
+    {"reverse", 0, arrayReverse},
+    {"slice", 2, arraySlice},
     {NULL, 0, NULL},
 };
 

@@ -590,6 +590,29 @@ check "m-arr-join"     '[1,2,3].join(", ")'    "1, 2, 3"
 check_prog "m-map-values" 'let m={"a":10,"b":20}; let v=m.values(); v.sort(); print v;' "[10, 20]"
 check_prog_err "m-sort-mixed" 'let a=[1,"two"]; a.sort(); print a;'
 
+# --- more string/array library methods (step 41) ---
+check "m-str-trim"      '"  hi  ".trim()'        "hi"
+check "m-str-trim-empty" '"   ".trim().len()'    "0"
+check "m-str-starts"    '"hello".startsWith("he")' "true"
+check "m-str-starts-no" '"hello".startsWith("lo")' "false"
+check "m-str-ends"      '"hello".endsWith("lo")' "true"
+check "m-str-ends-long" '"hi".endsWith("ahi")'   "false"
+check "m-str-replace"   '"a.b.c".replace(".", "/")' "a/b/c"
+check "m-str-replace-grow" '"xx".replace("x", "yy")' "yyyy"
+check "m-str-replace-empty" '"abc".replace("", "-")' "abc"
+check "m-str-repeat"    '"ab".repeat(3)'         "ababab"
+check "m-str-repeat-zero" '"ab".repeat(0).len()' "0"
+check_prog "m-str-split"  'print "a,b,c".split(",").join("|");' "a|b|c"
+check_prog "m-str-split-chars" 'print "abc".split("").len();' "3"
+check_prog "m-str-split-trail" 'print "a,b,".split(",").len();' "3"
+check_prog "m-str-split-none" 'print "abc".split(",").join("|");' "abc"
+check_prog "m-str-split-roundtrip" 'let p = "x-y-z".split("-"); print p.join("-");' "x-y-z"
+check "m-arr-reverse"   '[1,2,3].reverse()'      "[3, 2, 1]"
+check_prog "m-arr-reverse-pure" 'let a=[1,2,3]; a.reverse(); print a;' "[1, 2, 3]"
+check "m-arr-slice"     '[1,2,3,4,5].slice(1, 4)' "[2, 3, 4]"
+check "m-arr-slice-empty" '[1,2,3].slice(1, 1)'  "[]"
+check_prog_err "m-arr-slice-oob" 'print [1,2,3].slice(0, 9);'
+
 # --- higher-order collection methods (step 19) ---
 # These call a cnano function back from C (re-entrant VM). Under `make gcstress`
 # they double as the torture test: the result/accumulator must survive a GC

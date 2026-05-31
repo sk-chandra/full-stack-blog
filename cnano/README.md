@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (492 cases, incl. native + GC)
+make test       # run the end-to-end test suite (513 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -86,15 +86,16 @@ make run        # start the REPL
   `str(x)`, `len(x)`, `type(x)`, `assert(c)`, math (`abs min max sqrt floor ceil round pow`) — registered as
   globals, plus **method-call syntax** `receiver.method(args)` that dispatches on
   the receiver's type via a fused `OP_INVOKE`. A small standard library: strings
-  have `.len/.upper/.lower/.contains/.indexOf/.substring`; arrays add
-  `.contains/.indexOf/.join/.sort` plus **higher-order** `.map/.filter/.reduce`
-  (which call a cnano function back from C — the VM is re-entrant); maps add
-  `.values`
+  have `.len/.upper/.lower/.contains/.indexOf/.substring/.trim/.startsWith/
+  .endsWith/.replace/.repeat/.split`; arrays add `.contains/.indexOf/.join/.sort/
+  .reverse/.slice` plus **higher-order** `.map/.filter/.reduce` (which call a
+  cnano function back from C — the VM is re-entrant); maps add `.values`. `.split`
+  and `.join` round-trip; `.reverse`/`.slice` copy (leaving the receiver intact)
 - **Arrays**: `[1, 2, 3]` literals, indexing `a[i]` and `a[i] = v`
   (bounds-checked), nesting (`m[1][0]`), and methods `.len()`/`.push(x)`/`.pop()`.
   A heap object **managed by the GC** (elements are traced). Typed as `[T]` and
   checked structurally, or `[any]` to stay fully dynamic/heterogeneous. Also
-  `.removeAt(i)`
+  `.removeAt(i)`, `.reverse()` and `.slice(start, end)`
 - **Maps**: `{"a": 1, "b": 2}` literals with **any hashable key** (int, bool,
   nil, str — its own value-keyed hash table with **tombstone**-based deletion),
   `m[k]` get/set sharing the array index opcodes, and methods
