@@ -271,9 +271,17 @@ static Node *term(void) {
 
 static Node *factor(void) {
   Node *node = unary();
-  while (check(TOKEN_STAR) || check(TOKEN_SLASH)) {
+  while (check(TOKEN_STAR) || check(TOKEN_SLASH) || check(TOKEN_PERCENT)) {
     int line = parser.current.line;
-    NodeOp op = match(TOKEN_STAR) ? OP_NODE_MUL : (advance(), OP_NODE_DIV);
+    NodeOp op;
+    if (match(TOKEN_STAR))
+      op = OP_NODE_MUL;
+    else if (match(TOKEN_SLASH))
+      op = OP_NODE_DIV;
+    else {
+      advance(); // consume '%'
+      op = OP_NODE_MOD;
+    }
     Node *right = unary();
     node = newBinary(op, node, right, line);
   }

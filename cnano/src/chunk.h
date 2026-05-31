@@ -36,6 +36,7 @@ typedef enum {
   OP_SUB,      // [opcode]        : b = pop; a = pop; push a - b
   OP_MUL,      // [opcode]        : b = pop; a = pop; push a * b
   OP_DIV,      // [opcode]        : b = pop; a = pop; push a / b
+  OP_MOD,      // [opcode]        : b = pop; a = pop; push a % b  (b != 0)
   OP_EQUAL,    // [opcode]        : b = pop; a = pop; push (a == b)  (any types)
   OP_LESS,     // [opcode]        : b = pop; a = pop; push (a < b)   (ints only)
   OP_GREATER,  // [opcode]        : b = pop; a = pop; push (a > b)   (ints only)

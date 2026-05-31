@@ -77,6 +77,7 @@ typedef enum {
   OP_NODE_SUB,
   OP_NODE_MUL,
   OP_NODE_DIV,
+  OP_NODE_MOD,
   OP_NODE_EQUAL,   // ==
   OP_NODE_LESS,    // <
   OP_NODE_GREATER, // >

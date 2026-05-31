@@ -521,6 +521,9 @@ static void emitExpr(Node *node) {
     case OP_NODE_DIV:
       emitByte(OP_DIV, node->line);
       break;
+    case OP_NODE_MOD:
+      emitByte(OP_MOD, node->line);
+      break;
     case OP_NODE_EQUAL:
       emitByte(OP_EQUAL, node->line);
       break;

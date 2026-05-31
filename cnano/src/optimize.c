@@ -32,6 +32,10 @@ static Node *tryFoldBinary(Node *node) {
       // RUNTIME, so we refuse to fold it and leave the node for the VM to catch.
       if (b == 0) return NULL;
       return newInt(a / b, line);
+    case OP_NODE_MOD:
+      // Same reasoning as DIV: modulo by zero must error at runtime, not fold.
+      if (b == 0) return NULL;
+      return newInt(a % b, line);
     case OP_NODE_LESS: return newBool(a < b, line);
     case OP_NODE_GREATER: return newBool(a > b, line);
     case OP_NODE_EQUAL: return newBool(a == b, line);

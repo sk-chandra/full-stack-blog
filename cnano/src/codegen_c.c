@@ -195,10 +195,10 @@ static void emitBinary(Node *node) {
     return;
   }
 
-  if (op == OP_NODE_DIV) {
-    // Route division through a helper that turns divide-by-zero into a runtime
-    // error + exit, preserving cnano's "no host crash" guarantee.
-    fprintf(out, "cn_div(");
+  if (op == OP_NODE_DIV || op == OP_NODE_MOD) {
+    // Route division/modulo through a helper that turns a zero divisor into a
+    // runtime error + exit, preserving cnano's "no host crash" guarantee.
+    fprintf(out, op == OP_NODE_DIV ? "cn_div(" : "cn_mod(");
     emitExpr(l);
     fprintf(out, ", ");
     emitExpr(r);
@@ -521,6 +521,13 @@ static void emitPrelude(void) {
           "    exit(70);\n"
           "  }\n"
           "  return a / b;\n"
+          "}\n\n"
+          "static int64_t cn_mod(int64_t a, int64_t b, int line) {\n"
+          "  if (b == 0) {\n"
+          "    fprintf(stderr, \"Runtime error: modulo by zero\\n[line %d]\\n\", line);\n"
+          "    exit(70);\n"
+          "  }\n"
+          "  return a % b;\n"
           "}\n\n",
         out);
 }

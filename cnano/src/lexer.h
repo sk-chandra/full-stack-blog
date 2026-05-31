@@ -14,6 +14,7 @@ typedef enum {
   TOKEN_MINUS,
   TOKEN_STAR,
   TOKEN_SLASH,
+  TOKEN_PERCENT,   // % — integer remainder (modulo)
   TOKEN_LPAREN,
   TOKEN_RPAREN,
   TOKEN_LBRACE,    // { — opens a block scope (or a map type/literal)

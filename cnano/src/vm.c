@@ -358,6 +358,22 @@ static InterpretResult run(bool trace) {
       push(INT_VAL(a / b));
       break;
     }
+    case OP_MOD: {
+      // Same shape as OP_DIV: integer operands, and a zero divisor is a runtime
+      // error (C's % by zero is undefined behaviour, just like /).
+      if (!IS_INT(peek(0)) || !IS_INT(peek(1))) {
+        runtimeError("operands must be integers");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      if (AS_INT(peek(0)) == 0) {
+        runtimeError("modulo by zero");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      int64_t b = AS_INT(pop());
+      int64_t a = AS_INT(pop());
+      push(INT_VAL(a % b));
+      break;
+    }
     case OP_EQUAL: {
       // Equality is defined for ALL types (via valuesEqual), so unlike the
       // ordering comparisons it needs no integer check.

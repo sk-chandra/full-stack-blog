@@ -132,8 +132,13 @@ check "left-assoc-sub"  "10 - 2 - 3"       "5"
 check "unary-negate"    "-5 + 8"           "3"
 check "double-negate"   "--7"              "7"
 check "integer-div"     "7 / 2"            "3"
+check "modulo"          "17 % 5"           "2"
+check "modulo-prec"     "1 + 8 % 3"        "3"
+check "modulo-even"     "10 % 2"           "0"
 check "big-expression"  "(1 + 2) * 3 - 10 / 2" "4"
 check "nested-parens"   "((2))"            "2"
+check_prog_err "modulo-by-zero" 'print 5 % 0;'
+check_native "nat-modulo" 'fn r(a: int, b: int): int { return a % b; } print r(17, 5);' "2"
 
 # --- literals (step 1) ---
 check "true-literal"    "true"             "true"

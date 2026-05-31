@@ -134,6 +134,7 @@ static Type *checkBinary(Node *node) {
   case OP_NODE_SUB:
   case OP_NODE_MUL:
   case OP_NODE_DIV:
+  case OP_NODE_MOD:
     requireInt(l, node->line, "left operand");
     requireInt(r, node->line, "right operand");
     return typeInt();

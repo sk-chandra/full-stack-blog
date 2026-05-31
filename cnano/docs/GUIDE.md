@@ -1368,12 +1368,38 @@ With the collector in place, cnano is growing real aggregate data on top of it:
 garbage collector, a structured type system, builtin functions and methods, and
 both array and map collections — typed or dynamic, all GC-managed.
 
-### Beyond the arc
+### The ergonomics, objects & errors arc (steps 15–29, in progress)
 
-Further directions, each a substantial project: **true closures in the native
-backend** (lower upvalues to C structs), map **deletion** (`.remove()`, which
-brings tombstones), `for-in` **iteration** over collections, a **Pratt parser**
-refactor, generics / union types, or an exception/`Result` error model.
+With a complete core language, the next arc makes cnano practical to *use*, lets
+programs define their own types, and makes failure recoverable.
+
+**Phase A — ergonomics & practicality**
+15. ~~**Modulo `%`.**~~ **✅ DONE** — new token/opcode/`OP_NODE_MOD`, int-typed,
+    zero-divisor guarded (VM + native `cn_mod`), folded when constant. The
+    smallest possible "a feature across every layer" exercise.
+16. **Compound assignment** (`+=`, `-=`, `*=`, `/=`, `%=`) — parser desugaring.
+17. **`for-in` iteration** over arrays and maps.
+18. **Standard-library builtins & string/array methods** (`len`, `assert`,
+    `.split`, `.contains`, `.sort`, …).
+19. **Higher-order collection methods** (`.map`/`.filter`/`.reduce`).
+
+**Phase B — user-defined types**
+20. **Structs / records** — named fields, `.` get/set, `ObjInstance`, named types.
+21. **Methods on user types** — `OP_INVOKE` extended to instances; `self`.
+22. **Constructors / initializers.**
+23. *(optional)* **single inheritance + `super`.**
+
+**Phase C — errors & optional values**
+24. **Nullable / optional types** (`T?`) with flow narrowing.
+25. **Error handling** — `try`/`catch` (stack unwinding) or `Result` + `?`.
+
+**Phase D — type-system depth**
+26. **Union types** (`int | str`) with narrowing.
+27. **Generics** (`fn first<T>(a: [T]): T`).
+
+**Phase E — compiler & runtime polish**
+28. **Performance** — inline caching + a bytecode peephole pass + a benchmark.
+29. **Native-backend extensions** — closures (and/or simple arrays) lowered to C.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
 (free online). cnano's bytecode/VM design intentionally follows the same lineage
