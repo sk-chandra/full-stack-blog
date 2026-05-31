@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "builtins.h"
 #include "codegen_c.h"
 #include "compiler.h"
 #include "debug.h"
@@ -41,6 +42,10 @@ void initVM(void) {
 
   initTable(&vm.globals);
   initTable(&vm.strings);
+
+  // Register the built-in functions (clock, str, ...) as globals. They allocate
+  // objects, which is fine: this runs before any program, with GC still off.
+  defineBuiltins();
 }
 
 void freeVM(void) {
@@ -72,7 +77,7 @@ static Value peek(int distance) { return vm.stackTop[-1 - distance]; }
 
 // Now takes a printf-style format so callers can include the offending types in
 // the message. varargs (stdarg.h) is the idiomatic C way to do this.
-static void runtimeError(const char *format, ...) {
+void runtimeError(const char *format, ...) {
   va_list args;
   va_start(args, format);
   fprintf(stderr, "Runtime error: ");
@@ -168,6 +173,23 @@ static bool call(ObjClosure *closure, int argCount) {
 static bool callValue(Value callee, int argCount) {
   if (IS_CLOSURE(callee))
     return call(AS_CLOSURE(callee), argCount);
+  if (IS_NATIVE(callee)) {
+    // A native builtin runs immediately, with no call frame: its arguments are
+    // the top `argCount` stack slots. We check arity here (the uniform place),
+    // call the C function, then replace callee+args with its single result.
+    ObjNative *native = AS_NATIVE(callee);
+    if (native->arity != argCount) {
+      runtimeError("%s() expects %d arguments but got %d", native->name,
+                   native->arity, argCount);
+      return false;
+    }
+    Value result;
+    if (!native->function(argCount, vm.stackTop - argCount, &result))
+      return false; // the native already reported the error
+    vm.stackTop -= argCount + 1; // pop the arguments and the callee
+    push(result);
+    return true;
+  }
   runtimeError("can only call functions");
   return false;
 }
@@ -446,6 +468,22 @@ static InterpretResult run(bool trace) {
       if (!callValue(callee, argCount))
         return INTERPRET_RUNTIME_ERROR;
       frame = &vm.frames[vm.frameCount - 1];
+      break;
+    }
+    case OP_INVOKE: {
+      // Method call. The receiver sits `argCount` slots below the top, its
+      // arguments above it. Dispatch on the receiver's type (in builtins.c); on
+      // success, replace receiver+args with the single result. No frame is
+      // pushed — builtin methods, like native functions, run in C.
+      ObjString *method = READ_STRING();
+      int argCount = READ_BYTE();
+      Value receiver = peek(argCount);
+      Value result;
+      if (!invokeMethod(receiver, method, argCount, vm.stackTop - argCount,
+                        &result))
+        return INTERPRET_RUNTIME_ERROR;
+      vm.stackTop -= argCount + 1; // pop the arguments and the receiver
+      push(result);
       break;
     }
     case OP_CLOSURE: {

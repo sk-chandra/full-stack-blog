@@ -233,6 +233,14 @@ static Type *checkExpr(Node *node) {
     return typeAny();
   case NODE_CALL:
     return checkCall(node);
+  case NODE_INVOKE:
+    // Builtin methods aren't part of the gradual type system (their signatures
+    // live in C), so a method call is `any`: we walk the receiver and arguments
+    // for errors inside them, but don't check the method itself — the VM does.
+    checkExpr(node->as.invoke.receiver);
+    for (int i = 0; i < node->as.invoke.argCount; i++)
+      checkExpr(node->as.invoke.args[i]);
+    return typeAny();
   default:
     return typeAny(); // statement nodes shouldn't appear in expression position
   }

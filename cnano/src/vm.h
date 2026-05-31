@@ -69,6 +69,11 @@ typedef enum {
 void initVM(void);
 void freeVM(void);
 
+// Report a runtime error (printf-style) and print a stack trace. Exposed so the
+// builtins (builtins.c) can fail cleanly — e.g. a bad argument or a missing
+// method — using the same machinery as the VM's own checks.
+void runtimeError(const char *format, ...);
+
 // Compile + run `source` (a sequence of statements). If `trace` is true, dump
 // every function's chunk and print the stack at each step — the best way to learn
 // how the VM "thinks". Programs produce output via `print`.

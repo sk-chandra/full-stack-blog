@@ -90,6 +90,14 @@ ObjClosure *newClosure(ObjFunction *function) {
   return closure;
 }
 
+ObjNative *newNative(NativeFn fn, const char *name, int arity) {
+  ObjNative *native = (ObjNative *)allocateObject(sizeof(ObjNative), OBJ_NATIVE);
+  native->function = fn;
+  native->name = name;
+  native->arity = arity;
+  return native;
+}
+
 ObjUpvalue *newUpvalue(Value *slot) {
   ObjUpvalue *upvalue =
       (ObjUpvalue *)allocateObject(sizeof(ObjUpvalue), OBJ_UPVALUE);
@@ -122,6 +130,9 @@ void printObject(Value value) {
       printf("<fn %s>", fn->name->chars);
     break;
   }
+  case OBJ_NATIVE:
+    printf("<native fn %s>", AS_NATIVE(value)->name);
+    break;
   case OBJ_UPVALUE:
     // Upvalues never appear as first-class values; this is here for completeness.
     printf("<upvalue>");
@@ -157,6 +168,10 @@ void freeObject(Obj *object) {
     reallocate(closure, sizeof(ObjClosure), 0);
     break;
   }
+  case OBJ_NATIVE:
+    // The wrapped C function and its name are static; only the struct is ours.
+    reallocate(object, sizeof(ObjNative), 0);
+    break;
   case OBJ_UPVALUE:
     // The upvalue does not own the value it points at; just free the struct.
     reallocate(object, sizeof(ObjUpvalue), 0);

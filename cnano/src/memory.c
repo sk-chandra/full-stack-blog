@@ -87,7 +87,8 @@ static void markArray(ValueArray *array) {
 static void blackenObject(Obj *object) {
   switch (object->type) {
   case OBJ_STRING:
-    break; // a string references nothing else
+  case OBJ_NATIVE:
+    break; // these reference no other heap objects
   case OBJ_UPVALUE:
     // A closed upvalue owns a heap value; keep whatever it holds alive.
     markValue(((ObjUpvalue *)object)->closed);

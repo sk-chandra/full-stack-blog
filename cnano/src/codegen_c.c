@@ -289,6 +289,11 @@ static void emitExpr(Node *node) {
     fprintf(out, ")");
     break;
   }
+  case NODE_INVOKE:
+    // Methods dispatch on a heap receiver through the runtime, which the scalar
+    // native backend doesn't have.
+    unsupported(node->line, "a method call");
+    break;
   default:
     unsupported(node->line, "this expression");
     break;

@@ -21,6 +21,7 @@ typedef enum {
   TOKEN_LBRACKET,  // [ — opens an array type/literal or an index
   TOKEN_RBRACKET,  // ] — closes one
   TOKEN_COMMA,     // , — separates parameters and arguments
+  TOKEN_DOT,       // . — method call: receiver.method(args)
   TOKEN_COLON,     // : — introduces a type annotation
   TOKEN_SEMICOLON, // ; — terminates a statement
   // One- or two-character operators. Some of these share a first character

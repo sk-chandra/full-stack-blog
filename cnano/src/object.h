@@ -23,6 +23,7 @@
 typedef enum {
   OBJ_STRING,
   OBJ_FUNCTION,
+  OBJ_NATIVE,
   OBJ_UPVALUE,
   OBJ_CLOSURE,
 } ObjType;
@@ -61,6 +62,22 @@ typedef struct {
   ObjString *name;
 } ObjFunction;
 
+// A NATIVE function: a builtin implemented in C rather than cnano bytecode (e.g.
+// clock(), str(x)). It wraps a C function pointer; the VM calls it directly with
+// the arguments already on the stack, with no call frame. `arity` is the expected
+// argument count (checked by the VM); `name` is for errors and printing. The C
+// function returns false (after reporting a runtime error) to signal failure, and
+// otherwise stores its result through `*result` — an error channel the simplest
+// "return a Value" signature lacks, and one arrays/maps will need for bounds.
+typedef bool (*NativeFn)(int argCount, Value *args, Value *result);
+
+typedef struct {
+  Obj obj; // MUST be first
+  NativeFn function;
+  const char *name; // a static C string; not owned
+  int arity;
+} ObjNative;
+
 // An "upvalue": the runtime representation of a variable captured by a closure
 // from an enclosing function. The whole problem closures solve is that a captured
 // local lives on the stack but may OUTLIVE the frame that created it. An upvalue
@@ -90,6 +107,8 @@ typedef struct {
 
 #define IS_FUNCTION(value) isObjType(value, OBJ_FUNCTION)
 #define AS_FUNCTION(value) ((ObjFunction *)AS_OBJ(value))
+#define IS_NATIVE(value) isObjType(value, OBJ_NATIVE)
+#define AS_NATIVE(value) ((ObjNative *)AS_OBJ(value))
 #define IS_CLOSURE(value) isObjType(value, OBJ_CLOSURE)
 #define AS_CLOSURE(value) ((ObjClosure *)AS_OBJ(value))
 
@@ -116,6 +135,10 @@ ObjFunction *newFunction(void);
 // Wrap a function in a closure, allocating (but not yet filling) its upvalue
 // array. The VM fills the upvalues in immediately after, via OP_CLOSURE.
 ObjClosure *newClosure(ObjFunction *function);
+
+// Allocate a native-function object wrapping the C function `fn`. `name` must be
+// a string literal / static string (it is borrowed, not copied or freed).
+ObjNative *newNative(NativeFn fn, const char *name, int arity);
 
 // Allocate a fresh open upvalue pointing at the stack `slot`.
 ObjUpvalue *newUpvalue(Value *slot);

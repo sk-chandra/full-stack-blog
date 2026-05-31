@@ -45,6 +45,7 @@ typedef enum {
   NODE_ASSIGN,  // `name = EXPR` : store EXPR into name, yields the value
   NODE_LOGICAL, // `a and b` / `a or b` : SHORT-CIRCUITS, so not a plain binary
   NODE_CALL,    // `callee(arg, arg, ...)` : call a function, yields its result
+  NODE_INVOKE,  // `receiver.method(arg, ...)` : call a builtin method, yields result
   // --- statement nodes (performed for effect, yield nothing) ---
   NODE_PRINT,      // `print EXPR;` — evaluate EXPR and print it
   NODE_EXPR_STMT,  // `EXPR;` — evaluate EXPR, then discard its value
@@ -151,6 +152,14 @@ typedef struct Node {
       struct Node **args; // heap array of argument expression nodes
       int argCount;
     } call;
+    // NODE_INVOKE: `receiver.method(args)`. Like a call, but the callee is a named
+    // method looked up on the receiver's type at runtime rather than a value.
+    struct {
+      struct Node *receiver;
+      ObjString *method; // the method name (interned)
+      struct Node **args;
+      int argCount;
+    } invoke;
     // NODE_FUN: a function declaration. params holds the parameter NAMES (interned
     // ObjStrings); paramTypes the parallel `: T` annotations (typeAny() if
     // omitted); returnType the `: T` after the parameter list (typeAny() if
@@ -204,6 +213,9 @@ Node *newIf(Node *condition, Node *then, Node *otherwise, int line);
 Node *newWhile(Node *condition, Node *body, int line);
 // Takes ownership of the `args` array (freed by freeNode).
 Node *newCall(Node *callee, Node **args, int argCount, int line);
+// `receiver.method(args)`. Takes ownership of the `args` array.
+Node *newInvoke(Node *receiver, ObjString *method, Node **args, int argCount,
+                int line);
 // Takes ownership of `params`, `paramTypes`, and `body`.
 Node *newFun(ObjString *name, ObjString **params, Type **paramTypes,
              int paramCount, Type *returnType, Program *body, int line);

@@ -112,6 +112,11 @@ static Node *foldExpr(Node *node) {
     for (int i = 0; i < node->as.call.argCount; i++)
       node->as.call.args[i] = foldExpr(node->as.call.args[i]);
     return node;
+  case NODE_INVOKE:
+    node->as.invoke.receiver = foldExpr(node->as.invoke.receiver);
+    for (int i = 0; i < node->as.invoke.argCount; i++)
+      node->as.invoke.args[i] = foldExpr(node->as.invoke.args[i]);
+    return node;
   default:
     return node; // literals, var reads: nothing to fold
   }

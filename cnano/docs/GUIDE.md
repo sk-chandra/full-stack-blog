@@ -1146,7 +1146,61 @@ recursive structure is what makes every later collection feature expressible.
 
 ---
 
-## 21. Roadmap: where to go next
+## 21. Case study: built-in functions and method dispatch
+
+A language needs to reach outside itself — to read the clock, format a value, ask
+a string its length. cnano had no way to do any of that: every callable was a
+user-defined bytecode function. Step 12 adds two complementary mechanisms, both
+implemented in C, and both prerequisites for giving arrays and maps an API.
+
+### 21.1 Native functions: callables implemented in C
+
+A new object type, `ObjNative`, wraps a C function pointer. We register a few as
+globals at startup (`clock()`, `str(x)`), so they are looked up by name like any
+variable and called with the ordinary `OP_CALL`. The VM's `callValue` grows one
+arm: if the callee is native, it checks arity, calls the C function with the
+arguments straight off the stack, and replaces callee+args with the result — *no
+call frame is pushed*, because there is no bytecode to run. That asymmetry (frames
+for cnano functions, none for natives) is exactly how CPython, Lua and clox treat
+their C builtins.
+
+The signature is worth noting: a native returns `bool` and writes its result
+through a pointer, rather than just returning a `Value`. That extra channel lets a
+builtin *fail cleanly* — report a runtime error and return false — which `str()`
+doesn't need but array indexing (bounds checks) soon will. Designing the boring
+case for the hard one that's coming is usually cheaper than retrofitting it.
+
+### 21.2 Method calls: dispatch on the receiver's type
+
+`receiver.method(args)` compiles to a single fused instruction, `OP_INVOKE`,
+carrying the method-name constant and the argument count — the same shape clox
+uses, and faster than a separate "get property" then "call". cnano has no
+user-defined types, so there is nothing to look the method up *on* except the
+receiver's built-in TYPE: the VM hands the receiver and arguments to
+`invokeMethod`, which picks a per-type table (strings have one; arrays and maps
+will get theirs) and finds the method by name. A miss, a wrong arity, or a
+receiver type with no methods each become a clean runtime error.
+
+Splitting the work is the lesson here: the VM stays tiny (read the name, find the
+receiver, delegate), while all the actual behaviour lives in `builtins.c`. Adding
+`"abc".upper()` later means adding one row to a table — no VM change at all.
+
+### 21.3 Where each layer draws the line
+
+- **The type checker** treats a method call as `any`: builtin signatures live in
+  C, outside the gradual type system, so it walks the receiver and arguments for
+  errors but defers the method itself to runtime. Pragmatic gradual typing.
+- **The native backend** rejects both method calls and the heap builtins: they
+  need the dynamic runtime its unboxed scalar subset deliberately lacks — the same
+  boundary every non-scalar feature respects.
+
+The payoff: `"hello".len()` returns `5`, `str(7)` lets you build `"n=" + str(7)`,
+and the dispatch machinery is now in place — so the array and map steps are mostly
+"fill in the method tables".
+
+---
+
+## 22. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -1197,9 +1251,10 @@ With the collector in place, cnano is growing real aggregate data on top of it:
     `TypeKind` enum became a tagged, recursive `Type` (arena-owned) so `[int]` and
     `{str: int}` are expressible and checked structurally; annotations now live on
     the AST as full `Type*`.
-12. **Method-call dispatch + builtins.** Postfix `a.method(args)`, an `OP_INVOKE`
-    that dispatches on the receiver's type, and `OBJ_NATIVE` builtins (`clock`,
-    `str`, …).
+12. ~~**Method-call dispatch + builtins.**~~ **✅ DONE** — see §21 above.
+    `OBJ_NATIVE` builtins (`clock`, `str`) as globals, plus postfix
+    `a.method(args)` compiled to a fused `OP_INVOKE` that dispatches on the
+    receiver's type via per-type method tables (strings: `.len()`).
 13. **Arrays** (`[T]`): literals, indexing, `.len()/.push()/.pop()`, GC-managed.
 14. **Maps** (`{K: V}`): general value-keyed hashing, literals, indexing,
     `.keys()/.has()`, GC-managed.

@@ -206,6 +206,8 @@ Token scanToken(void) {
     return makeToken(TOKEN_PLUS);
   case '-':
     return makeToken(TOKEN_MINUS);
+  case '.':
+    return makeToken(TOKEN_DOT);
   case '*':
     return makeToken(TOKEN_STAR);
   case '/':

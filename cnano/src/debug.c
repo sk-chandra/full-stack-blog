@@ -47,6 +47,17 @@ static int constantInstruction(const char *name, Chunk *chunk, int offset) {
   return offset + 2;
 }
 
+// Helper for OP_INVOKE: a method-name constant followed by an argument count.
+// Advances by 3 (opcode + name index + argc).
+static int invokeInstruction(const char *name, Chunk *chunk, int offset) {
+  uint8_t index = chunk->code[offset + 1];
+  uint8_t argc = chunk->code[offset + 2];
+  printf("%-16s (%d args) %4d '", name, argc, index);
+  printValue(chunk->constants.values[index]);
+  printf("'\n");
+  return offset + 3;
+}
+
 int disassembleInstruction(Chunk *chunk, int offset) {
   printf("%04d ", offset); // byte offset, like an address
 
@@ -117,6 +128,8 @@ int disassembleInstruction(Chunk *chunk, int offset) {
     return byteInstruction("OP_SET_UPVALUE", chunk, offset);
   case OP_CALL:
     return byteInstruction("OP_CALL", chunk, offset);
+  case OP_INVOKE:
+    return invokeInstruction("OP_INVOKE", chunk, offset);
   case OP_CLOSURE: {
     // Variable-length: the function constant, then 2 bytes per upvalue. We print
     // the function and one line per captured upvalue describing its source.

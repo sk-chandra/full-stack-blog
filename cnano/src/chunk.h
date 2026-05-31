@@ -77,6 +77,12 @@ typedef enum {
   // are already on the stack below the current top. OP_RETURN now returns from
   // the current function (popping its call frame), with the return value on top.
   OP_CALL,     // [opcode][argc]  : call the function sitting under `argc` args
+  // Method call: `receiver.name(args)`. The receiver sits `argc` slots below the
+  // top with its arguments above it. [nameIdx] is the method-name string in the
+  // constant pool; the VM dispatches on the RECEIVER's type to a builtin method.
+  // A fused get-property-then-call, like clox's OP_INVOKE — but for built-in
+  // types (strings, and later arrays/maps) since cnano has no user-defined ones.
+  OP_INVOKE,   // [opcode][nameIdx][argc] : call builtin method `name` on a receiver
   // Create a closure from the function constant at [idx], then read 2 bytes per
   // upvalue describing where each capture comes from: [isLocal][index]. This is
   // our only VARIABLE-LENGTH instruction — its size depends on the function's

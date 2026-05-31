@@ -285,15 +285,15 @@ static Node *unary(void) {
   return call();
 }
 
-// Parse the argument list after a '(' and build a call node. Arguments are
-// ordinary expressions separated by commas. We cap the count at 255 because
-// OP_CALL's operand is one byte (and it matches the parameter limit below).
-static Node *finishCall(Node *callee) {
-  int line = parser.previous.line; // the '('
+// Parse an argument list after a just-consumed '(' up to and including ')'.
+// Arguments are expressions separated by commas; the count is capped at 255
+// because the call/invoke operands are one byte. Returns the heap array (NULL if
+// empty) and writes the count through `argCountOut`. Shared by calls and method
+// invocations so the two stay identical.
+static Node **parseArgList(int *argCountOut) {
   Node **args = NULL;
   int argCount = 0;
   int capacity = 0;
-
   if (!check(TOKEN_RPAREN)) {
     do {
       if (argCount == 255) {
@@ -312,16 +312,43 @@ static Node *finishCall(Node *callee) {
     } while (match(TOKEN_COMMA));
   }
   consume(TOKEN_RPAREN, "Expect ')' after arguments.");
+  *argCountOut = argCount;
+  return args;
+}
+
+// `callee(args)` — a plain call. The '(' has just been consumed.
+static Node *finishCall(Node *callee) {
+  int line = parser.previous.line; // the '('
+  int argCount = 0;
+  Node **args = parseArgList(&argCount);
   return newCall(callee, args, argCount, line);
 }
 
-// `call -> primary ( "(" arguments? ")" )*` — a primary followed by zero or more
-// call suffixes. Looping lets `f()()` (calling a returned function) work, which
-// is why calls are parsed as a postfix here rather than baked into primary.
+// `receiver.method(args)` — a method invocation. The '.' has just been consumed.
+static Node *finishInvoke(Node *receiver) {
+  int line = parser.previous.line; // the '.'
+  consume(TOKEN_IDENTIFIER, "Expect a method name after '.'.");
+  ObjString *method = copyString(parser.previous.start, parser.previous.length);
+  consume(TOKEN_LPAREN, "Expect '(' after method name.");
+  int argCount = 0;
+  Node **args = parseArgList(&argCount);
+  return newInvoke(receiver, method, args, argCount, line);
+}
+
+// `call -> primary ( "(" arguments? ")" | "." NAME "(" arguments? ")" )*` — a
+// primary followed by zero or more call / method-invoke suffixes. Looping lets
+// `f()()` and `a.b().c()` chain, which is why these are parsed as postfix here
+// rather than baked into primary.
 static Node *call(void) {
   Node *node = primary();
-  while (match(TOKEN_LPAREN))
-    node = finishCall(node);
+  for (;;) {
+    if (match(TOKEN_LPAREN))
+      node = finishCall(node);
+    else if (match(TOKEN_DOT))
+      node = finishInvoke(node);
+    else
+      break;
+  }
   return node;
 }
 

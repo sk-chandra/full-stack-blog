@@ -442,6 +442,20 @@ static void emitExpr(Node *node) {
     break;
   }
 
+  case NODE_INVOKE: {
+    // Like a call, but the "callee" is a method NAME resolved on the receiver at
+    // runtime. Push the receiver, then the arguments, then OP_INVOKE with the
+    // method-name constant and the argument count.
+    emitExpr(node->as.invoke.receiver);
+    for (int i = 0; i < node->as.invoke.argCount; i++)
+      emitExpr(node->as.invoke.args[i]);
+    int nameIdx = identifierConstant(node->as.invoke.method, node->line);
+    emitByte(OP_INVOKE, node->line);
+    emitByte((uint8_t)nameIdx, node->line);
+    emitByte((uint8_t)node->as.invoke.argCount, node->line);
+    break;
+  }
+
   case NODE_UNARY:
     emitExpr(node->as.unary.operand); // operand value now on stack
     switch (node->as.unary.op) {

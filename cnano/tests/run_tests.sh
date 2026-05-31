@@ -422,6 +422,23 @@ check_prog_err "st-map-nest-bad" 'fn f(m: {str: [int]}): {str: int} { return m; 
 check_prog_err "st-arg-coll-bad" 'fn need(a: [int]): int { return 0; } fn g(b: [bool]): int { return need(b); } print 1;'
 check_prog_err "st-bad-syntax"   'let x: [int = 5; print x;'
 
+# --- builtins + method calls (step 12) ---
+# Free builtin functions (registered as globals).
+check "bi-str-int"      'str(42)'                 "42"
+check "bi-str-bool"     'str(true)'               "true"
+check "bi-str-nil"      'str(nil)'                "nil"
+check_prog "bi-str-concat" 'print "n=" + str(7);' "n=7"
+check_prog "bi-clock-int"  'let t = clock(); print t >= 0;' "true"
+# Method calls dispatch on the receiver's type (OP_INVOKE).
+check "m-str-len"       '"hello".len()'           "5"
+check_prog "m-str-len-var" 'let s = "ab" + "cd"; print s.len();' "4"
+check_prog "m-str-len-expr" 'print "cnano".len() + 1;' "6"
+# Error cases (each exits non-zero).
+check_prog_err "m-unknown"   'print "hi".bogus();'
+check_prog_err "m-on-int"    'print (5).len();'
+check_prog_err "m-bad-arity" 'print "hi".len(1);'
+check_prog_err "bi-bad-arity" 'print str();'
+
 # --- native backend: compile to C -> a real executable (step 9) ---
 # Each program is the typed first-order subset; its native output must match.
 check_native "nat-arith"    'print 2 + 3 * 4;'                          "14"
@@ -442,6 +459,8 @@ check_native_err "nat-rej-closure" 'fn mk(): int { let n: int = 0; fn inc(): int
 check_native_err "nat-rej-dynparam" 'fn f(x) { return x; } print f(1);'
 # Collection-typed values need the GC runtime, so the scalar native backend rejects them.
 check_native_err "nat-rej-array"   'fn id(a: [int]): [int] { return a; } print 1;'
+# Method calls dispatch through the runtime — also outside the native subset.
+check_native_err "nat-rej-method"  'fn f(): int { return "x".len(); } print f();'
 
 rm -f "$tmp" "${tmp}.native" "${tmp}.native.c" 2>/dev/null
 echo "-----------------------------------------"
