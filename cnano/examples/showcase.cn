@@ -9,11 +9,13 @@ fn hypotenuse(a: float, b: float): float {
 print "hypotenuse(3, 4) = ${hypotenuse(3.0, 4.0)}"; // 5.0
 print "2^10 = ${pow(2.0, 10.0)}, floor(3.7) = ${floor(3.7)}";
 
-// --- union types + `is` narrowing ----------------------------------------
+// --- union types + type-pattern `match` (narrows each arm) ----------------
 fn render(v: int | str | bool): str {
-  if (v is int) { return "int(${v * 2})"; }   // v is int here
-  if (v is str) { return "str(${v.upper()})"; }
-  return "bool(${v})";
+  match (v) {
+    is int => return "int(${v * 2})";    // v is int in this arm
+    is str => return "str(${v.upper()})"; // v is str in this arm
+    _      => return "bool(${v})";
+  }
 }
 for (let x in [1, "hi", true]) {
   print render(x);

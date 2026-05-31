@@ -1048,7 +1048,16 @@ static Node *matchStatement(void) {
   consume(TOKEN_RPAREN, "Expect ')' after the match subject.");
   consume(TOKEN_LBRACE, "Expect '{' to begin the match arms.");
 
-  Node *patterns[256];
+  // If the subject is already a plain variable, we test that variable directly.
+  // This matters for `is TYPE =>` arms: the narrowing logic keys off the *name*
+  // of the variable being tested, so reusing the subject's own name lets the
+  // body of a type arm see the narrowed type. For any other subject expression
+  // we bind it to a hidden `$m` temp first (so it is evaluated exactly once).
+  bool subjectIsVar = subject->type == NODE_VAR_GET;
+  ObjString *subjName = subjectIsVar ? subject->as.name : copyString("$m", 2);
+
+  Node *patterns[256]; // value pattern (NULL for an `is TYPE` arm)
+  Type *types[256];    // type pattern (NULL for a value arm)
   Node *bodies[256];
   int count = 0;
   Node *defaultBody = NULL;
@@ -1056,9 +1065,14 @@ static Node *matchStatement(void) {
     bool isDefault = check(TOKEN_IDENTIFIER) && parser.current.length == 1 &&
                      parser.current.start[0] == '_';
     Node *pat = NULL;
+    Type *ty = NULL;
     if (isDefault)
       advance(); // consume '_'
-    else
+    else if (check(TOKEN_IS)) {
+      // `is TYPE => …` — a type-pattern arm. The right of `is` is a TYPE.
+      advance();
+      ty = parseType();
+    } else
       pat = expression();
     consume(TOKEN_FAT_ARROW, "Expect '=>' after a match pattern.");
     Node *body = statement();
@@ -1068,22 +1082,35 @@ static Node *matchStatement(void) {
       defaultBody = body;
     } else if (count < 256) {
       patterns[count] = pat;
+      types[count] = ty;
       bodies[count] = body;
       count++;
     }
   }
   consume(TOKEN_RBRACE, "Expect '}' after the match arms.");
 
-  // { let $m = SUBJECT; if ($m == p0) b0 else if ($m == p1) b1 ... else default }
-  ObjString *mname = copyString("$m", 2);
+  // { [let $m = SUBJECT;] if (subj == p0) b0 else if (subj is T1) b1 ... else default }
   Node *chain = defaultBody; // the innermost else (may be NULL)
   for (int i = count - 1; i >= 0; i--) {
-    Node *cond =
-        newBinary(OP_NODE_EQUAL, newVarGet(mname, line), patterns[i], line);
+    Node *cond;
+    if (types[i] != NULL)
+      cond = newIs(newVarGet(subjName, line), types[i], line);
+    else
+      cond = newBinary(OP_NODE_EQUAL, newVarGet(subjName, line), patterns[i],
+                       line);
     chain = newIf(cond, bodies[i], chain, line);
   }
+
+  // Subject is a variable: emit the if-chain directly so `is` arms narrow it.
+  // We only borrowed the subject's name, so the subject node itself is now
+  // orphaned — free it rather than leaking it (the name is VM-owned).
+  if (subjectIsVar) {
+    freeNode(subject);
+    return chain != NULL ? chain : newBlock(makeProgram(), line);
+  }
+
   Program *outer = makeProgram();
-  writeProgram(outer, newVarDecl(mname, subject, typeAny(), line));
+  writeProgram(outer, newVarDecl(subjName, subject, typeAny(), line));
   if (chain != NULL)
     writeProgram(outer, chain);
   return newBlock(outer, line);

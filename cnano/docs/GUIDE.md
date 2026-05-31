@@ -1492,8 +1492,12 @@ programs define their own types, and makes failure recoverable.
 37. ~~**`const` bindings.**~~ **✅ DONE** (step 30).
 38. ~~**String interpolation.**~~ **✅ DONE** (step 32).
 39. **Performance** — inline caching + a bytecode peephole pass + a benchmark.
-40. ~~**Pattern matching** (`match`).~~ **✅ DONE** (step 33) — value dispatch,
-    desugared to an evaluate-once if/else-if chain over `==` with `_` default.
+40. ~~**Pattern matching** (`match`).~~ **✅ DONE** (step 33; type arms step 38) —
+    value dispatch desugared to an evaluate-once if/else-if chain over `==` with
+    `_` default; **type-pattern arms** `is TYPE => …` (step 38) desugar to `is`
+    tests and, when the subject is a plain variable, reuse that variable's name so
+    the existing flow-narrowing makes the matched type visible in the arm body
+    (`match (v) { is int => return v * 2; … }` typechecks `v` as `int`).
 41. ~~**String escape sequences** (`\n \t \" \\ \$`).~~ **✅ DONE** (step 34) —
     the lexer treats `\` as escaping the next char (so `\"`/`\${` don't end the
     string / start a hole); the parser decodes escapes (plain strings and each
@@ -1510,7 +1514,7 @@ programs define their own types, and makes failure recoverable.
     (int or float, preserving type), plus `sqrt/floor/ceil/round/pow` via `math.h`
     (the Makefile now links `-lm`).
 45. **Performance** (inline caching/peephole), **modules/imports**, generics,
-    native floats/closures, type-pattern `match` arms — larger, still open.
+    native floats/closures — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
 (free online). cnano's bytecode/VM design intentionally follows the same lineage

@@ -62,8 +62,11 @@ make run        # start the REPL
   instructions and backpatching — plus **`break`** and **`continue`** (which
   correctly runs a `for`/range step rather than skipping it, and discards
   loop-body locals)
-- **`match`** value dispatch: `match (x) { 0 => …; "go" => …; _ => … }` —
-  desugars to an evaluate-once if/else-if chain over `==`, with `_` as the default
+- **`match`** value *and* type dispatch: `match (x) { 0 => …; "go" => …; _ => … }`
+  or `match (v) { is int => …; is str => …; _ => … }` — desugars to an
+  evaluate-once if/else-if chain (over `==` for value arms, `is` for type arms),
+  with `_` as the default. A type arm **narrows** the matched variable inside its
+  body, so `is int => return v * 2` typechecks `v` as `int`
 - **Short-circuiting** `and` / `or` that return the deciding operand (so
   `nil or "default"` yields `"default"` and the skipped side never runs)
 - **Error handling**: `throw EXPR;` raises any value; `try { … } catch (e) { … }`

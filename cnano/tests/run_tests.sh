@@ -658,6 +658,11 @@ check_prog "match-block" 'let x = 2; match (x) { 1 => print "a"; 2 => { print "t
 check_prog "match-expr-subject" 'match (3 + 4) { 7 => print "seven"; _ => print "no"; }' "seven"
 check_prog "match-no-default" 'match (5) { 1 => print "x"; } print "after";' "after"
 check_prog "match-in-loop" 'for (let i in 0..5) { match (i) { 3 => break; _ => print i; } }' "$(printf '0\n1\n2')"
+# Type-pattern arms (`is TYPE =>`): the matched arm narrows the subject variable.
+check_prog "match-type-int" 'fn d(v: int|str): str { match (v) { is int => return "i${v*2}"; is str => return "s${v.upper()}"; _ => return "?"; } } print d(5); print d("hi");' "$(printf 'i10\nsHI')"
+check_prog "match-type-mixed" 'fn d(n: int): str { match (n) { 0 => return "zero"; is int => return "n${n+1}"; _ => return "?"; } } print d(0); print d(7);' "$(printf 'zero\nn8')"
+check_prog "match-type-nullable" 'fn g(s: str?): str { match (s) { is str => return "got:${s}"; _ => return "none"; } } print g("ok"); print g(nil);' "$(printf 'got:ok\nnone')"
+check_prog "match-type-bool" 'fn k(v: int|bool): str { match (v) { is bool => return "b${v}"; _ => return "i${v}"; } } print k(true); print k(3);' "$(printf 'btrue\ni3')"
 check_native "nat-match" 'fn c(n: int): int { match (n) { 0 => return 100; 1 => return 200; _ => return 0; } } print c(1);' "200"
 
 # --- string escape sequences (step 34) ---
