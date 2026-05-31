@@ -598,7 +598,73 @@ denial-of-service bug, not a cosmetic one.
 
 ---
 
-## 13. Roadmap: where to go next
+## 13. Case study: control flow, jumps, and backpatching
+
+Roadmap step 5, completed — the step that makes cnano **Turing-complete**. Until
+now execution ran straight through, top to bottom. Control flow means *changing
+the instruction pointer*, and the entire mechanism is three jump opcodes plus one
+compile-time technique: backpatching.
+
+### 13.1 Jumps with two-byte operands
+
+`OP_JUMP` (always), `OP_JUMP_IF_FALSE` (conditional), and `OP_LOOP` (always,
+backward) each carry a **2-byte** offset, so one jump can span up to 65535 bytes.
+A one-byte offset (like our constant indices) would cap a loop body or `if` at
+256 bytes — too small for real code. This is the same operand-size trade-off seen
+with constants, resolved the other way because jumps must reach further.
+
+### 13.2 Backpatching: the chicken-and-egg of forward jumps
+
+When the compiler emits a forward jump (to skip an `if`'s then-branch, say), it
+does **not yet know** how far to jump, because the code being skipped hasn't been
+compiled. The fix is **backpatching**:
+
+1. `emitJump` writes the opcode + a **placeholder** `0xffff`, and returns the
+   placeholder's location.
+2. The compiler compiles the code to be skipped.
+3. `patchJump` goes back and overwrites the placeholder with the now-known
+   distance from the jump to "here."
+
+Backward jumps (`emitLoop`) need no patching: the target is already behind us, so
+the distance is known immediately. That asymmetry — patch forward, compute
+backward — is worth holding onto.
+
+### 13.3 `if` / `while` and the symmetric POP discipline
+
+The cleverest detail is that **`OP_JUMP_IF_FALSE` does not pop** its condition.
+That single choice lets the same opcode serve `if`, `while`, *and* short-circuit
+`and`/`or`. The price is that each control-flow construct must explicitly pop the
+condition on **both** paths (taken and not-taken) to keep the stack balanced. You
+can see the symmetric pair of `OP_POP`s in both the `if` and `while` emitters. If
+either pop is missing, the stack drifts by one per iteration — which a long loop
+turns into an overflow. (Our `loop-balance` test runs 500 iterations precisely to
+catch that class of bug; the stack cap is 256.)
+
+A `while` is just `if`'s forward exit-jump plus an `OP_LOOP` back to re-test the
+condition. Run `--dump` on a loop to see `JUMP_IF_FALSE … -> end` and
+`LOOP … -> condition`.
+
+### 13.4 `for` is pure sugar; `and`/`or` are jumps, not operators
+
+Two reuse lessons land here:
+
+- **`for` has no node and no opcode.** The parser desugars
+  `for (init; cond; update) body` into `{ init; while (cond) { body; update; } }`
+  — built entirely from the block and while nodes we already had. Desugaring a
+  whole *statement form* (not just an operator like `!=`) shows how far the
+  "small core, convenient surface" idea scales. `else if` likewise needs no
+  special syntax: it is just an `else` whose statement happens to be another
+  `if`.
+- **`and`/`or` short-circuit, so they cannot be plain binary operators** (those
+  evaluate both sides). They are compiled as jumps: evaluate the left, then
+  conditionally jump over the right. Because `JUMP_IF_FALSE` leaves the condition
+  on the stack, the deciding operand naturally *becomes the result* —
+  `nil or "x"` yields `"x"`, and the skipped side genuinely never executes (our
+  tests prove no side effect occurs).
+
+---
+
+## 14. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -615,9 +681,10 @@ ordered so each builds on the last.
 4. ~~**Local variables and scope.**~~ **✅ DONE** — see §12 above. `{ }` blocks,
    locals resolved to stack slots at compile time, shadowing, and compile-time
    checks for redeclaration and self-referential initialisers.
-5. **Control flow.** `if`/`else`, `while`, `for` via **jump instructions**
-   (`OP_JUMP`, `OP_JUMP_IF_FALSE`) and *backpatching* — emitting a jump with a
-   placeholder offset and filling it in once you know the target.
+5. ~~**Control flow.**~~ **✅ DONE** — see §13 above. `if`/`else`, `while`, and
+   `for` (desugared to block + while) via `OP_JUMP`/`OP_JUMP_IF_FALSE`/`OP_LOOP`
+   and backpatching, plus short-circuiting `and`/`or`. cnano is now
+   Turing-complete.
 6. **Functions and a call stack.** Call frames, parameters, return values, and a
    real *calling convention*. This is the conceptual heart of any language.
 7. **A type checker.** A separate pass over the AST that assigns and verifies

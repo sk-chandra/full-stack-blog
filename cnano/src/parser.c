@@ -14,7 +14,11 @@
 //   program     -> declaration* EOF ;
 //   declaration -> varDecl | statement ;
 //   varDecl     -> "let" IDENTIFIER "=" expression ";" ;
-//   statement   -> printStmt | block | exprStmt ;
+//   statement   -> printStmt | ifStmt | whileStmt | forStmt | block | exprStmt ;
+//   ifStmt      -> "if" "(" expression ")" statement ( "else" statement )? ;
+//   whileStmt   -> "while" "(" expression ")" statement ;
+//   forStmt     -> "for" "(" ( varDecl | exprStmt | ";" )
+//                            expression? ";" expression? ")" statement ;
 //   block       -> "{" declaration* "}" ;
 //   printStmt   -> "print" expression ";" ;
 //   exprStmt    -> expression ";" ;
@@ -22,7 +26,9 @@
 // Lower expression rules bind tighter (higher precedence):
 //
 //   expression -> assignment ;
-//   assignment -> IDENTIFIER "=" assignment | equality ;   // right-associative
+//   assignment -> IDENTIFIER "=" assignment | logic_or ;   // right-associative
+//   logic_or   -> logic_and ( "or" logic_and )* ;          // short-circuits
+//   logic_and  -> equality  ( "and" equality )* ;          // short-circuits
 //
 // ASSIGNMENT and the l-value problem: `a = 1` reads left-to-right, but the left
 // side is a *target* (where to store), not a value to compute. The clean
@@ -122,6 +128,8 @@ static bool match(TokenType type) {
 
 static Node *expression(void);
 static Node *assignment(void);
+static Node *logicOr(void);
+static Node *logicAnd(void);
 static Node *equality(void);
 static Node *comparison(void);
 static Node *term(void);
@@ -132,8 +140,10 @@ static Node *primary(void);
 static Node *expression(void) { return assignment(); }
 
 static Node *assignment(void) {
-  // Parse the left-hand side as a normal expression first.
-  Node *node = equality();
+  // Parse the left-hand side as a normal expression first. It goes through the
+  // logical operators, so `a or b` and `a and b` are valid l-value *bases* even
+  // though they are never valid assignment targets.
+  Node *node = logicOr();
 
   // If a '=' follows, this was actually an assignment target.
   if (match(TOKEN_EQUAL)) {
@@ -155,6 +165,31 @@ static Node *assignment(void) {
     return node;
   }
 
+  return node;
+}
+
+// `a or b or c` — left-associative chain. The short-circuit semantics live in
+// the COMPILER (emit a jump that skips the right side when the left already
+// decides the result); here we just build the tree.
+static Node *logicOr(void) {
+  Node *node = logicAnd();
+  while (check(TOKEN_OR)) {
+    int line = parser.current.line;
+    advance();
+    Node *right = logicAnd();
+    node = newLogical(/*isAnd=*/false, node, right, line);
+  }
+  return node;
+}
+
+static Node *logicAnd(void) {
+  Node *node = equality();
+  while (check(TOKEN_AND)) {
+    int line = parser.current.line;
+    advance();
+    Node *right = equality();
+    node = newLogical(/*isAnd=*/true, node, right, line);
+  }
   return node;
 }
 
@@ -300,6 +335,9 @@ static void synchronize(void) {
     switch (parser.current.type) {
     case TOKEN_LET:
     case TOKEN_PRINT:
+    case TOKEN_IF:
+    case TOKEN_WHILE:
+    case TOKEN_FOR:
       return; // a keyword that starts a declaration/statement — resume here
     default:
       break;
@@ -347,9 +385,121 @@ static Node *block(void) {
   return newBlock(body, line);
 }
 
+static Node *varDeclaration(void); // used by forStatement's initialiser clause
+
+// `if (cond) thenStmt [else elseStmt]`. The parens are required (cnano follows
+// the C family here). The branches are ordinary statements, so `if (c) { ... }`
+// works because a block is a statement.
+static Node *ifStatement(void) {
+  int line = parser.previous.line; // the 'if'
+  consume(TOKEN_LPAREN, "Expect '(' after 'if'.");
+  Node *condition = expression();
+  consume(TOKEN_RPAREN, "Expect ')' after condition.");
+  Node *then = statement();
+  Node *otherwise = NULL;
+  if (match(TOKEN_ELSE))
+    otherwise = statement(); // a bare `else` binds to the nearest `if`
+  return newIf(condition, then, otherwise, line);
+}
+
+static Node *whileStatement(void) {
+  int line = parser.previous.line; // the 'while'
+  consume(TOKEN_LPAREN, "Expect '(' after 'while'.");
+  Node *condition = expression();
+  consume(TOKEN_RPAREN, "Expect ')' after condition.");
+  Node *body = statement();
+  return newWhile(condition, body, line);
+}
+
+// `for (init; cond; update) body` — implemented entirely as SYNTACTIC SUGAR over
+// constructs we already have. There is no for-loop node and no for-loop opcode;
+// the parser rewrites
+//
+//     for (init; cond; update) body
+//
+// into the equivalent
+//
+//     { init; while (cond) { body; update; } }
+//
+// The outer block scopes the loop variable; the while drives the iteration; the
+// update is appended to the body. A missing condition becomes `true` (infinite
+// loop). This is the same trick step 1 used for `!=`/`<=`: keep the core tiny,
+// express conveniences by lowering them to it. Desugaring a whole statement form
+// (not just an operator) is a powerful demonstration of the idea.
+static Node *forStatement(void) {
+  int line = parser.previous.line; // the 'for'
+  consume(TOKEN_LPAREN, "Expect '(' after 'for'.");
+
+  // --- initialiser clause ---
+  Node *initializer = NULL;
+  if (match(TOKEN_SEMICOLON)) {
+    initializer = NULL; // no initialiser
+  } else if (match(TOKEN_LET)) {
+    initializer = varDeclaration(); // consumes its own trailing ';'
+  } else {
+    initializer = expressionStatement(); // consumes its own trailing ';'
+  }
+
+  // --- condition clause (optional) ---
+  Node *condition = NULL;
+  if (!check(TOKEN_SEMICOLON))
+    condition = expression();
+  consume(TOKEN_SEMICOLON, "Expect ';' after loop condition.");
+
+  // --- update clause (optional) ---
+  Node *update = NULL;
+  if (!check(TOKEN_RPAREN))
+    update = expression();
+  consume(TOKEN_RPAREN, "Expect ')' after for clauses.");
+
+  Node *body = statement();
+
+  // --- desugar into blocks + while ---
+  // If there is an update, splice it after the body inside a fresh block:
+  //   { body; update; }
+  if (update != NULL) {
+    Program *bodyBlock = malloc(sizeof(Program));
+    if (bodyBlock == NULL) {
+      fprintf(stderr, "cnano: out of memory desugaring for-loop\n");
+      exit(70);
+    }
+    initProgram(bodyBlock);
+    writeProgram(bodyBlock, body);
+    writeProgram(bodyBlock, newExprStmt(update, line));
+    body = newBlock(bodyBlock, line);
+  }
+
+  // A missing condition means "loop forever": substitute the literal `true`.
+  if (condition == NULL)
+    condition = newBool(true, line);
+  body = newWhile(condition, body, line);
+
+  // If there is an initialiser, wrap the whole thing in a block so the loop
+  // variable's scope is the loop:  { init; while (...) {...} }
+  if (initializer != NULL) {
+    Program *outer = malloc(sizeof(Program));
+    if (outer == NULL) {
+      fprintf(stderr, "cnano: out of memory desugaring for-loop\n");
+      exit(70);
+    }
+    initProgram(outer);
+    writeProgram(outer, initializer);
+    writeProgram(outer, body);
+    body = newBlock(outer, line);
+  }
+
+  return body;
+}
+
 static Node *statement(void) {
   if (match(TOKEN_PRINT))
     return printStatement();
+  if (match(TOKEN_IF))
+    return ifStatement();
+  if (match(TOKEN_WHILE))
+    return whileStatement();
+  if (match(TOKEN_FOR))
+    return forStatement();
   if (match(TOKEN_LBRACE))
     return block();
   return expressionStatement();

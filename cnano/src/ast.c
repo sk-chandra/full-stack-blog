@@ -88,6 +88,29 @@ Node *newBlock(Program *block, int line) {
   return node;
 }
 
+Node *newLogical(bool isAnd, Node *left, Node *right, int line) {
+  Node *node = allocNode(NODE_LOGICAL, line);
+  node->as.logical.isAnd = isAnd;
+  node->as.logical.left = left;
+  node->as.logical.right = right;
+  return node;
+}
+
+Node *newIf(Node *condition, Node *then, Node *otherwise, int line) {
+  Node *node = allocNode(NODE_IF, line);
+  node->as.ifStmt.condition = condition;
+  node->as.ifStmt.then = then;
+  node->as.ifStmt.otherwise = otherwise;
+  return node;
+}
+
+Node *newWhile(Node *condition, Node *body, int line) {
+  Node *node = allocNode(NODE_WHILE, line);
+  node->as.whileStmt.condition = condition;
+  node->as.whileStmt.body = body;
+  return node;
+}
+
 // Post-order traversal: free children before the parent so we never follow a
 // dangling pointer. Recursion mirrors the tree's own shape — the natural way to
 // walk a tree in any compiler stage.
@@ -121,6 +144,19 @@ void freeNode(Node *node) {
     // struct itself, then fall through to free the node.
     freeProgram(node->as.block);
     free(node->as.block);
+    break;
+  case NODE_LOGICAL:
+    freeNode(node->as.logical.left);
+    freeNode(node->as.logical.right);
+    break;
+  case NODE_IF:
+    freeNode(node->as.ifStmt.condition);
+    freeNode(node->as.ifStmt.then);
+    freeNode(node->as.ifStmt.otherwise); // freeNode tolerates NULL (no else)
+    break;
+  case NODE_WHILE:
+    freeNode(node->as.whileStmt.condition);
+    freeNode(node->as.whileStmt.body);
     break;
   }
   free(node);

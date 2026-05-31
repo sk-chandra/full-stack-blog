@@ -109,6 +109,9 @@ static InterpretResult run(bool trace) {
 // fetches the next byte and advances ip; READ_CONSTANT uses that byte as a pool
 // index. BINARY_OP factors out the identical pop/pop/push shape of +,-,*,/.
 #define READ_BYTE() (*vm.ip++)
+// Read a 2-byte big-endian operand (used by jumps) and advance ip past it.
+#define READ_SHORT()                                                           \
+  (vm.ip += 2, (uint16_t)((vm.ip[-2] << 8) | vm.ip[-1]))
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
 // Read a constant and interpret it as a string — used for variable names, which
 // the compiler always stores as ObjString constants.
@@ -275,6 +278,27 @@ static InterpretResult run(bool trace) {
       vm.stack[slot] = peek(0);
       break;
     }
+    case OP_JUMP: {
+      // Unconditional forward jump: always skip `offset` bytes.
+      uint16_t offset = READ_SHORT();
+      vm.ip += offset;
+      break;
+    }
+    case OP_JUMP_IF_FALSE: {
+      // Conditional jump. We PEEK (not pop) the condition: the compiler decides
+      // when to pop it (the symmetric POPs in if/while), which keeps this opcode
+      // reusable for short-circuit and/or where the value is also the result.
+      uint16_t offset = READ_SHORT();
+      if (isFalsey(peek(0)))
+        vm.ip += offset;
+      break;
+    }
+    case OP_LOOP: {
+      // Unconditional backward jump: the engine of every loop.
+      uint16_t offset = READ_SHORT();
+      vm.ip -= offset;
+      break;
+    }
     case OP_PRINT:
       // The only way a cnano program produces output. It pops its operand, so
       // like every statement-level op it is stack-neutral overall.
@@ -291,6 +315,7 @@ static InterpretResult run(bool trace) {
   }
 
 #undef READ_BYTE
+#undef READ_SHORT
 #undef READ_CONSTANT
 #undef BINARY_OP
 }

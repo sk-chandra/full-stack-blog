@@ -40,6 +40,12 @@ typedef enum {
   TOKEN_NIL,
   TOKEN_PRINT,
   TOKEN_LET,
+  TOKEN_IF,
+  TOKEN_ELSE,
+  TOKEN_WHILE,
+  TOKEN_FOR,
+  TOKEN_AND,
+  TOKEN_OR,
   // Bookkeeping
   TOKEN_ERROR, // lexing failed; `start`/`length` point at a human message
   TOKEN_EOF,   // end of input — lets the parser stop without special-casing

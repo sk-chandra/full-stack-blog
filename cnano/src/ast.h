@@ -42,11 +42,14 @@ typedef enum {
   NODE_BINARY,  // an operator with a left and right child (e.g. a + b, a < b)
   NODE_VAR_GET, // read a variable: yields its current value
   NODE_ASSIGN,  // `name = EXPR` : store EXPR into name, yields the value
+  NODE_LOGICAL, // `a and b` / `a or b` : SHORT-CIRCUITS, so not a plain binary
   // --- statement nodes (performed for effect, yield nothing) ---
   NODE_PRINT,      // `print EXPR;` — evaluate EXPR and print it
   NODE_EXPR_STMT,  // `EXPR;` — evaluate EXPR, then discard its value
   NODE_VAR_DECL,   // `let name = EXPR;` — declare a variable (global or local)
   NODE_BLOCK,      // `{ ... }` — a new lexical scope holding more statements
+  NODE_IF,         // `if (c) then [else otherwise]`
+  NODE_WHILE,      // `while (c) body`
 } NodeType;
 
 // The operator carried by unary/binary nodes. Keeping this separate from the
@@ -116,6 +119,24 @@ typedef struct Node {
     // We reuse the Program container (a growable Node* list) — a block is, after
     // all, just a nested program with its own scope.
     struct Program *block;
+    // NODE_LOGICAL: `and`/`or`. isAnd selects which; both short-circuit.
+    struct {
+      bool isAnd;
+      struct Node *left;
+      struct Node *right;
+    } logical;
+    // NODE_IF: a condition, the `then` branch, and an optional `else` branch
+    // (otherwise may be NULL). Branches are statements (often blocks).
+    struct {
+      struct Node *condition;
+      struct Node *then;
+      struct Node *otherwise; // NULL if there is no else
+    } ifStmt;
+    // NODE_WHILE: a condition and a loop body.
+    struct {
+      struct Node *condition;
+      struct Node *body;
+    } whileStmt;
   } as;
 } Node;
 
@@ -148,6 +169,9 @@ Node *newPrint(Node *expr, int line);
 Node *newExprStmt(Node *expr, int line);
 Node *newVarDecl(ObjString *name, Node *value, int line);
 Node *newBlock(Program *block, int line); // takes ownership of `block`
+Node *newLogical(bool isAnd, Node *left, Node *right, int line);
+Node *newIf(Node *condition, Node *then, Node *otherwise, int line);
+Node *newWhile(Node *condition, Node *body, int line);
 void freeNode(Node *node);
 
 #endif // CNANO_AST_H

@@ -208,6 +208,39 @@ check_prog_err "stray-rbrace"        "}"
 check_prog_err "many-rbrace"         "} } }"
 check_prog_err "leading-operator"    "* 3;"
 
+# --- control flow (step 5) ---
+# if / else
+check_prog "if-true"      'if (1 < 2) print "y"; else print "n";'   "y"
+check_prog "if-false"     'if (1 > 2) print "y"; else print "n";'   "n"
+check_prog "if-no-else"   'if (false) print "x"; print "after";'    "after"
+check_prog "if-block"     'if (true) { let a = 5; print a; }'       "5"
+# while
+check_prog "while-count"  'let i=0; while (i<3) { print i; i=i+1; }' "$(printf '0\n1\n2')"
+check_prog "while-never"  'while (false) print "x"; print "ok";'    "ok"
+# for (desugars to block + while)
+check_prog "for-count"    'for (let i=0; i<3; i=i+1) print i;'      "$(printf '0\n1\n2')"
+check_prog "for-sum"      'let s=0; for (let i=1; i<=5; i=i+1) s=s+i; print s;' "15"
+check_prog "for-scope"    'for (let i=0; i<1; i=i+1) {} print "loopvar-gone";' "loopvar-gone"
+# and / or short-circuit: result is the deciding operand
+check_prog "and-true"     'print true and 5;'                       "5"
+check_prog "and-false"    'print false and 5;'                      "false"
+check_prog "or-first"     'print 7 or 9;'                           "7"
+check_prog "or-second"    'print nil or 9;'                         "9"
+check_prog "or-fallback"  'print nil or "default";'                 "default"
+# Short-circuit must NOT evaluate the skipped side (no side effect).
+check_prog "and-shortcct" 'let x=0; false and (x=99); print x;'     "0"
+check_prog "or-shortcct"  'let x=0; true or (x=99); print x;'       "0"
+# Nested control flow: count multiples of 3 below 10.
+check_prog "nested-flow"  'let c=0; for (let n=1; n<10; n=n+1) { if (n-(n/3)*3==0) c=c+1; } print c;' "3"
+# A loop that runs long enough to expose any stack imbalance (cap is 256).
+check_prog "loop-balance" 'let i=0; while (i<500) i=i+1; print i;'  "500"
+
+# --- control-flow syntax errors (step 5) ---
+check_prog_err "if-no-paren"    'if true print 1;'
+check_prog_err "while-no-paren" 'while true print 1;'
+check_prog_err "for-no-parts"   'for print 1;'
+check_prog_err "dangling-else"  'else print 1;'
+
 rm -f "$tmp"
 echo "-----------------------------------------"
 echo "passed: $pass   failed: $fail"

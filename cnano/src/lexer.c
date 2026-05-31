@@ -159,6 +159,18 @@ static TokenType identifierType(void) {
     return TOKEN_PRINT;
   if (length == 3 && memcmp(s, "let", 3) == 0)
     return TOKEN_LET;
+  if (length == 2 && memcmp(s, "if", 2) == 0)
+    return TOKEN_IF;
+  if (length == 4 && memcmp(s, "else", 4) == 0)
+    return TOKEN_ELSE;
+  if (length == 5 && memcmp(s, "while", 5) == 0)
+    return TOKEN_WHILE;
+  if (length == 3 && memcmp(s, "for", 3) == 0)
+    return TOKEN_FOR;
+  if (length == 3 && memcmp(s, "and", 3) == 0)
+    return TOKEN_AND;
+  if (length == 2 && memcmp(s, "or", 2) == 0)
+    return TOKEN_OR;
   // Not a keyword: it's a user-defined identifier (a variable name).
   return TOKEN_IDENTIFIER;
 }

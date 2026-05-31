@@ -48,6 +48,16 @@ typedef enum {
   // direct array access. That speed difference is the whole point of step 4.
   OP_GET_LOCAL,     // [opcode][slot]    : push stack[slot]
   OP_SET_LOCAL,     // [opcode][slot]    : stack[slot] = peek(0)  (no pop)
+  // Control flow. These change the instruction pointer instead of (or as well
+  // as) touching the stack — they are how `if`, `while`, `for`, and `and`/`or`
+  // are built. Their operand is a TWO-byte big-endian offset, so a single jump
+  // can span up to 65535 bytes of bytecode (a one-byte offset would cap loops
+  // and conditionals at 256 bytes — too small). The compiler fills these offsets
+  // in by "backpatching" (see compiler.c).
+  OP_JUMP,          // [opcode][hi][lo] : ip += offset  (unconditional forward)
+  OP_JUMP_IF_FALSE, // [opcode][hi][lo] : if peek(0) is falsey, ip += offset
+                    //                    (does NOT pop — the compiler pops)
+  OP_LOOP,          // [opcode][hi][lo] : ip -= offset  (unconditional backward)
   // Statement-level opcodes. Unlike the operators above, these consume a value
   // WITHOUT pushing one back — they exist for their effect on output or the
   // stack, mirroring the expression/statement split in the language itself.

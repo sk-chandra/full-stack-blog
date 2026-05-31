@@ -15,11 +15,11 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (86 cases)
+make test       # run the end-to-end test suite (111 cases)
 make run        # start the REPL
 
 # run a file
-./build/cnano examples/arithmetic.cn          #  prints 4
+./build/cnano examples/control_flow.cn        #  FizzBuzz + a factorial
 ./build/cnano examples/variables.cn           #  globals + strings
 
 # see the bytecode AND a step-by-step VM trace (the best way to learn)
@@ -42,6 +42,11 @@ make run        # start the REPL
   a *local*, resolved to a stack slot at compile time (no runtime lookup, unlike
   globals). Supports **shadowing**; flags redeclaration and self-referential
   initialisers at compile time
+- **Control flow** (cnano is now Turing-complete): `if`/`else`, `while`, and
+  `for` (which desugars to a block + while), built from jump instructions and
+  backpatching
+- **Short-circuiting** `and` / `or` that return the deciding operand (so
+  `nil or "default"` yields `"default"` and the skipped side never runs)
 - **Strings**: `"double-quoted"` literals, `+` concatenates them, and they are
   **interned** so equal strings compare in O(1) by pointer
 - **Line comments** with `//` (stripped by the lexer; `/` is still division)
@@ -75,8 +80,8 @@ make run        # start the REPL
 | `src/object.{h,c}` | heap objects + strings | struct-embedding "inheritance", interning, FNV-1a |
 | `src/table.{h,c}` | hash table | open addressing, linear probing, tombstones |
 | `src/chunk.{h,c}` | bytecode container | designing an instruction set (ISA) |
-| `src/compiler.{h,c}` | AST → bytecode | stack code; compile-time scopes, local slots |
-| `src/vm.{h,c}` | executes bytecode | fetch-decode-execute; globals; type checks |
+| `src/compiler.{h,c}` | AST → bytecode | scopes, local slots, jumps & backpatching |
+| `src/vm.{h,c}` | executes bytecode | fetch-decode-execute; jumps; globals; type checks |
 | `src/debug.{h,c}` | disassembler | seeing what your compiler produced |
 | `src/main.c` | CLI / REPL | wiring it together |
 

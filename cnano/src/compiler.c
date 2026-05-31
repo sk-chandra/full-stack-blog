@@ -93,6 +93,54 @@ static void emitConstant(Value value, int line) {
   emitByte((uint8_t)index, line);
 }
 
+// --- jumps and backpatching ------------------------------------------------
+//
+// A forward jump (used by `if` and short-circuit `and`/`or`) has a problem: when
+// we emit it, we do NOT yet know how far to jump, because we have not compiled
+// the code we want to skip. The standard solution is BACKPATCHING: emit the jump
+// with a placeholder offset, remember where the placeholder is, compile the
+// skipped code, then go back and overwrite the placeholder with the real
+// distance. emitJump returns the placeholder's location; patchJump fills it in.
+
+// Emit `instruction` (OP_JUMP or OP_JUMP_IF_FALSE) followed by a 2-byte
+// placeholder offset. Returns the offset of the placeholder so patchJump can
+// find it later.
+static int emitJump(uint8_t instruction, int line) {
+  emitByte(instruction, line);
+  emitByte(0xff, line); // placeholder high byte
+  emitByte(0xff, line); // placeholder low byte
+  return currentChunk->count - 2;
+}
+
+// Backpatch the jump whose 2-byte operand starts at `offset`: compute the
+// distance from just after the operand to the CURRENT end of the chunk (the jump
+// target), and write it big-endian over the placeholder.
+static void patchJump(int offset) {
+  // -2 adjusts for the two operand bytes themselves.
+  int jump = currentChunk->count - offset - 2;
+  if (jump > UINT16_MAX) {
+    // Our offset is 16 bits, so a single jump can't span more than 65535 bytes.
+    fprintf(stderr, "[compiler] too much code to jump over\n");
+    hadCompileError = true;
+  }
+  currentChunk->code[offset] = (jump >> 8) & 0xff; // high byte
+  currentChunk->code[offset + 1] = jump & 0xff;    // low byte
+}
+
+// Emit a BACKWARD jump (OP_LOOP) to `loopStart`. Loops are different from
+// forward jumps: we already know the target (it's behind us), so no
+// backpatching is needed — we compute the distance immediately.
+static void emitLoop(int loopStart, int line) {
+  emitByte(OP_LOOP, line);
+  int offset = currentChunk->count - loopStart + 2; // +2 for this operand
+  if (offset > UINT16_MAX) {
+    fprintf(stderr, "[compiler] loop body too large\n");
+    hadCompileError = true;
+  }
+  emitByte((offset >> 8) & 0xff, line);
+  emitByte(offset & 0xff, line);
+}
+
 // Leave a block scope. Every local declared inside it must be REMOVED from the
 // runtime stack, because those slots are about to go out of scope. We emit one
 // OP_POP per local and shrink our compile-time model to match. This is the
@@ -207,6 +255,32 @@ static void emitExpr(Node *node) {
     break;
   }
 
+  case NODE_LOGICAL: {
+    // Short-circuit evaluation, built from jumps. The trick is that
+    // OP_JUMP_IF_FALSE peeks WITHOUT popping, so the condition value can double
+    // as the result when we short-circuit.
+    emitExpr(node->as.logical.left);
+    if (node->as.logical.isAnd) {
+      // `a and b`: if a is falsey, the whole thing is a — skip b, leaving a.
+      // Otherwise pop a and evaluate b, leaving b.
+      int endJump = emitJump(OP_JUMP_IF_FALSE, node->line);
+      emitByte(OP_POP, node->line); // discard a; b becomes the result
+      emitExpr(node->as.logical.right);
+      patchJump(endJump);
+    } else {
+      // `a or b`: if a is falsey, evaluate b; if a is truthy, skip b leaving a.
+      // We express this with the same one conditional jump plus an unconditional
+      // one: jump-if-false over a small jump that skips b.
+      int elseJump = emitJump(OP_JUMP_IF_FALSE, node->line);
+      int endJump = emitJump(OP_JUMP, node->line);
+      patchJump(elseJump);
+      emitByte(OP_POP, node->line); // discard a; b becomes the result
+      emitExpr(node->as.logical.right);
+      patchJump(endJump);
+    }
+    break;
+  }
+
   case NODE_UNARY:
     emitExpr(node->as.unary.operand); // operand value now on stack
     switch (node->as.unary.op) {
@@ -257,6 +331,8 @@ static void emitExpr(Node *node) {
   case NODE_EXPR_STMT:
   case NODE_VAR_DECL:
   case NODE_BLOCK:
+  case NODE_IF:
+  case NODE_WHILE:
     // Statement nodes are not expressions and must never be compiled as one.
     // This case exists only to keep the switch exhaustive (so -Wall warns if a
     // future node type is forgotten).
@@ -313,6 +389,57 @@ static void emitStatement(Node *node) {
     for (int i = 0; i < body->count; i++)
       emitStatement(body->statements[i]);
     endScope(node->line);
+    break;
+  }
+
+  case NODE_IF: {
+    // Layout we emit:
+    //     <condition>
+    //     JUMP_IF_FALSE  -> else        (thenJump)
+    //     POP            (discard the condition value on the THEN path)
+    //     <then branch>
+    //     JUMP           -> end         (elseJump; skips the else)
+    //   else:
+    //     POP            (discard the condition value on the ELSE path)
+    //     <else branch>                 (empty if no else)
+    //   end:
+    // The two POPs matter: JUMP_IF_FALSE deliberately does NOT pop, so each path
+    // must discard the condition itself — keeping the stack balanced either way.
+    emitExpr(node->as.ifStmt.condition);
+    int thenJump = emitJump(OP_JUMP_IF_FALSE, node->line);
+    emitByte(OP_POP, node->line); // then-path: pop condition
+    emitStatement(node->as.ifStmt.then);
+    int elseJump = emitJump(OP_JUMP, node->line);
+
+    patchJump(thenJump);          // JUMP_IF_FALSE lands here
+    emitByte(OP_POP, node->line); // else-path: pop condition
+    if (node->as.ifStmt.otherwise != NULL)
+      emitStatement(node->as.ifStmt.otherwise);
+    patchJump(elseJump);          // both paths converge here
+    break;
+  }
+
+  case NODE_WHILE: {
+    // Layout we emit:
+    //   loopStart:
+    //     <condition>
+    //     JUMP_IF_FALSE  -> end         (exitJump)
+    //     POP            (discard condition; we're entering the body)
+    //     <body>
+    //     LOOP           -> loopStart   (backward jump; re-test the condition)
+    //   end:
+    //     POP            (discard condition on the exit path)
+    // The backward LOOP is what makes it a loop. Note the symmetric POPs again,
+    // for the same reason as `if`.
+    int loopStart = currentChunk->count; // the condition is re-evaluated here
+    emitExpr(node->as.whileStmt.condition);
+    int exitJump = emitJump(OP_JUMP_IF_FALSE, node->line);
+    emitByte(OP_POP, node->line); // enter body: pop condition
+    emitStatement(node->as.whileStmt.body);
+    emitLoop(loopStart, node->line);
+
+    patchJump(exitJump);
+    emitByte(OP_POP, node->line); // exit: pop condition
     break;
   }
 

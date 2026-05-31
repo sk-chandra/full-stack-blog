@@ -1,0 +1,27 @@
+// Control flow: if / else, while, for, and short-circuiting and/or.
+// cnano is now Turing-complete — this program needs loops and branches.
+
+// FizzBuzz from 1 to 15. cnano has no '%' operator yet, so we compute the
+// remainder ourselves: n - (n / k) * k  (integer division truncates).
+for (let n = 1; n <= 15; n = n + 1) {
+  let by3 = n - (n / 3) * 3 == 0;
+  let by5 = n - (n / 5) * 5 == 0;
+
+  if (by3 and by5)      print "FizzBuzz";
+  else if (by3)         print "Fizz";
+  else if (by5)         print "Buzz";
+  else                  print n;
+}
+
+// `or` returns the first truthy operand — a handy "default value" idiom.
+let name = nil;
+print name or "anonymous";   // anonymous
+
+// A while loop computing a factorial.
+let f = 1;
+let k = 5;
+while (k > 1) {
+  f = f * k;
+  k = k - 1;
+}
+print f;                     // 120
