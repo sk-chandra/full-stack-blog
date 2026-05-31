@@ -180,19 +180,49 @@ static void emitByte(uint8_t byte, int line) {
   writeChunk(currentChunk(), byte, line);
 }
 
-// Emit OP_CONSTANT followed by the index of `value` in the constant pool.
-static void emitConstant(Value value, int line) {
-  int index = addConstant(currentChunk(), value);
-  if (index > 255) {
-    // Our OP_CONSTANT operand is a single byte, so it can address only 256
-    // constants. Real VMs add an OP_CONSTANT_LONG with a wider operand; we just
-    // report the limit. This is a concrete example of an ISA design trade-off:
-    // small operands keep bytecode compact but cap how much they can address.
-    fprintf(stderr, "[line %d] Error: too many constants in one chunk.\n", line);
-    exit(65); // 65 = EX_DATAERR, "input data was incorrect"
+// Add `value` to the current chunk's constant pool, REUSING an existing slot if
+// an equal constant is already there. Deduplication shrinks the pool (a variable
+// name or repeated literal occupies one slot no matter how often it appears) —
+// both a small optimisation and what keeps name operands inside one byte far
+// longer. Returns the constant index.
+static int makeConstant(Value value) {
+  Chunk *chunk = currentChunk();
+  for (int i = 0; i < chunk->constants.count; i++)
+    if (valuesEqual(chunk->constants.values[i], value))
+      return i;
+  return addConstant(chunk, value);
+}
+
+// Add a variable-NAME constant (deduped) for the by-name global opcodes, which
+// carry a single-byte index. If the pool grows past 255 we report a clean
+// compile error rather than letting the byte wrap and read the wrong name.
+static int identifierConstant(ObjString *name, int line) {
+  int index = makeConstant(OBJ_VAL(name));
+  if (index > 0xff) {
+    compileError(line, "too many named globals in one function (>256 constants)");
+    return 0;
   }
-  emitByte(OP_CONSTANT, line);
-  emitByte((uint8_t)index, line);
+  return index;
+}
+
+// Push a constant. Uses the compact 1-byte OP_CONSTANT when the index fits in a
+// byte, and falls back to the 3-byte OP_CONSTANT_LONG otherwise — so a chunk is
+// no longer capped at 256 constants, while everyday code stays small.
+static void emitConstant(Value value, int line) {
+  int index = makeConstant(value);
+  if (index <= 0xff) {
+    emitByte(OP_CONSTANT, line);
+    emitByte((uint8_t)index, line);
+  } else if (index <= 0xffffff) {
+    emitByte(OP_CONSTANT_LONG, line);
+    emitByte((uint8_t)((index >> 16) & 0xff), line);
+    emitByte((uint8_t)((index >> 8) & 0xff), line);
+    emitByte((uint8_t)(index & 0xff), line);
+  } else {
+    // 2^24 constants in one function is astronomically unlikely; still, fail
+    // cleanly rather than silently truncating.
+    compileError(line, "too many constants in one function");
+  }
 }
 
 // --- jumps and backpatching ------------------------------------------------
@@ -345,7 +375,7 @@ static void emitExpr(Node *node) {
       emitByte(OP_GET_UPVALUE, node->line);
       emitByte((uint8_t)arg, node->line);
     } else {
-      int nameIdx = addConstant(currentChunk(), OBJ_VAL(node->as.name));
+      int nameIdx = identifierConstant(node->as.name, node->line);
       emitByte(OP_GET_GLOBAL, node->line);
       emitByte((uint8_t)nameIdx, node->line);
     }
@@ -366,7 +396,7 @@ static void emitExpr(Node *node) {
       emitByte(OP_SET_UPVALUE, node->line);
       emitByte((uint8_t)arg, node->line);
     } else {
-      int nameIdx = addConstant(currentChunk(), OBJ_VAL(node->as.var.name));
+      int nameIdx = identifierConstant(node->as.var.name, node->line);
       emitByte(OP_SET_GLOBAL, node->line);
       emitByte((uint8_t)nameIdx, node->line);
     }
@@ -506,7 +536,7 @@ static void emitStatement(Node *node) {
     } else {
       // GLOBAL declaration, exactly as before: evaluate then DEFINE_GLOBAL pops.
       emitExpr(node->as.var.value);
-      int nameIdx = addConstant(currentChunk(), OBJ_VAL(name));
+      int nameIdx = identifierConstant(name, node->line);
       emitByte(OP_DEFINE_GLOBAL, node->line);
       emitByte((uint8_t)nameIdx, node->line);
     }
@@ -589,7 +619,7 @@ static void emitStatement(Node *node) {
       declareLocal(name, node->line);
       markInitialized();
     } else {
-      int nameIdx = addConstant(currentChunk(), OBJ_VAL(name));
+      int nameIdx = identifierConstant(name, node->line);
       emitByte(OP_DEFINE_GLOBAL, node->line);
       emitByte((uint8_t)nameIdx, node->line);
     }

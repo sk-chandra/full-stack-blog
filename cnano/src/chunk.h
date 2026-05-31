@@ -18,6 +18,11 @@
 // to compile to and easy to write, which is why so many bytecode VMs use them.
 typedef enum {
   OP_CONSTANT, // [opcode][index] : push constants[index] onto the stack
+  // Same as OP_CONSTANT but with a THREE-byte (24-bit) index, so a chunk can
+  // hold more than 256 constants. The compiler emits the short form when it can
+  // and falls back to this only when needed — small code in the common case,
+  // correctness in the rare one. (Resolves the limit flagged back in step 0.)
+  OP_CONSTANT_LONG, // [opcode][hi][mid][lo] : push constants[24-bit index]
   // Dedicated opcodes for the three literal values that have no operand. We
   // *could* store true/false/nil in the constant pool like integers, but giving
   // them their own one-byte opcodes is smaller and faster — a common micro

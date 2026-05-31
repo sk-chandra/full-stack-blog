@@ -322,6 +322,28 @@ check_prog_err "ty-fwd-bad-arg"   'fn a(): int { return b(true); } fn b(x: int):
 check_prog_err "ty-bad-typename"  'let x: integer = 5;'
 check_prog_err "ty-concat-int"    'let s: str = "a"; print s + 1;'
 
+# --- optimisation: constant folding must NOT change results (step 8) ---
+# These exercise the folder; the answers must equal the unfolded semantics.
+check_prog "fold-arith"     'print 2 + 3 * 4;'                "14"
+check_prog "fold-nested"    'print (1 + 2) * 3 - 10 / 2;'     "4"
+check_prog "fold-unary"     'print --7;'                      "7"
+check_prog "fold-not"       'print !!false;'                  "false"
+check_prog "fold-not-nil"   'print !nil;'                     "true"
+check_prog "fold-not-int"   'print !0;'                       "false"
+check_prog "fold-cmp"       'print 10 < 20;'                  "true"
+check_prog "fold-eq"        'print 2 == 2;'                   "true"
+check_prog "fold-str"       'print "a" + "b" + "c";'          "abc"
+check_prog "fold-streq"     'print "ab" == "a" + "b";'        "true"
+# Division by zero must NOT be folded away — still a runtime error.
+check_prog_err "fold-div0"  'print 1 / 0;'
+# Folding must not evaluate the short-circuited side (no side effect).
+check_prog "fold-shortcct"  'let x = 0; false and (x = 1 + 1); print x;'  "0"
+# Folding inside control flow and functions still produces correct behaviour.
+check_prog "fold-in-if"     'if (1 + 1 == 2) print "y"; else print "n";'  "y"
+check_prog "fold-in-fn"     'fn f(){ return 6 * 7; } print f();'          "42"
+# A heavily-reused name is fine (constant dedup keeps it to one slot).
+check_prog "dedup-reuse"    'let c = 0; c = c + 1; c = c + 1; c = c + 1; print c;' "3"
+
 rm -f "$tmp"
 echo "-----------------------------------------"
 echo "passed: $pass   failed: $fail"

@@ -5,7 +5,7 @@ languages work** — from integer arithmetic up through closures and an optional
 static type checker, via a complete, real-world compiler pipeline:
 
 ```
-source  →  Lexer  →  tokens  →  Parser  →  AST  →  Type checker  →  Compiler  →  bytecode  →  VM  →  result
+source  →  Lexer  →  Parser  →  AST  →  Type checker  →  Optimiser  →  Compiler  →  bytecode  →  VM  →  result
 ```
 
 Every stage above is a separate, well-commented module — the same architecture
@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (162 cases)
+make test       # run the end-to-end test suite (177 cases)
 make run        # start the REPL
 
 # run a file
@@ -62,6 +62,10 @@ make run        # start the REPL
   initialisers, wrong argument types/arity, wrong return type, calling a
   non-function, bad operators). Unannotated code is `any` and stays fully
   dynamic, so typed and untyped code mix freely
+- **Optimisation**: an AST **constant-folding** pass evaluates constant
+  subexpressions at compile time (`2 + 3 * 4` → `14`, `"a" + "b"` → `"ab"`),
+  constant **deduplication**, and an `OP_CONSTANT_LONG` form so chunks aren't
+  capped at 256 constants
 - **Strings**: `"double-quoted"` literals, `+` concatenates them, and they are
   **interned** so equal strings compare in O(1) by pointer
 - **Line comments** with `//` (stripped by the lexer; `/` is still division)
@@ -93,6 +97,7 @@ make run        # start the REPL
 | `src/parser.{h,c}` | tokens → AST | recursive descent, precedence, l-values, recovery |
 | `src/type.{h,c}` | the type system | gradual types; `any` as the escape hatch |
 | `src/typecheck.{h,c}` | static analysis pass | tree-walking checker, two-pass for fns |
+| `src/optimize.{h,c}` | AST optimisation pass | constant folding (bottom-up rewrite) |
 | `src/value.{h,c}` | values + constant pool | tagged-union dynamic values |
 | `src/object.{h,c}` | heap objects: strings, functions, closures, upvalues | object model, interning |
 | `src/table.{h,c}` | hash table | open addressing, linear probing, tombstones |

@@ -895,7 +895,66 @@ leak-free versus per-type lifetime tracking. Primitive types are singletons.
 
 ---
 
-## 17. Roadmap: where to go next
+## 17. Case study: optimisation — constant folding
+
+Roadmap step 8, completed. The first optimisation pass: do at *compile* time work
+the VM would otherwise repeat at *run* time. It slots in as another AST pass,
+after type-checking and before compilation:
+
+```
+... → Type checker → [Optimiser] → Compiler → ...
+```
+
+### 17.1 Constant folding as a bottom-up rewrite
+
+`foldConstants` (in `optimize.{h,c}`) walks the tree and, wherever a subexpression
+is made entirely of literals, replaces it with the computed literal. `2 + 3 * 4`
+becomes `14`; `!!false` becomes `false`; `"a" + "b"` becomes `"ab"`. The pattern
+is **bottom-up**: fold the children first, then check whether *this* node's
+children are now literals and can collapse. Because we mutate the tree in place
+(freeing the replaced subtrees), the unchanged compiler then emits much smaller
+bytecode — a single `OP_CONSTANT 14` instead of three constants and two adds.
+
+### 17.2 Two correctness traps the folder must respect
+
+Optimisation is only valid if it preserves behaviour. Two cases here are easy to
+get wrong:
+
+- **Division by zero must NOT be folded.** `1 / 0` has to stay a *runtime* error,
+  so the folder explicitly declines to fold a division with a zero divisor and
+  leaves the node for the VM. An optimiser that "simplified" it would change the
+  program's observable behaviour.
+- **`and`/`or` are never folded.** They short-circuit, so folding could elide a
+  side effect on the skipped branch. The folder recurses into their operands but
+  leaves the logical node intact. (Verified: `false and (x = …)` still doesn't
+  run the assignment.)
+
+These mirror cnano's own semantics exactly — including the truthiness rule, so a
+folded `!0` is `false` just as the VM would compute.
+
+### 17.3 Constant deduplication and `OP_CONSTANT_LONG`
+
+Two smaller wins, both about the constant pool:
+
+- **Dedup** (`makeConstant`): before adding a constant, reuse an equal existing
+  one. A variable name or repeated literal now occupies a single pool slot no
+  matter how often it appears — smaller chunks, and far fewer slots used.
+- **`OP_CONSTANT_LONG`**: the original `OP_CONSTANT` had a one-byte index, capping
+  a chunk at 256 constants (flagged way back in step 0). `emitConstant` now emits
+  the compact 1-byte form when the index fits and a 3-byte form otherwise — small
+  code in the common case, no hard cap in the rare one.
+
+> A real bug this step surfaced: the by-name global opcodes still carry a
+> one-byte name index, so 256+ *distinct* global names would have overflowed it
+> and read the wrong name. With dedup that is now hit only by genuinely 256+
+> distinct names, and `identifierConstant` reports a clean compile error instead
+> of silently corrupting — the right call when a real fix (long global opcodes)
+> would add bulk for a case almost no program reaches. Honest limits, clearly
+> reported, beat silent wrong answers.
+
+---
+
+## 18. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -925,8 +984,9 @@ ordered so each builds on the last.
    optional `int`/`bool`/`str`/`nil`/`any` annotations, an `any`-compatible-with-
    everything rule, two-pass function checking, light inference, and type errors
    (init/operator/arg/arity/return/callability) reported before execution.
-8. **Optimisations.** Constant folding on the AST (`2 + 3` → `5` at compile
-   time); a Pratt parser; `OP_CONSTANT_LONG`; run-length-encoded line info.
+8. ~~**Optimisations.**~~ **✅ DONE** — see §17 above. AST constant folding (with
+   correct handling of div-by-zero and short-circuit), constant dedup, and
+   `OP_CONSTANT_LONG` to lift the 256-constant cap.
 9. **Toward native code.** Emit textual assembly or LLVM IR instead of bytecode,
    and you have crossed from "interpreted" to "compiled". This is the big leap to
    a true low-level, ahead-of-time language.

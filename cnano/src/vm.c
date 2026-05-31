@@ -6,6 +6,7 @@
 #include "compiler.h"
 #include "debug.h"
 #include "object.h"
+#include "optimize.h"
 #include "parser.h"
 #include "typecheck.h"
 #include "vm.h"
@@ -247,6 +248,14 @@ static InterpretResult run(bool trace) {
     case OP_CONSTANT: {
       Value constant = READ_CONSTANT();
       push(constant);
+      break;
+    }
+    case OP_CONSTANT_LONG: {
+      // Reassemble the 3-byte index, then index the constant pool.
+      int index = (READ_BYTE() << 16);
+      index |= (READ_BYTE() << 8);
+      index |= READ_BYTE();
+      push(frame->closure->function->chunk.constants.values[index]);
       break;
     }
     case OP_NIL:
@@ -500,6 +509,12 @@ InterpretResult interpret(const char *source, bool trace) {
     freeProgram(&program);
     return INTERPRET_COMPILE_ERROR;
   }
+
+  // 1c. OPTIMISE the AST. Constant folding rewrites constant subexpressions into
+  // literals (`2 + 3 * 4` -> `14`) so the VM never recomputes them. Runs after
+  // type-checking (which used the original tree for accurate error lines) and
+  // before compilation, which then emits bytecode for the simpler tree.
+  foldConstants(&program);
 
   // 2. Compile the program into a top-level ObjFunction. (Its chunk, and every
   // nested function's chunk, is owned by the VM object list — freed at shutdown,
