@@ -379,6 +379,22 @@ check_prog "or-fallback"  'print nil or "default";'                 "default"
 # Short-circuit must NOT evaluate the skipped side (no side effect).
 check_prog "and-shortcct" 'let x=0; false and (x=99); print x;'     "0"
 check_prog "or-shortcct"  'let x=0; true or (x=99); print x;'       "0"
+
+# --- conditional (ternary) expression `c ? a : b` (step 42) ---
+check "cond-true"      '5 > 3 ? "big" : "small"' "big"
+check "cond-false"     '1 > 3 ? "big" : "small"' "small"
+check "cond-arith"     '(true ? 10 : 20) + 1'    "11"
+check "cond-prec"      'true ? 1 : 0 + 5'        "1"   # `:` binds looser than `+`
+check_prog "cond-nested" 'fn s(n){return n>0 ? "pos" : n<0 ? "neg" : "zero";} print s(5); print s(-2); print s(0);' "$(printf 'pos\nneg\nzero')"
+check_prog "cond-in-let" 'let n=7; let p = n%2==0 ? "even" : "odd"; print p;' "odd"
+check_prog "cond-assign-branch" 'let x=0; let y = true ? (x=1) : (x=2); print x; print y;' "$(printf '1\n1')"
+# Only the taken branch runs (the other must have no effect).
+check_prog "cond-shortcct" 'let x=0; false ? (x=1) : (x=2); print x;' "2"
+# Native: a ternary with same-typed scalar branches lowers to C's `?:`.
+check_native "nat-cond"     'fn c(n: int): str { return n > 0 ? "pos" : "nonpos"; } print c(7); print c(-1);' "$(printf 'pos\nnonpos')"
+check_native "nat-cond-int" 'fn a(n: int): int { return n < 0 ? -n : n; } print a(-9);' "9"
+# Native rejects a ternary whose branches differ in type.
+check_native_err "nat-cond-mismatch" 'fn f(b: bool): int { return b ? 1 : 0 > 1; } print f(true);'
 # Nested control flow: count multiples of 3 below 10.
 check_prog "nested-flow"  'let c=0; for (let n=1; n<10; n=n+1) { if (n-(n/3)*3==0) c=c+1; } print c;' "3"
 # A loop that runs long enough to expose any stack imbalance (cap is 256).

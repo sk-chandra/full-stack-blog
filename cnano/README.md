@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (513 cases, incl. native + GC)
+make test       # run the end-to-end test suite (524 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -69,6 +69,10 @@ make run        # start the REPL
   body, so `is int => return v * 2` typechecks `v` as `int`
 - **Short-circuiting** `and` / `or` that return the deciding operand (so
   `nil or "default"` yields `"default"` and the skipped side never runs)
+- **Conditional expression** `cond ? a : b` — a value-producing `if`, compiled
+  from jumps so only the taken branch runs. Right-associative, so
+  `n > 0 ? "pos" : n < 0 ? "neg" : "zero"` chains; works in the native backend
+  too (lowers to C's own `?:` when both branches share a scalar type)
 - **Error handling**: `throw EXPR;` raises any value; `try { … } catch (e) { … }`
   recovers from it. A throw **unwinds the call stack** (closing open upvalues) to
   the nearest enclosing `catch`; uncaught, it aborts with the value. Handlers are

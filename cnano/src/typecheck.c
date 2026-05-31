@@ -362,6 +362,15 @@ static Type *checkExpr(Node *node) {
     checkExpr(node->as.logical.left);
     checkExpr(node->as.logical.right);
     return typeAny();
+  case NODE_COND: {
+    // `c ? a : b`: any condition is fine (truthiness is dynamic). The result type
+    // is the branches' common type when they agree, else `any` — the same
+    // "homogeneous or any" rule array-literal inference uses.
+    checkExpr(node->as.ifStmt.condition);
+    Type *thenT = checkExpr(node->as.ifStmt.then);
+    Type *elseT = checkExpr(node->as.ifStmt.otherwise);
+    return thenT->kind == elseT->kind ? thenT : typeAny();
+  }
   case NODE_CALL:
     return checkCall(node);
   case NODE_IS:

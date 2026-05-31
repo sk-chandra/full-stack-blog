@@ -156,6 +156,12 @@ static TypeKind inferType(Node *node) {
     TypeKind l = inferType(node->as.logical.left);
     return l; // both sides share a type in the subset we accept
   }
+  case NODE_COND: {
+    // `c ? a : b` lowers to a C ternary; its type is the (shared) branch type.
+    TypeKind t = inferType(node->as.ifStmt.then);
+    TypeKind e = inferType(node->as.ifStmt.otherwise);
+    return t == e ? t : TY_ANY; // mismatched branches: reject when used concretely
+  }
   case NODE_CALL: {
     if (node->as.call.callee->type != NODE_VAR_GET)
       return TY_ANY;
@@ -447,6 +453,25 @@ static void emitExpr(Node *node) {
     emitExpr(node->as.logical.right);
     fprintf(out, ")");
     break;
+  case NODE_COND: {
+    // Lowers directly to C's own ternary. Both branches must have the same scalar
+    // type (a C ternary requires compatible arms) — reject a mismatch cleanly
+    // rather than emit C that won't compile.
+    TypeKind t = inferType(node->as.ifStmt.then);
+    TypeKind e = inferType(node->as.ifStmt.otherwise);
+    if (t != e || t == TY_ANY || t == TY_NIL) {
+      unsupported(node->line, "a '?:' whose branches aren't the same scalar type");
+      break;
+    }
+    fprintf(out, "(");
+    emitExpr(node->as.ifStmt.condition);
+    fprintf(out, " ? ");
+    emitExpr(node->as.ifStmt.then);
+    fprintf(out, " : ");
+    emitExpr(node->as.ifStmt.otherwise);
+    fprintf(out, ")");
+    break;
+  }
   case NODE_CALL: {
     if (node->as.call.callee->type != NODE_VAR_GET) {
       unsupported(node->line, "calling a non-named (first-class) function");

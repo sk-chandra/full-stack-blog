@@ -162,11 +162,29 @@ static bool matchCompoundAssign(NodeOp *op) {
   return false;
 }
 
+// `c ? a : b` — the conditional expression. Sits just above assignment (lower
+// than `or`), so the condition is a full logical expression and the branches may
+// themselves be assignments or nested conditionals (right-associative `else`).
+// The `?` here is unambiguous: a nullable type's `?` only ever appears in TYPE
+// position (parsed by parseType), never in an ordinary expression.
+static Node *ternary(void) {
+  Node *cond = logicOr();
+  if (match(TOKEN_QUESTION)) {
+    int line = parser.previous.line;
+    Node *thenExpr = expression(); // the middle is a full expression
+    consume(TOKEN_COLON, "Expect ':' in a '?:' conditional expression.");
+    Node *elseExpr = ternary(); // right-associative
+    return newCond(cond, thenExpr, elseExpr, line);
+  }
+  return cond;
+}
+
 static Node *assignment(void) {
   // Parse the left-hand side as a normal expression first. It goes through the
-  // logical operators, so `a or b` and `a and b` are valid l-value *bases* even
-  // though they are never valid assignment targets.
-  Node *node = logicOr();
+  // logical and conditional operators, so `a or b` and `c ? a : b` are valid
+  // l-value *bases* even though they are never valid assignment targets. A plain
+  // `x` still comes back as a NODE_VAR_GET, so assignment targets are unaffected.
+  Node *node = ternary();
 
   // Compound assignment `target OP= rhs` desugars to `target = target OP rhs`.
   // We build it here so it works for both variable and index targets, reusing

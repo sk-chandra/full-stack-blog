@@ -1591,7 +1591,18 @@ programs define their own types, and makes failure recoverable.
     and the returned pointer is silently truncated. Limitations to revisit: a flat
     shared namespace, no qualified access, and merged line numbers don't yet name
     their source file.)
-46. **Performance** (inline caching/peephole), generics, native closures, and a
+46. ~~**Conditional (ternary) expression** `c ? a : b`.~~ **✅ DONE** (step 42) —
+    a value-producing `if`. Sits just above assignment in the precedence ladder
+    (so the condition is a full logical expression and the branches may be
+    assignments or nested conditionals, right-associative); the `?` is
+    unambiguous because a nullable type's `?` only appears in TYPE position. The
+    AST reuses NODE_IF's three-child shape; the compiler emits the same
+    jump-then-pop idiom as `and`/`or` (each branch pops the peeked condition and
+    leaves exactly one value); and it lowers to C's own `?:` in the native backend
+    when both branches share a scalar type (a mismatch is rejected, not
+    miscompiled). Demonstrates that "expression vs statement" is a compiler
+    convention, not a runtime one — the same jumps build both.
+47. **Performance** (inline caching/peephole), generics, native closures, and a
     per-module namespace for `import` — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom

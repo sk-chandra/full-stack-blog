@@ -45,6 +45,7 @@ typedef enum {
   NODE_VAR_GET, // read a variable: yields its current value
   NODE_ASSIGN,  // `name = EXPR` : store EXPR into name, yields the value
   NODE_LOGICAL, // `a and b` / `a or b` : SHORT-CIRCUITS, so not a plain binary
+  NODE_COND,    // `c ? a : b` : a conditional EXPRESSION (yields a or b)
   NODE_CALL,    // `callee(arg, arg, ...)` : call a function, yields its result
   NODE_INVOKE,  // `receiver.method(arg, ...)` : call a builtin method, yields result
   NODE_IS,      // `expr is TYPE` : runtime type test, yields bool
@@ -285,6 +286,9 @@ Node *newVarDecl(ObjString *name, Node *value, Type *declaredType, int line);
 Node *newBlock(Program *block, int line); // takes ownership of `block`
 Node *newLogical(bool isAnd, Node *left, Node *right, int line);
 Node *newIf(Node *condition, Node *then, Node *otherwise, int line);
+// `c ? a : b` — a conditional expression. Shares NODE_IF's three-child shape, but
+// its branches are EXPRESSIONS and it yields a value. `otherwise` is never NULL.
+Node *newCond(Node *condition, Node *thenExpr, Node *elseExpr, int line);
 Node *newWhile(Node *condition, Node *body, int line);
 // Takes ownership of the `args` array (freed by freeNode).
 Node *newCall(Node *callee, Node **args, int argCount, int line);

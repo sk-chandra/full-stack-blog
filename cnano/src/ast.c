@@ -112,6 +112,16 @@ Node *newIf(Node *condition, Node *then, Node *otherwise, int line) {
   return node;
 }
 
+Node *newCond(Node *condition, Node *thenExpr, Node *elseExpr, int line) {
+  // Reuses NODE_IF's three-child layout — same shape, different (expression)
+  // meaning. freeNode handles both the same way.
+  Node *node = allocNode(NODE_COND, line);
+  node->as.ifStmt.condition = condition;
+  node->as.ifStmt.then = thenExpr;
+  node->as.ifStmt.otherwise = elseExpr;
+  return node;
+}
+
 Node *newWhile(Node *condition, Node *body, int line) {
   Node *node = allocNode(NODE_WHILE, line);
   node->as.whileStmt.condition = condition;
@@ -322,6 +332,7 @@ void freeNode(Node *node) {
     freeNode(node->as.logical.right);
     break;
   case NODE_IF:
+  case NODE_COND: // same three-child shape as NODE_IF
     freeNode(node->as.ifStmt.condition);
     freeNode(node->as.ifStmt.then);
     freeNode(node->as.ifStmt.otherwise); // freeNode tolerates NULL (no else)

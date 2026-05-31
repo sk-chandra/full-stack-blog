@@ -460,6 +460,22 @@ static void emitExpr(Node *node) {
     break;
   }
 
+  case NODE_COND: {
+    // `c ? a : b` — like an `if` that yields a value. We must leave EXACTLY one
+    // value on the stack (either a or b). OP_JUMP_IF_FALSE peeks without popping,
+    // so each branch pops the condition itself before pushing its result.
+    emitExpr(node->as.ifStmt.condition);
+    int elseJump = emitJump(OP_JUMP_IF_FALSE, node->line);
+    emitByte(OP_POP, node->line); // discard the condition on the true path
+    emitExpr(node->as.ifStmt.then);
+    int endJump = emitJump(OP_JUMP, node->line);
+    patchJump(elseJump);
+    emitByte(OP_POP, node->line); // discard the condition on the false path
+    emitExpr(node->as.ifStmt.otherwise);
+    patchJump(endJump);
+    break;
+  }
+
   case NODE_CALL: {
     // The calling convention, compiler side: push the callee, then each argument
     // left to right. At runtime the stack is [.. callee arg0 arg1 .. argN]. OP_CALL
