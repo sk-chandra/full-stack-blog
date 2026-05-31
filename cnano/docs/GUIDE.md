@@ -1462,8 +1462,13 @@ programs define their own types, and makes failure recoverable.
     `array.removeAt(i)` shifts the tail down. (Mirrors the string `table.c`'s
     tombstone scheme.)
 
+29. ~~**Bitwise operators** `& | ^ << >> ~`.~~ **✅ DONE** — added with C's
+    precedence (`|`<`^`<`&`< equality; shifts between comparison and additive) via
+    four new parser levels; int-typed; shifts guard the amount to [0,63] (UB
+    otherwise); constant-folded; supported in the native backend.
+
 **Phase D — type-system depth**
-29. **Union types** (`int | str`) with narrowing.
+30. **Union types** (`int | str`) with narrowing.
 27. **Generics** (`fn first<T>(a: [T]): T`).
 
 **Phase E — compiler & runtime polish**

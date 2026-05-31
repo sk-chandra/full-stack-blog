@@ -413,6 +413,40 @@ static InterpretResult run(bool trace, int stopFrame) {
       push(INT_VAL(a % b));
       break;
     }
+    case OP_BITAND:
+      BINARY_OP(INT_VAL, &);
+      break;
+    case OP_BITOR:
+      BINARY_OP(INT_VAL, |);
+      break;
+    case OP_BITXOR:
+      BINARY_OP(INT_VAL, ^);
+      break;
+    case OP_SHL:
+    case OP_SHR: {
+      // Shifts need integer operands AND a shift amount in [0, 63] (C leaves
+      // other amounts undefined), so they can't use the bare BINARY_OP macro.
+      if (!IS_INT(peek(0)) || !IS_INT(peek(1))) {
+        runtimeError("operands must be integers");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      if (AS_INT(peek(0)) < 0 || AS_INT(peek(0)) > 63) {
+        runtimeError("shift amount must be between 0 and 63");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      int64_t b = AS_INT(pop());
+      int64_t a = AS_INT(pop());
+      push(INT_VAL(instruction == OP_SHL ? (int64_t)((uint64_t)a << b)
+                                         : a >> b));
+      break;
+    }
+    case OP_BITNOT:
+      if (!IS_INT(peek(0))) {
+        runtimeError("operand of '~' must be an integer");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      push(INT_VAL(~AS_INT(pop())));
+      break;
     case OP_EQUAL: {
       // Equality is defined for ALL types (via valuesEqual), so unlike the
       // ordering comparisons it needs no integer check.

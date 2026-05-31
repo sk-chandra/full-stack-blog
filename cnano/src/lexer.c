@@ -257,9 +257,21 @@ Token scanToken(void) {
     // '==' is equality; a lone '=' is now assignment.
     return makeToken(match('=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL);
   case '<':
+    if (match('<'))
+      return makeToken(TOKEN_LSHIFT);
     return makeToken(match('=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
   case '>':
+    if (match('>'))
+      return makeToken(TOKEN_RSHIFT);
     return makeToken(match('=') ? TOKEN_GREATER_EQUAL : TOKEN_GREATER);
+  case '&':
+    return makeToken(TOKEN_AMP);
+  case '|':
+    return makeToken(TOKEN_PIPE);
+  case '^':
+    return makeToken(TOKEN_CARET);
+  case '~':
+    return makeToken(TOKEN_TILDE);
   }
 
   return errorToken("Unexpected character.");

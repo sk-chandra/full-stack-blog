@@ -537,6 +537,9 @@ static void emitExpr(Node *node) {
     case OP_NODE_NOT:
       emitByte(OP_NOT, node->line);
       break;
+    case OP_NODE_BITNOT:
+      emitByte(OP_BITNOT, node->line);
+      break;
     default:
       break; // unreachable
     }
@@ -562,6 +565,21 @@ static void emitExpr(Node *node) {
       break;
     case OP_NODE_MOD:
       emitByte(OP_MOD, node->line);
+      break;
+    case OP_NODE_BITAND:
+      emitByte(OP_BITAND, node->line);
+      break;
+    case OP_NODE_BITOR:
+      emitByte(OP_BITOR, node->line);
+      break;
+    case OP_NODE_BITXOR:
+      emitByte(OP_BITXOR, node->line);
+      break;
+    case OP_NODE_SHL:
+      emitByte(OP_SHL, node->line);
+      break;
+    case OP_NODE_SHR:
+      emitByte(OP_SHR, node->line);
       break;
     case OP_NODE_EQUAL:
       emitByte(OP_EQUAL, node->line);

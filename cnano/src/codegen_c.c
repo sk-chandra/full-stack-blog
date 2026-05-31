@@ -88,6 +88,12 @@ static TypeKind inferBinary(Node *n) {
   case OP_NODE_SUB:
   case OP_NODE_MUL:
   case OP_NODE_DIV:
+  case OP_NODE_MOD:
+  case OP_NODE_BITAND:
+  case OP_NODE_BITOR:
+  case OP_NODE_BITXOR:
+  case OP_NODE_SHL:
+  case OP_NODE_SHR:
     return TY_INT;
   default:
     return TY_BOOL; // comparisons / equality
@@ -214,6 +220,11 @@ static void emitBinary(Node *node) {
   case OP_NODE_ADD: cop = "+"; break;
   case OP_NODE_SUB: cop = "-"; break;
   case OP_NODE_MUL: cop = "*"; break;
+  case OP_NODE_BITAND: cop = "&"; break;
+  case OP_NODE_BITOR: cop = "|"; break;
+  case OP_NODE_BITXOR: cop = "^"; break;
+  case OP_NODE_SHL: cop = "<<"; break;
+  case OP_NODE_SHR: cop = ">>"; break;
   case OP_NODE_LESS: cop = "<"; break;
   case OP_NODE_GREATER: cop = ">"; break;
   case OP_NODE_EQUAL: cop = "=="; break;
@@ -263,7 +274,9 @@ static void emitExpr(Node *node) {
     fprintf(out, ")");
     break;
   case NODE_UNARY:
-    fprintf(out, "(%s", node->as.unary.op == OP_NODE_NEGATE ? "-" : "!");
+    fprintf(out, "(%s", node->as.unary.op == OP_NODE_NEGATE  ? "-"
+                        : node->as.unary.op == OP_NODE_BITNOT ? "~"
+                                                              : "!");
     emitExpr(node->as.unary.operand);
     fprintf(out, ")");
     break;

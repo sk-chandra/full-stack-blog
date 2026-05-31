@@ -188,6 +188,11 @@ static Type *checkBinary(Node *node) {
   case OP_NODE_MUL:
   case OP_NODE_DIV:
   case OP_NODE_MOD:
+  case OP_NODE_BITAND:
+  case OP_NODE_BITOR:
+  case OP_NODE_BITXOR:
+  case OP_NODE_SHL:
+  case OP_NODE_SHR:
     requireInt(l, node->line, "left operand");
     requireInt(r, node->line, "right operand");
     return typeInt();
@@ -272,6 +277,10 @@ static Type *checkExpr(Node *node) {
   case NODE_UNARY:
     if (node->as.unary.op == OP_NODE_NEGATE) {
       requireInt(checkExpr(node->as.unary.operand), node->line, "operand of '-'");
+      return typeInt();
+    }
+    if (node->as.unary.op == OP_NODE_BITNOT) {
+      requireInt(checkExpr(node->as.unary.operand), node->line, "operand of '~'");
       return typeInt();
     }
     // `!` accepts anything (truthiness) and yields bool.

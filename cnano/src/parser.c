@@ -138,8 +138,12 @@ static Node *expression(void);
 static Node *assignment(void);
 static Node *logicOr(void);
 static Node *logicAnd(void);
+static Node *bitOr(void);
+static Node *bitXor(void);
+static Node *bitAnd(void);
 static Node *equality(void);
 static Node *comparison(void);
+static Node *shift(void);
 static Node *term(void);
 static Node *factor(void);
 static Node *unary(void);
@@ -279,12 +283,42 @@ static Node *logicOr(void) {
 }
 
 static Node *logicAnd(void) {
-  Node *node = equality();
+  Node *node = bitOr();
   while (check(TOKEN_AND)) {
     int line = parser.current.line;
     advance();
-    Node *right = equality();
+    Node *right = bitOr();
     node = newLogical(/*isAnd=*/true, node, right, line);
+  }
+  return node;
+}
+
+// Bitwise operators, in C's precedence order: | looser than ^ looser than &,
+// all below equality. Each is a left-associative chain over integers.
+static Node *bitOr(void) {
+  Node *node = bitXor();
+  while (check(TOKEN_PIPE)) {
+    int line = parser.current.line;
+    advance();
+    node = newBinary(OP_NODE_BITOR, node, bitXor(), line);
+  }
+  return node;
+}
+static Node *bitXor(void) {
+  Node *node = bitAnd();
+  while (check(TOKEN_CARET)) {
+    int line = parser.current.line;
+    advance();
+    node = newBinary(OP_NODE_BITXOR, node, bitAnd(), line);
+  }
+  return node;
+}
+static Node *bitAnd(void) {
+  Node *node = equality();
+  while (check(TOKEN_AMP)) {
+    int line = parser.current.line;
+    advance();
+    node = newBinary(OP_NODE_BITAND, node, equality(), line);
   }
   return node;
 }
@@ -305,13 +339,13 @@ static Node *equality(void) {
 }
 
 static Node *comparison(void) {
-  Node *node = term();
+  Node *node = shift();
   while (check(TOKEN_LESS) || check(TOKEN_LESS_EQUAL) ||
          check(TOKEN_GREATER) || check(TOKEN_GREATER_EQUAL)) {
     int line = parser.current.line;
     TokenType op = parser.current.type;
     advance();
-    Node *right = term();
+    Node *right = shift();
     // Build each form out of the two primitives `<` and `>` plus `!`:
     switch (op) {
     case TOKEN_LESS:
@@ -331,6 +365,18 @@ static Node *comparison(void) {
     default:
       break; // unreachable
     }
+  }
+  return node;
+}
+
+// Bit shifts sit between comparison and additive (C precedence).
+static Node *shift(void) {
+  Node *node = term();
+  while (check(TOKEN_LSHIFT) || check(TOKEN_RSHIFT)) {
+    int line = parser.current.line;
+    NodeOp op = check(TOKEN_LSHIFT) ? OP_NODE_SHL : OP_NODE_SHR;
+    advance();
+    node = newBinary(op, node, term(), line);
   }
   return node;
 }
@@ -377,6 +423,10 @@ static Node *unary(void) {
   if (match(TOKEN_BANG)) {
     int line = parser.previous.line;
     return newUnary(OP_NODE_NOT, unary(), line);
+  }
+  if (match(TOKEN_TILDE)) {
+    int line = parser.previous.line;
+    return newUnary(OP_NODE_BITNOT, unary(), line);
   }
   return call();
 }

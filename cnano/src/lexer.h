@@ -21,6 +21,13 @@ typedef enum {
   TOKEN_STAR_EQUAL,
   TOKEN_SLASH_EQUAL,
   TOKEN_PERCENT_EQUAL,
+  // Bitwise operators (integers only).
+  TOKEN_AMP,       // &
+  TOKEN_PIPE,      // |
+  TOKEN_CARET,     // ^
+  TOKEN_TILDE,     // ~  (unary bitwise NOT)
+  TOKEN_LSHIFT,    // <<
+  TOKEN_RSHIFT,    // >>
   TOKEN_LPAREN,
   TOKEN_RPAREN,
   TOKEN_LBRACE,    // { — opens a block scope (or a map type/literal)

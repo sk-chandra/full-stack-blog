@@ -85,6 +85,12 @@ typedef enum {
   OP_NODE_MUL,
   OP_NODE_DIV,
   OP_NODE_MOD,
+  OP_NODE_BITAND, // &
+  OP_NODE_BITOR,  // |
+  OP_NODE_BITXOR, // ^
+  OP_NODE_SHL,    // <<
+  OP_NODE_SHR,    // >>
+  OP_NODE_BITNOT, // ~  (unary)
   OP_NODE_EQUAL,   // ==
   OP_NODE_LESS,    // <
   OP_NODE_GREATER, // >

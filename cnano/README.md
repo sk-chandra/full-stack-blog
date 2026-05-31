@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (386 cases, incl. native + GC)
+make test       # run the end-to-end test suite (398 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -134,8 +134,9 @@ make run        # start the REPL
 - Four runtime types: **integers** (64-bit signed), **booleans**, **nil**, and
   heap **strings**, represented with a tagged union + an object header (see
   `value.h` / `object.h`)
-- Integer arithmetic `+  -  *  /  %` with correct **precedence** and
-  **left-associativity**, unary minus (`-5`, even `--5`)
+- Integer arithmetic `+  -  *  /  %` and **bitwise** `&  |  ^  <<  >>  ~` with
+  correct C-style **precedence** and **left-associativity**, unary minus
+  (`-5`, even `--5`)
 - **Comparisons** `<  <=  >  >=` and **equality** `==  !=` (no implicit
   cross-type coercion: `1 == true` is `false`)
 - **Logical not** `!` with a defined truthiness rule (`nil` and `false` are

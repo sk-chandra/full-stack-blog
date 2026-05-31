@@ -36,6 +36,17 @@ static Node *tryFoldBinary(Node *node) {
       // Same reasoning as DIV: modulo by zero must error at runtime, not fold.
       if (b == 0) return NULL;
       return newInt(a % b, line);
+    case OP_NODE_BITAND: return newInt(a & b, line);
+    case OP_NODE_BITOR:  return newInt(a | b, line);
+    case OP_NODE_BITXOR: return newInt(a ^ b, line);
+    case OP_NODE_SHL:
+    case OP_NODE_SHR:
+      // Out-of-range shifts must error at runtime (UB in C), so don't fold them.
+      if (b < 0 || b > 63) return NULL;
+      return newInt(node->as.binary.op == OP_NODE_SHL
+                        ? (int64_t)((uint64_t)a << b)
+                        : a >> b,
+                    line);
     case OP_NODE_LESS: return newBool(a < b, line);
     case OP_NODE_GREATER: return newBool(a > b, line);
     case OP_NODE_EQUAL: return newBool(a == b, line);
@@ -73,6 +84,8 @@ static Node *tryFoldUnary(Node *node) {
   int line = node->line;
   if (node->as.unary.op == OP_NODE_NEGATE && isIntLit(o))
     return newInt(-o->as.intValue, line);
+  if (node->as.unary.op == OP_NODE_BITNOT && isIntLit(o))
+    return newInt(~o->as.intValue, line);
   if (node->as.unary.op == OP_NODE_NOT) {
     // cnano truthiness: only nil and false are falsey. Mirror it exactly so the
     // folded result matches what the VM would have produced.
