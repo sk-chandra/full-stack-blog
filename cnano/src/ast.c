@@ -1,0 +1,57 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+#include "ast.h"
+
+// A tiny allocation helper so every constructor reports OOM the same way.
+static Node *allocNode(NodeType type, int line) {
+  Node *node = malloc(sizeof(Node));
+  if (node == NULL) {
+    fprintf(stderr, "cnano: out of memory allocating AST node\n");
+    exit(70);
+  }
+  node->type = type;
+  node->line = line;
+  return node;
+}
+
+Node *newNumber(Value value, int line) {
+  Node *node = allocNode(NODE_NUMBER, line);
+  node->as.number.value = value;
+  return node;
+}
+
+Node *newUnary(NodeOp op, Node *operand, int line) {
+  Node *node = allocNode(NODE_UNARY, line);
+  node->as.unary.op = op;
+  node->as.unary.operand = operand;
+  return node;
+}
+
+Node *newBinary(NodeOp op, Node *left, Node *right, int line) {
+  Node *node = allocNode(NODE_BINARY, line);
+  node->as.binary.op = op;
+  node->as.binary.left = left;
+  node->as.binary.right = right;
+  return node;
+}
+
+// Post-order traversal: free children before the parent so we never follow a
+// dangling pointer. Recursion mirrors the tree's own shape — the natural way to
+// walk a tree in any compiler stage.
+void freeNode(Node *node) {
+  if (node == NULL)
+    return;
+  switch (node->type) {
+  case NODE_NUMBER:
+    break; // no children
+  case NODE_UNARY:
+    freeNode(node->as.unary.operand);
+    break;
+  case NODE_BINARY:
+    freeNode(node->as.binary.left);
+    freeNode(node->as.binary.right);
+    break;
+  }
+  free(node);
+}

@@ -1,0 +1,85 @@
+// main.c — the cnano command-line interface.
+//
+// Usage:
+//   cnano                 start a REPL (read-eval-print loop)
+//   cnano FILE.cn         compile and run a source file
+//   cnano --dump FILE.cn  also print the bytecode and an execution trace
+//
+// This file wires the pieces together; all the interesting logic lives in the
+// lexer/parser/compiler/vm. Keeping main.c thin is good practice: the CLI is
+// just one possible "front door" to the same core.
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "vm.h"
+
+// Read an entire file into a heap buffer (NUL-terminated). The caller frees it.
+static char *readFile(const char *path) {
+  FILE *file = fopen(path, "rb");
+  if (file == NULL) {
+    fprintf(stderr, "cnano: could not open file \"%s\".\n", path);
+    exit(74); // 74 = EX_IOERR
+  }
+
+  fseek(file, 0L, SEEK_END);
+  long fileSize = ftell(file);
+  rewind(file);
+
+  char *buffer = malloc(fileSize + 1);
+  if (buffer == NULL) {
+    fprintf(stderr, "cnano: not enough memory to read \"%s\".\n", path);
+    exit(74);
+  }
+  size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);
+  buffer[bytesRead] = '\0';
+
+  fclose(file);
+  return buffer;
+}
+
+static void runFile(const char *path, bool trace) {
+  char *source = readFile(path);
+  InterpretResult result = interpret(source, trace, NULL);
+  free(source);
+
+  // Map interpreter outcomes onto conventional Unix exit codes so cnano plays
+  // nicely in shell pipelines and test scripts.
+  if (result == INTERPRET_COMPILE_ERROR)
+    exit(65);
+  if (result == INTERPRET_RUNTIME_ERROR)
+    exit(70);
+}
+
+static void repl(void) {
+  char line[1024];
+  printf("cnano REPL — type an arithmetic expression, Ctrl-D to quit.\n");
+  for (;;) {
+    printf("> ");
+    if (!fgets(line, sizeof(line), stdin)) {
+      printf("\n");
+      break;
+    }
+    // Ignore errors in the REPL so one typo doesn't end the session.
+    interpret(line, false, NULL);
+  }
+}
+
+int main(int argc, const char *argv[]) {
+  initVM();
+
+  if (argc == 1) {
+    repl();
+  } else if (argc == 2) {
+    runFile(argv[1], false);
+  } else if (argc == 3 && strcmp(argv[1], "--dump") == 0) {
+    runFile(argv[2], true);
+  } else {
+    fprintf(stderr, "Usage: cnano [--dump] [path]\n");
+    freeVM();
+    exit(64); // 64 = EX_USAGE
+  }
+
+  freeVM();
+  return 0;
+}
