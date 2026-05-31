@@ -221,7 +221,7 @@ Token scanToken(void) {
   case '-':
     return makeToken(match('=') ? TOKEN_MINUS_EQUAL : TOKEN_MINUS);
   case '.':
-    return makeToken(TOKEN_DOT);
+    return makeToken(match('.') ? TOKEN_DOTDOT : TOKEN_DOT);
   case '*':
     return makeToken(match('=') ? TOKEN_STAR_EQUAL : TOKEN_STAR);
   case '/':

@@ -29,6 +29,7 @@ typedef enum {
   TOKEN_RBRACKET,  // ] — closes one
   TOKEN_COMMA,     // , — separates parameters and arguments
   TOKEN_DOT,       // . — method call: receiver.method(args)
+  TOKEN_DOTDOT,    // .. — an integer range, as in `for (let i in 0..n)`
   TOKEN_COLON,     // : — introduces a type annotation
   TOKEN_QUESTION,  // ? — marks a nullable type, as in `int?`
   TOKEN_SEMICOLON, // ; — terminates a statement

@@ -616,6 +616,14 @@ check_prog_err "null-wrong-inner" 'let a: int? = "no"; print a;'
 check_prog_err "null-no-narrow"  'fn f(x: int?): int { return x; } print f(1);'
 check_native_err "nat-rej-nullable" 'fn f(x: int?): int { return 0; } print f(nil);'
 
+# --- integer ranges in for-in (step 27) ---
+check_prog "range-basic"   'for (let i in 0..4) print i;' "$(printf '0\n1\n2\n3')"
+check_prog "range-sum"     'let s=0; for (let i in 1..101) { s+=i; } print s;' "5050"
+check_prog "range-expr-bounds" 'let n=3; for (let i in n..n+n) print i;' "$(printf '3\n4\n5')"
+check_prog "range-break-cont" 'for (let i in 0..10) { if (i==3) continue; if (i==6) break; print i; }' "$(printf '0\n1\n2\n4\n5')"
+check_prog "range-empty"   'let c=0; for (let i in 5..5) { c+=1; } print c;' "0"
+check_prog "range-nested"  'let s=0; for (let i in 0..3) { for (let j in 0..3) { s+=1; } } print s;' "9"
+
 # --- break / continue (step 26) ---
 check_prog "break-while"   'let i=0; while (true) { if (i==3) break; print i; i+=1; }' "$(printf '0\n1\n2')"
 check_prog "continue-for"  'for (let i=0; i<6; i+=1) { if (i-(i/2)*2==0) continue; print i; }' "$(printf '1\n3\n5')"

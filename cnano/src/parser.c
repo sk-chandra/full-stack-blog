@@ -728,6 +728,30 @@ static Node *desugarForIn(ObjString *var, Node *coll, Node *body, int line) {
   return newBlock(outer, line);
 }
 
+// Desugar `for (let NAME in LO..HI) BODY` into a counting loop:
+//   { let NAME = LO; let $end = HI; while (NAME < $end) { BODY; NAME = NAME + 1; } }
+// HI is evaluated ONCE (into $end), and the step rides the while's increment so
+// `continue` runs it. The end is exclusive: 0..n yields 0,1,...,n-1.
+static Node *desugarRange(ObjString *name, Node *lo, Node *hi, Node *body,
+                          int line) {
+  ObjString *end = copyString("$end", 4);
+  Node *declVar = newVarDecl(name, lo, typeAny(), line);
+  Node *declEnd = newVarDecl(end, hi, typeAny(), line);
+  Node *cond =
+      newBinary(OP_NODE_LESS, newVarGet(name, line), newVarGet(end, line), line);
+  Node *incr = newAssign(
+      name, newBinary(OP_NODE_ADD, newVarGet(name, line), newInt(1, line), line),
+      line);
+  Node *loop = newWhile(cond, body, line);
+  loop->as.whileStmt.increment = incr;
+
+  Program *outer = makeProgram();
+  writeProgram(outer, declVar);
+  writeProgram(outer, declEnd);
+  writeProgram(outer, loop);
+  return newBlock(outer, line);
+}
+
 static Node *forStatement(void) {
   int line = parser.previous.line; // the 'for'
   consume(TOKEN_LPAREN, "Expect '(' after 'for'.");
@@ -743,6 +767,13 @@ static Node *forStatement(void) {
     ObjString *name = copyString(parser.previous.start, parser.previous.length);
     if (match(TOKEN_IN)) {
       Node *coll = expression();
+      if (match(TOKEN_DOTDOT)) {
+        // A numeric range `LO..HI` — count instead of iterating a collection.
+        Node *hi = expression();
+        consume(TOKEN_RPAREN, "Expect ')' after the range.");
+        Node *body = statement();
+        return desugarRange(name, coll, hi, body, line);
+      }
       consume(TOKEN_RPAREN, "Expect ')' after the for-in collection.");
       Node *body = statement();
       return desugarForIn(name, coll, body, line);

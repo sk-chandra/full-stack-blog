@@ -1450,8 +1450,13 @@ programs define their own types, and makes failure recoverable.
     rather than appending it to the body. Native supports `break` (rejects
     `continue`). A loop can't span a function boundary.
 
+27. ~~**Integer ranges** `for (let i in 0..n)`.~~ **✅ DONE** — a `..` token and a
+    for-in-only desugar to a counting loop (`{ let i = lo; let $end = hi; while (i
+    < $end) { body; i = i + 1; } }`), reusing the while-increment so break/continue
+    work. End-exclusive; the upper bound is evaluated once. No new runtime.
+
 **Phase D — type-system depth**
-27. **Union types** (`int | str`) with narrowing.
+28. **Union types** (`int | str`) with narrowing.
 27. **Generics** (`fn first<T>(a: [T]): T`).
 
 **Phase E — compiler & runtime polish**
