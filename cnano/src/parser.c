@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h> // memcmp — for recognising type-name tokens
 
 #include "ast.h"
 #include "lexer.h"
@@ -570,17 +571,52 @@ static Node *statement(void) {
   return expressionStatement();
 }
 
-// `let NAME = EXPR ;` — declare and initialise a new global variable. We require
-// an initialiser for simplicity (no bare `let x;`), which sidesteps the
-// "uninitialised variable" question entirely.
+// Map a just-consumed type-name token to a TypeKind. Type names are not reserved
+// keywords — they are recognised only HERE, in annotation position, so `int` etc.
+// remain usable as ordinary variable names elsewhere. The one special case is
+// `nil`, which is a keyword (the literal), so we accept that token too.
+static TypeKind tokenToTypeKind(void) {
+  if (parser.previous.type == TOKEN_NIL)
+    return TY_NIL;
+  // Otherwise it must be an identifier naming a primitive type.
+  int len = parser.previous.length;
+  const char *s = parser.previous.start;
+  if (len == 3 && memcmp(s, "int", 3) == 0)
+    return TY_INT;
+  if (len == 4 && memcmp(s, "bool", 4) == 0)
+    return TY_BOOL;
+  if (len == 3 && memcmp(s, "str", 3) == 0)
+    return TY_STR;
+  if (len == 3 && memcmp(s, "any", 3) == 0)
+    return TY_ANY;
+  errorAt(&parser.previous, "Unknown type name (expected int, bool, str, nil, or any).");
+  return TY_ANY;
+}
+
+// Parse a `: TYPE` annotation that FOLLOWS a just-consumed ':'. Used after a
+// variable name, a parameter name, and a function's parameter list.
+static TypeKind parseTypeName(void) {
+  // A type name is `nil` (a keyword) or an identifier like int/bool/str/any.
+  if (match(TOKEN_NIL) || match(TOKEN_IDENTIFIER))
+    return tokenToTypeKind();
+  errorAt(&parser.current, "Expect a type name after ':'.");
+  return TY_ANY;
+}
+
+// `let NAME [: TYPE] = EXPR ;` — declare and initialise a variable. The type
+// annotation is optional; omitted means TY_ANY (stay dynamic). We require an
+// initialiser for simplicity, sidestepping the "uninitialised variable" question.
 static Node *varDeclaration(void) {
   int line = parser.previous.line; // the 'let' keyword's line
   consume(TOKEN_IDENTIFIER, "Expect variable name after 'let'.");
   ObjString *name = copyString(parser.previous.start, parser.previous.length);
+  TypeKind declaredType = TY_ANY;
+  if (match(TOKEN_COLON))
+    declaredType = parseTypeName();
   consume(TOKEN_EQUAL, "Expect '=' after variable name.");
   Node *initializer = expression();
   consume(TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
-  return newVarDecl(name, initializer, line);
+  return newVarDecl(name, initializer, declaredType, line);
 }
 
 // `fn NAME ( params ) { body }`. We parse the parameter names into a heap array,
@@ -594,6 +630,7 @@ static Node *funDeclaration(void) {
 
   consume(TOKEN_LPAREN, "Expect '(' after function name.");
   ObjString **params = NULL;
+  TypeKind *paramTypes = NULL;
   int paramCount = 0;
   int capacity = 0;
   if (!check(TOKEN_RPAREN)) {
@@ -606,16 +643,25 @@ static Node *funDeclaration(void) {
       if (paramCount + 1 > capacity) {
         capacity = capacity < 4 ? 4 : capacity * 2;
         params = realloc(params, sizeof(ObjString *) * capacity);
-        if (params == NULL) {
+        paramTypes = realloc(paramTypes, sizeof(TypeKind) * capacity);
+        if (params == NULL || paramTypes == NULL) {
           fprintf(stderr, "cnano: out of memory parsing parameters\n");
           exit(70);
         }
       }
-      params[paramCount++] =
+      params[paramCount] =
           copyString(parser.previous.start, parser.previous.length);
+      // Optional `: TYPE` per parameter; default any.
+      paramTypes[paramCount] = match(TOKEN_COLON) ? parseTypeName() : TY_ANY;
+      paramCount++;
     } while (match(TOKEN_COMMA));
   }
   consume(TOKEN_RPAREN, "Expect ')' after parameters.");
+
+  // Optional return-type annotation: `fn f(...) : TYPE { ... }`. Default any.
+  TypeKind returnType = TY_ANY;
+  if (match(TOKEN_COLON))
+    returnType = parseTypeName();
 
   consume(TOKEN_LBRACE, "Expect '{' before function body.");
   Node *bodyBlock = block(); // parses up to and including the closing '}'
@@ -624,7 +670,7 @@ static Node *funDeclaration(void) {
   bodyBlock->as.block = NULL; // detach so freeing the wrapper won't free body
   freeNode(bodyBlock);
 
-  return newFun(name, params, paramCount, body, line);
+  return newFun(name, params, paramTypes, paramCount, returnType, body, line);
 }
 
 // One level above statement(): a declaration is a `fn`, a `let`, or any

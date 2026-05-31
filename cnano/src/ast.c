@@ -75,10 +75,11 @@ Node *newExprStmt(Node *expr, int line) {
   return node;
 }
 
-Node *newVarDecl(ObjString *name, Node *value, int line) {
+Node *newVarDecl(ObjString *name, Node *value, TypeKind declaredType, int line) {
   Node *node = allocNode(NODE_VAR_DECL, line);
   node->as.var.name = name;
   node->as.var.value = value;
+  node->as.var.declaredType = declaredType;
   return node;
 }
 
@@ -119,12 +120,14 @@ Node *newCall(Node *callee, Node **args, int argCount, int line) {
   return node;
 }
 
-Node *newFun(ObjString *name, ObjString **params, int paramCount,
-             Program *body, int line) {
+Node *newFun(ObjString *name, ObjString **params, TypeKind *paramTypes,
+             int paramCount, TypeKind returnType, Program *body, int line) {
   Node *node = allocNode(NODE_FUN, line);
   node->as.fun.name = name;
   node->as.fun.params = params;
+  node->as.fun.paramTypes = paramTypes;
   node->as.fun.paramCount = paramCount;
+  node->as.fun.returnType = returnType;
   node->as.fun.body = body;
   return node;
 }
@@ -193,8 +196,9 @@ void freeNode(Node *node) {
     break;
   case NODE_FUN:
     // name and the param ObjStrings are VM-owned (interned); free only the
-    // params array, the body program, and its container.
+    // params/paramTypes arrays, the body program, and its container.
     free(node->as.fun.params);
+    free(node->as.fun.paramTypes);
     freeProgram(node->as.fun.body);
     free(node->as.fun.body);
     break;

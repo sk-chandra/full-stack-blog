@@ -292,6 +292,36 @@ check_prog "closure-readonly" \
   'fn mk(msg){fn f(){return msg;} return f;} let g=mk("hi"); print g(); print g();' \
   "$(printf 'hi\nhi')"
 
+# --- static type checker: WELL-TYPED programs run normally (step 7) ---
+check_prog "ty-let-int"     'let x: int = 5; print x + 3;'               "8"
+check_prog "ty-let-str"     'let s: str = "hi"; print s + "!";'          "hi!"
+check_prog "ty-let-bool"    'let b: bool = 1 < 2; print b;'              "true"
+check_prog "ty-fn"          'fn add(a: int, b: int): int { return a+b; } print add(3,4);' "7"
+check_prog "ty-fn-str"      'fn greet(n: str): str { return "hi " + n; } print greet("x");' "hi x"
+check_prog "ty-infer"       'let x: int = 5; let y = x + 1; print y;'    "6"
+check_prog "ty-mutual"      'fn ev(n: int): bool { if(n==0) return true; return od(n-1); } fn od(n: int): bool { if(n==0) return false; return ev(n-1); } print ev(6);' "true"
+check_prog "ty-return-nil"  'fn f(): nil { return nil; } print f();'     "nil"
+# Gradual: `any` (unannotated, or explicit) mixes with typed code freely.
+check_prog "ty-gradual-mix" 'let x = 5; let y: int = x; print y + 1;'    "6"
+check_prog "ty-gradual-fn"  'fn f(a) { return a + 1; } print f(10);'     "11"
+check_prog "ty-any-explicit" 'let a: any = "s"; print a + "x";'          "sx"
+# Type names are not reserved words.
+check_prog "ty-name-reuse"  'let int = 5; print int + 1;'                "6"
+
+# --- static type checker: ILL-TYPED programs are REJECTED before running ---
+check_prog_err "ty-bad-init"      'let x: int = true;'
+check_prog_err "ty-int-plus-bool" 'let x: int = 1; let y: bool = false; print x + y;'
+check_prog_err "ty-bad-arg"       'fn f(a: int): int { return a; } f(true);'
+check_prog_err "ty-bad-arity"     'fn f(a: int): int { return a; } f(1, 2);'
+check_prog_err "ty-bad-return"    'fn f(): int { return true; }'
+check_prog_err "ty-call-int"      'let x: int = 5; x();'
+check_prog_err "ty-neg-bool"      'let b: bool = true; print -b;'
+check_prog_err "ty-cmp-str"       'let s: str = "a"; print s < 3;'
+check_prog_err "ty-assign-bad"    'let x: int = 1; x = "no";'
+check_prog_err "ty-fwd-bad-arg"   'fn a(): int { return b(true); } fn b(x: int): int { return x; }'
+check_prog_err "ty-bad-typename"  'let x: integer = 5;'
+check_prog_err "ty-concat-int"    'let s: str = "a"; print s + 1;'
+
 rm -f "$tmp"
 echo "-----------------------------------------"
 echo "passed: $pass   failed: $fail"

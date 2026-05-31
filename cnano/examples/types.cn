@@ -1,0 +1,39 @@
+// Optional static types. cnano is GRADUALLY typed: annotations are optional, and
+// anything unannotated is `any` (fully dynamic). Where you DO annotate, a type
+// checker runs before the program and rejects mismatches — turning a class of
+// bugs from runtime crashes into compile-time errors.
+
+// Annotated variables. The checker verifies the initialiser matches.
+let width: int = 8;
+let height: int = 5;
+let label: str = "area = ";
+
+// Annotated function: parameter types and a return type. Calls are checked for
+// arity, argument types, and the return type is known at every call site.
+fn area(w: int, h: int): int {
+  return w * h;
+}
+
+// `+` is type-aware: int+int here, str+int would be a compile-time error.
+print label + "(computed)";
+print area(width, height);          // 40
+
+// Recursion with types — the return type is checked against every `return`.
+fn factorial(n: int): int {
+  if (n <= 1) return 1;
+  return n * factorial(n - 1);
+}
+print factorial(6);                 // 720
+
+// GRADUAL: untyped code still works and interoperates with typed code. `dbl`
+// takes `any`, so it accepts anything; `total` is declared int and the checker
+// is happy because `any` is compatible with everything.
+fn dbl(x) { return x + x; }
+let total: int = dbl(21);
+print total;                        // 42
+
+// Try uncommenting any of these — each is caught BEFORE the program runs:
+//   let bad: int = true;            // initialiser is bool but declared int
+//   print area(1);                  // expects 2 arguments but got 1
+//   print area(1, "two");           // argument 2 expects int but got str
+//   fn f(): int { return "no"; }    // returning str from a fn declared int

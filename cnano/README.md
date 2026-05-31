@@ -1,11 +1,11 @@
 # cnano
 
-A tiny low-level programming language, built from scratch in C **to learn how
-programming languages work**. This first slice compiles and runs integer
-arithmetic through a complete, real-world compiler pipeline:
+A small programming language, built from scratch in C **to learn how programming
+languages work** — from integer arithmetic up through closures and an optional
+static type checker, via a complete, real-world compiler pipeline:
 
 ```
-source text  →  Lexer  →  tokens  →  Parser  →  AST  →  Compiler  →  bytecode  →  VM  →  result
+source  →  Lexer  →  tokens  →  Parser  →  AST  →  Type checker  →  Compiler  →  bytecode  →  VM  →  result
 ```
 
 Every stage above is a separate, well-commented module — the same architecture
@@ -15,12 +15,12 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (138 cases)
+make test       # run the end-to-end test suite (162 cases)
 make run        # start the REPL
 
 # run a file
+./build/cnano examples/types.cn               #  optional static type annotations
 ./build/cnano examples/closures.cn            #  counters, adders, an account
-./build/cnano examples/functions.cn           #  recursion, fib, first-class fns
 
 # see the bytecode AND a step-by-step VM trace (the best way to learn)
 ./build/cnano --dump examples/variables.cn
@@ -56,6 +56,12 @@ make run        # start the REPL
   via upvalues, and those variables outlive the frame that created them (so a
   returned counter keeps counting). Captured variables can be shared and mutated
   between sibling closures
+- **Optional static types** (gradual typing): annotate with `let x: int = …;`
+  and `fn add(a: int, b: int): int { … }` (types `int`/`bool`/`str`/`nil`/`any`).
+  A type-checking pass runs **before** execution and rejects mismatches (bad
+  initialisers, wrong argument types/arity, wrong return type, calling a
+  non-function, bad operators). Unannotated code is `any` and stays fully
+  dynamic, so typed and untyped code mix freely
 - **Strings**: `"double-quoted"` literals, `+` concatenates them, and they are
   **interned** so equal strings compare in O(1) by pointer
 - **Line comments** with `//` (stripped by the lexer; `/` is still division)
@@ -85,6 +91,8 @@ make run        # start the REPL
 | `src/lexer.{h,c}` | text → tokens | lexing, string slices, lookahead, comments |
 | `src/ast.{h,c}` | the tree + `Program` | ASTs, tagged unions, expr vs. statement |
 | `src/parser.{h,c}` | tokens → AST | recursive descent, precedence, l-values, recovery |
+| `src/type.{h,c}` | the type system | gradual types; `any` as the escape hatch |
+| `src/typecheck.{h,c}` | static analysis pass | tree-walking checker, two-pass for fns |
 | `src/value.{h,c}` | values + constant pool | tagged-union dynamic values |
 | `src/object.{h,c}` | heap objects: strings, functions, closures, upvalues | object model, interning |
 | `src/table.{h,c}` | hash table | open addressing, linear probing, tombstones |

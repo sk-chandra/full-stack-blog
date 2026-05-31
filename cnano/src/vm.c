@@ -7,6 +7,7 @@
 #include "debug.h"
 #include "object.h"
 #include "parser.h"
+#include "typecheck.h"
 #include "vm.h"
 
 // The one global VM instance (declared `extern` in vm.h).
@@ -488,6 +489,15 @@ InterpretResult interpret(const char *source, bool trace) {
   bool ok = parse(source, &program);
   if (!ok) {
     freeProgram(&program); // may hold partially-built statements
+    return INTERPRET_COMPILE_ERROR;
+  }
+
+  // 1b. STATIC TYPE CHECK. A separate analysis pass over the AST that catches
+  // type errors before any code runs. Gradual: unannotated code is `any` and
+  // passes trivially. On failure we refuse to compile or run, like a real
+  // ahead-of-time compiler rejecting an ill-typed program.
+  if (!typecheckProgram(&program)) {
+    freeProgram(&program);
     return INTERPRET_COMPILE_ERROR;
   }
 

@@ -816,7 +816,86 @@ standard technique used by real VMs (Lua, and clox in *Crafting Interpreters*).
 
 ---
 
-## 16. Roadmap: where to go next
+## 16. Case study: a gradual static type checker
+
+Roadmap step 7, completed — a different *kind* of step. Instead of adding a
+runtime feature, we add a **separate analysis pass** that runs between parsing and
+compilation, computes a type for every expression, and rejects provably-wrong
+programs **before they run**. This is your first taste of *static analysis*:
+reasoning about behaviour from structure alone. The new pipeline stage:
+
+```
+... → Parser → AST → [Type checker] → Compiler → ...
+```
+
+### 16.1 Static vs. dynamic — and the gradual middle
+
+A dynamically typed language (what cnano was) checks types at *runtime*: flexible,
+no annotations, but errors surface only when the bad line executes. A statically
+typed language checks *before* running: errors caught early and uniformly, at the
+cost of annotations and some rigidity. cnano takes the modern middle path —
+**gradual typing** (à la TypeScript, Python's hints, Dart):
+
+- Annotations are **optional**: `let x: int = 5;`, `fn add(a: int): int {...}`.
+- Anything unannotated has the type **`any`**.
+- **`any` is compatible with everything**, in both directions (`compatible()` in
+  `typecheck.c`). That one rule is the whole escape hatch: typed and untyped code
+  interoperate, and an error fires *only* when both sides are known and genuinely
+  disagree. This is why all 138 pre-existing untyped tests still pass untouched.
+
+Types are then **erased**: the checker is purely a gate. The compiler and VM are
+unchanged and remain dynamically typed. (A production language would also use the
+types to *optimise* — unboxing, devirtualisation — but erasure keeps the lesson
+focused.)
+
+### 16.2 The checker is a third tree walk
+
+By now the AST-walk shape is familiar: the lexer/parser build the tree, the
+compiler walks it to emit code, and now the checker walks it to compute types.
+`checkExpr` returns a `Type *` for each expression; `checkStatement` validates
+statements. It carries a lexically-scoped symbol table (name → type), mirroring
+the compiler's locals array, with `beginScope`/`endScope`. The operator rules are
+the heart: `+` is type-aware (int add *or* str concat, matching the VM's runtime
+overload), arithmetic/comparison `requireInt`, `==` accepts anything, `!` yields
+bool. Each rule reports an error only on a *known* mismatch — never on `any`.
+
+### 16.3 Two passes, so functions can be forward-referenced
+
+Functions are checked in **two passes** over the top level:
+
+1. **Register** every top-level function's *type* (from its annotations) into the
+   symbol table.
+2. **Check** every statement, including function bodies.
+
+Pass 1 is what lets a call resolve a function declared *later*, and lets
+**mutually recursive** functions check each other — the static analogue of the
+hoisting the runtime already had for globals. A function's body is checked with
+its parameters bound to their annotated types and its declared return type
+recorded, so every `return` is validated against it.
+
+### 16.4 A little inference, and what it catches
+
+When a `let` has no annotation, its variable takes the *inferred* type of its
+initialiser (`let y = x + 1;` makes `y` an int if `x` is) — a first taste of type
+inference. Statically caught errors include: bad initialiser type, `int + bool`,
+wrong argument type, wrong **arity** (before running!), wrong return type, calling
+a non-function, negating a bool, and comparing a str to an int — each reported
+with a line number and the offending types, then compilation is refused.
+
+### 16.5 Memory note
+
+Function types are heap-allocated (they carry parameter/return arrays) and tracked
+in a small **arena** freed all at once when checking finishes — simpler and
+leak-free versus per-type lifetime tracking. Primitive types are singletons.
+
+> Gradual typing is a genuine, current research-to-practice design. cnano's
+> version is small but real: it demonstrates the core compatibility rule, scoped
+> symbol resolution, two-pass forward references, and type-directed error
+> reporting — the skeleton every real checker shares.
+
+---
+
+## 17. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -842,9 +921,10 @@ ordered so each builds on the last.
    recursion / mutual recursion, first-class functions, and stack traces.
 6b. ~~**Closures.**~~ **✅ DONE** — see §15 above. Upvalues (open→closed),
    three-way local/upvalue/global resolution, chained and shared captures.
-7. **A type checker.** A separate pass over the AST that assigns and verifies
-   types *before* running — your first taste of static analysis and the
-   static-vs-dynamic trade-off.
+7. ~~**A type checker.**~~ **✅ DONE** — see §16 above. A gradual static checker:
+   optional `int`/`bool`/`str`/`nil`/`any` annotations, an `any`-compatible-with-
+   everything rule, two-pass function checking, light inference, and type errors
+   (init/operator/arg/arity/return/callability) reported before execution.
 8. **Optimisations.** Constant folding on the AST (`2 + 3` → `5` at compile
    time); a Pratt parser; `OP_CONSTANT_LONG`; run-length-encoded line info.
 9. **Toward native code.** Emit textual assembly or LLVM IR instead of bytecode,
