@@ -1,0 +1,8 @@
+// A small "library" module. It has no `print`s of its own — it only exports
+// declarations (functions and a const) for other files to import and use.
+
+const PI = 3;
+
+fn square(n: int): int { return n * n; }
+
+fn cube(n: int): int { return n * square(n); }

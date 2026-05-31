@@ -8,6 +8,12 @@
 set -u
 
 CNANO="${1:-./build/cnano}"
+# Resolve to an absolute path: the module tests `cd` into a temp dir to run the
+# entry file, after which a relative ./build/cnano would no longer resolve.
+case "$CNANO" in
+  /*) ;; # already absolute
+  *) CNANO="$(cd "$(dirname "$CNANO")" && pwd)/$(basename "$CNANO")" ;;
+esac
 pass=0
 fail=0
 tmp="$(mktemp)"
@@ -118,6 +124,49 @@ check_native_err() {
     fail=$((fail + 1))
   else
     printf '  ok   %-22s -> native rejected (as expected)\n' "$name"
+    pass=$((pass + 1))
+  fi
+}
+
+# check_module NAME ENTRY_REL EXPECTED FILE1 BODY1 [FILE2 BODY2 ...] — write a set
+# of files into a fresh temp directory (relative paths preserved, subdirs created)
+# and run ENTRY_REL on the VM, comparing stdout. Exercises `import` resolution.
+check_module() {
+  local name="$1" entry="$2" expected="$3"; shift 3
+  local dir; dir="$(mktemp -d)"
+  while [ "$#" -ge 2 ]; do
+    local rel="$1" body="$2"; shift 2
+    mkdir -p "$dir/$(dirname "$rel")"
+    printf '%s' "$body" > "$dir/$rel"
+  done
+  local got; got="$(cd "$dir" && "$CNANO" "$entry" 2>/dev/null)"
+  rm -rf "$dir"
+  if [ "$got" = "$expected" ]; then
+    printf '  ok   %-22s (module) ok\n' "$name"
+    pass=$((pass + 1))
+  else
+    printf '  FAIL %-22s module: expected [%s] got [%s]\n' "$name" "$expected" "$got"
+    fail=$((fail + 1))
+  fi
+}
+
+# check_module_err NAME ENTRY_REL FILE1 BODY1 [...] — like check_module but expects
+# a non-zero exit (a bad import: missing file, misplaced import, …).
+check_module_err() {
+  local name="$1" entry="$2"; shift 2
+  local dir; dir="$(mktemp -d)"
+  while [ "$#" -ge 2 ]; do
+    local rel="$1" body="$2"; shift 2
+    mkdir -p "$dir/$(dirname "$rel")"
+    printf '%s' "$body" > "$dir/$rel"
+  done
+  if (cd "$dir" && "$CNANO" "$entry") >/dev/null 2>&1; then
+    rm -rf "$dir"
+    printf '  FAIL %-22s : expected an import error, but it succeeded\n' "$name"
+    fail=$((fail + 1))
+  else
+    rm -rf "$dir"
+    printf '  ok   %-22s -> error (as expected)\n' "$name"
     pass=$((pass + 1))
   fi
 }
@@ -679,6 +728,43 @@ check_prog "match-type-mixed" 'fn d(n: int): str { match (n) { 0 => return "zero
 check_prog "match-type-nullable" 'fn g(s: str?): str { match (s) { is str => return "got:${s}"; _ => return "none"; } } print g("ok"); print g(nil);' "$(printf 'got:ok\nnone')"
 check_prog "match-type-bool" 'fn k(v: int|bool): str { match (v) { is bool => return "b${v}"; _ => return "i${v}"; } } print k(true); print k(3);' "$(printf 'btrue\ni3')"
 check_native "nat-match" 'fn c(n: int): int { match (n) { 0 => return 100; 1 => return 200; _ => return 0; } } print c(1);' "200"
+
+# --- modules / imports (step 40) ---
+# Basic import: the entry file uses a function defined in another file.
+check_module "mod-basic" "main.cn" "25" \
+  "main.cn" 'import "math.cn"; print square(5);' \
+  "math.cn" 'fn square(n: int): int { return n * n; }'
+# Relative paths: an import resolves relative to the importing file's directory,
+# and a nested import (lib/dep.cn) resolves relative to lib/.
+check_module "mod-relative" "main.cn" "$(printf 'Hi Ada\n9')" \
+  "main.cn" 'import "lib/api.cn"; print greet("Ada"); print sq(3);' \
+  "lib/api.cn" 'import "util.cn"; fn greet(n: str): str { return "Hi " + n; }' \
+  "lib/util.cn" 'fn sq(n: int): int { return n * n; }'
+# Diamond: math.cn is imported via two paths but its definitions appear once
+# (no "already defined" error), and a top-level const carries across.
+check_module "mod-diamond" "main.cn" "$(printf '49\n3')" \
+  "main.cn" 'import "a.cn"; import "math.cn"; print square(7); print PI;' \
+  "a.cn" 'import "math.cn"; fn unused(): int { return PI; }' \
+  "math.cn" 'fn square(n: int): int { return n * n; } const PI = 3;'
+# Cycle: a imports b, b imports a — the once-only guard makes this terminate.
+check_module "mod-cycle" "c.cn" "3" \
+  "c.cn" 'import "a.cn"; print fa() + fb();' \
+  "a.cn" 'import "b.cn"; fn fa(): int { return 1; }' \
+  "b.cn" 'import "a.cn"; fn fb(): int { return 2; }'
+# Imported types are checked across the boundary (struct from another file).
+check_module "mod-struct" "main.cn" "12" \
+  "main.cn" 'import "geo.cn"; let r = Rect(3, 4); print r.area();' \
+  "geo.cn" 'struct Rect { w: int, h: int  fn area(): int { return self.w * self.h; } }'
+# Errors: a missing import, and a misplaced (nested) import.
+check_module_err "mod-missing" "main.cn" \
+  "main.cn" 'import "nope.cn"; print 1;'
+check_module_err "mod-nested" "main.cn" \
+  "main.cn" 'fn f(): int { import "x.cn"; return 1; } print f();' \
+  "x.cn" 'fn g(): int { return 0; }'
+# A type error in an imported file is reported (the whole program is checked).
+check_module_err "mod-typeerr" "main.cn" \
+  "main.cn" 'import "bad.cn"; print 1;' \
+  "bad.cn" 'fn f(): int { return "not an int"; }'
 
 # --- string escape sequences (step 34) ---
 check_prog "esc-newline"   'print "a\nb";' "$(printf 'a\nb')"

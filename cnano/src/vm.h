@@ -104,10 +104,18 @@ bool callFromVM(Value callee, Value *args, int argCount, Value *result);
 // how the VM "thinks". Programs produce output via `print`.
 InterpretResult interpret(const char *source, bool trace);
 
+// Like interpret(), but reads a FILE and resolves its `import "…"` statements
+// relative to the file's own directory. The CLI uses this for `cnano FILE.cn`.
+InterpretResult interpretFile(const char *path, bool trace);
+
 // NATIVE backend. Compile `source` (the typed first-order subset) to C and write
 // it to `cFile`. Runs the same front end (parse, type-check, fold) as the VM, so
 // errors are caught identically. Returns INTERPRET_OK on success. `emitOnly` has
 // no effect here; the caller decides whether to invoke `cc` on the result.
 InterpretResult compileToC(const char *source, FILE *cFile);
+
+// Like compileToC(), but reads a FILE and resolves its imports relative to the
+// file's directory (used by `--emit-c` and `--native`).
+InterpretResult compileFileToC(const char *path, FILE *cFile);
 
 #endif // CNANO_VM_H

@@ -272,6 +272,12 @@ Node *newReturn(Node *value, int line) {
   return node;
 }
 
+Node *newImport(ObjString *path, int line) {
+  Node *node = allocNode(NODE_IMPORT, line);
+  node->as.stringValue = path; // VM-owned interned string (like NODE_STRING)
+  return node;
+}
+
 // Post-order traversal: free children before the parent so we never follow a
 // dangling pointer. Recursion mirrors the tree's own shape — the natural way to
 // walk a tree in any compiler stage.
@@ -285,6 +291,7 @@ void freeNode(Node *node) {
   case NODE_NIL:
   case NODE_STRING:  // the ObjString is owned/freed by the VM, not the AST
   case NODE_VAR_GET: // ditto for the variable name
+  case NODE_IMPORT:  // ditto for the import path string
     break;           // leaf nodes, no child Nodes
   case NODE_UNARY:
     freeNode(node->as.unary.operand);

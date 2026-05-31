@@ -1333,7 +1333,32 @@ static Node *structDeclaration(void) {
 
 // One level above statement(): a declaration is a `struct`, a `fn`, a `let`, or
 // any statement. This is the natural synchronisation point for errors.
+// `import "path";` — a top-level statement that pulls another file's
+// declarations into this program. The path is a plain string literal (no
+// interpolation): a compile-time constant, resolved by the module loader before
+// type-checking, never reaching the VM. We decode the literal's escapes so a
+// path may contain e.g. a space written as-is.
+static Node *importDeclaration(void) {
+  int line = parser.previous.line; // 'import'
+  consume(TOKEN_STRING, "Expect a \"path\" string after 'import'.");
+  const char *text = parser.previous.start + 1; // strip the quotes
+  int len = parser.previous.length - 2;
+  // Reject interpolation in a path: it must be a compile-time constant.
+  for (int i = 0; i + 1 < len; i++) {
+    if (text[i] == '\\') { i++; continue; }
+    if (text[i] == '$' && text[i + 1] == '{') {
+      errorAt(&parser.previous, "An import path must be a plain string literal.");
+      break;
+    }
+  }
+  ObjString *path = decodeEscapes(text, len);
+  consume(TOKEN_SEMICOLON, "Expect ';' after an import path.");
+  return newImport(path, line);
+}
+
 static Node *declaration(void) {
+  if (match(TOKEN_IMPORT))
+    return importDeclaration();
   if (match(TOKEN_STRUCT))
     return structDeclaration();
   if (match(TOKEN_FN))

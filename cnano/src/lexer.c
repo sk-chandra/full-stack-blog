@@ -235,6 +235,8 @@ static TokenType identifierType(void) {
     return TOKEN_CONTINUE;
   if (length == 5 && memcmp(s, "match", 5) == 0)
     return TOKEN_MATCH;
+  if (length == 6 && memcmp(s, "import", 6) == 0)
+    return TOKEN_IMPORT;
   // Not a keyword: it's a user-defined identifier (a variable name).
   return TOKEN_IDENTIFIER;
 }

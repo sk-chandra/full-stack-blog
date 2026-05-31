@@ -68,6 +68,7 @@ typedef enum {
   NODE_WHILE,      // `while (c) body`
   NODE_FUN,        // `fn name(params) { body }` — a function declaration
   NODE_RETURN,     // `return [EXPR];` — return from the enclosing function
+  NODE_IMPORT,     // `import "path";` — splice another file's top-level decls
 } NodeType;
 
 // The operator carried by unary/binary nodes. Keeping this separate from the
@@ -325,6 +326,8 @@ Node *cloneExpr(Node *node);
 Node *newFun(ObjString *name, ObjString **params, Type **paramTypes,
              int paramCount, Type *returnType, Program *body, int line);
 Node *newReturn(Node *value, int line); // value may be NULL
+// `import "path";` — the path is an interned ObjString (VM-owned, not freed here).
+Node *newImport(ObjString *path, int line);
 void freeNode(Node *node);
 
 #endif // CNANO_AST_H

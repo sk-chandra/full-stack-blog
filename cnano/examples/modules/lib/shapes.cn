@@ -1,0 +1,9 @@
+// Another library module. Its own `import` is resolved RELATIVE TO THIS FILE
+// (so "mathx.cn" means lib/mathx.cn), not relative to whoever imports shapes.cn.
+import "mathx.cn";
+
+struct Circle {
+  r: int
+  // Area as r*r*PI (integer arithmetic) — reusing the imported helpers.
+  fn area(): int { return square(self.r) * PI; }
+}

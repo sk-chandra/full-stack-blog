@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (484 cases, incl. native + GC)
+make test       # run the end-to-end test suite (492 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -122,6 +122,12 @@ make run        # start the REPL
   (the runtime `x is T` test doubles as the checker's narrowing guard, treating
   `x` as the tested type inside the branch). Unannotated code is `any` and stays
   fully dynamic, so typed and untyped code mix freely
+- **Modules**: `import "path.cn";` at the top level pulls another file's
+  declarations into the program. Paths resolve **relative to the importing file**
+  (so a library's own imports work no matter who imports it), and each file is
+  included **at most once**, so diamonds and cycles are safe. Imports are resolved
+  by a pass that splices every file into one program *before* type-checking, so a
+  type error anywhere — across file boundaries — is still caught up front
 - **Optimisation**: an AST **constant-folding** pass evaluates constant
   subexpressions at compile time (`2 + 3 * 4` → `14`, `"a" + "b"` → `"ab"`),
   constant **deduplication**, and an `OP_CONSTANT_LONG` form so chunks aren't
@@ -178,6 +184,7 @@ make run        # start the REPL
 | `src/lexer.{h,c}` | text → tokens | lexing, string slices, lookahead, comments |
 | `src/ast.{h,c}` | the tree + `Program` | ASTs, tagged unions, expr vs. statement |
 | `src/parser.{h,c}` | tokens → AST | recursive descent, precedence, l-values, recovery |
+| `src/module.{h,c}` | import resolution | splice multi-file programs into one (once-only) |
 | `src/type.{h,c}` | the type system | gradual + structured types (`[T]`, `{K:V}`); arena-owned |
 | `src/typecheck.{h,c}` | static analysis pass | tree-walking checker, two-pass for fns |
 | `src/optimize.{h,c}` | AST optimisation pass | constant folding (bottom-up rewrite) |

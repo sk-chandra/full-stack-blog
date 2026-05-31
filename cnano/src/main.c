@@ -14,49 +14,9 @@
 
 #include "vm.h"
 
-// Read an entire file into a heap buffer (NUL-terminated). The caller frees it.
-static char *readFile(const char *path) {
-  FILE *file = fopen(path, "rb");
-  if (file == NULL) {
-    fprintf(stderr, "cnano: could not open file \"%s\".\n", path);
-    exit(74); // 74 = EX_IOERR
-  }
-
-  // Read in chunks, growing a buffer as we go. We deliberately do NOT use
-  // fseek/ftell to size the file up front: those fail on non-seekable inputs
-  // like pipes and /dev/stdin (ftell returns -1), which previously caused a
-  // buffer overflow. Chunked reading works for regular files AND streams.
-  size_t capacity = 1024;
-  size_t length = 0;
-  char *buffer = malloc(capacity);
-  if (buffer == NULL) {
-    fprintf(stderr, "cnano: not enough memory to read \"%s\".\n", path);
-    exit(74);
-  }
-  for (;;) {
-    if (length + 1 >= capacity) { // leave room for the trailing '\0'
-      capacity *= 2;
-      buffer = realloc(buffer, capacity);
-      if (buffer == NULL) {
-        fprintf(stderr, "cnano: not enough memory to read \"%s\".\n", path);
-        exit(74);
-      }
-    }
-    size_t got = fread(buffer + length, 1, capacity - length - 1, file);
-    length += got;
-    if (got == 0)
-      break; // EOF or error
-  }
-  buffer[length] = '\0';
-
-  fclose(file);
-  return buffer;
-}
-
 static void runFile(const char *path, bool trace) {
-  char *source = readFile(path);
-  InterpretResult result = interpret(source, trace);
-  free(source);
+  // interpretFile() reads the file and resolves its imports relative to its dir.
+  InterpretResult result = interpretFile(path, trace);
 
   // Map interpreter outcomes onto conventional Unix exit codes so cnano plays
   // nicely in shell pipelines and test scripts.
@@ -85,9 +45,7 @@ static void repl(void) {
 // `--emit-c FILE` : print the generated C for the typed subset to stdout, for
 // inspection. No compiler is invoked.
 static void emitCFile(const char *path) {
-  char *source = readFile(path);
-  InterpretResult r = compileToC(source, stdout);
-  free(source);
+  InterpretResult r = compileFileToC(path, stdout);
   if (r != INTERPRET_OK)
     exit(65);
 }
@@ -96,20 +54,16 @@ static void emitCFile(const char *path) {
 // to a temp file and invoking the system C compiler on it. This is the AOT path —
 // the produced binary runs with no cnano runtime at all.
 static void compileNative(const char *path, const char *outBinary) {
-  char *source = readFile(path);
-
   // Write the generated C to a temporary file next to the output.
   char cPath[1024];
   snprintf(cPath, sizeof(cPath), "%s.c", outBinary);
   FILE *cFile = fopen(cPath, "wb");
   if (cFile == NULL) {
     fprintf(stderr, "cnano: cannot write \"%s\".\n", cPath);
-    free(source);
     exit(74);
   }
-  InterpretResult r = compileToC(source, cFile);
+  InterpretResult r = compileFileToC(path, cFile);
   fclose(cFile);
-  free(source);
   if (r != INTERPRET_OK) {
     remove(cPath);
     exit(65);

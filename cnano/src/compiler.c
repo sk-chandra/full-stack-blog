@@ -649,6 +649,7 @@ static void emitExpr(Node *node) {
   case NODE_TRY:
   case NODE_BREAK:
   case NODE_CONTINUE:
+  case NODE_IMPORT:
     // Statement nodes are not expressions and must never be compiled as one.
     // This case exists only to keep the switch exhaustive (so -Wall warns if a
     // future node type is forgotten).

@@ -1,0 +1,18 @@
+// modules/main.cn — splitting a program across files with `import`.
+//
+//   cnano examples/modules/main.cn
+//
+// `import "path";` pulls another file's top-level declarations into this one.
+// Paths are resolved relative to THIS file's directory. Each file is included at
+// most once, so importing mathx.cn directly AND via shapes.cn is fine — its
+// definitions appear a single time (a "diamond" import).
+
+import "lib/mathx.cn";  // square, cube, PI
+import "lib/shapes.cn"; // Circle  (which itself imports lib/mathx.cn)
+
+print "PI         = ${PI}";
+print "square(6)  = ${square(6)}";
+print "cube(3)    = ${cube(3)}";
+
+let c = Circle(10);
+print "circle(10) area = ${c.area()}"; // 10*10*3 = 300

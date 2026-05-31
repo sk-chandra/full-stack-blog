@@ -731,6 +731,12 @@ static void checkStatement(Node *node) {
     }
     break;
   }
+  case NODE_IMPORT:
+    // The module loader resolves and removes top-level imports before this pass.
+    // Any NODE_IMPORT reaching the checker is therefore misplaced (nested in a
+    // block or function body), which is not allowed.
+    typeError(node->line, "'import' is only allowed at the top level of a file");
+    break;
   default:
     break;
   }

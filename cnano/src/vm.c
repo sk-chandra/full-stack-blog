@@ -8,6 +8,7 @@
 #include "compiler.h"
 #include "debug.h"
 #include "memory.h"
+#include "module.h"
 #include "object.h"
 #include "optimize.h"
 #include "parser.h"
@@ -897,27 +898,15 @@ static InterpretResult run(bool trace, int stopFrame) {
 #undef BINARY_OP
 }
 
-InterpretResult interpret(const char *source, bool trace) {
-  // Keep the collector off across the whole front end (parse/type-check/compile),
-  // which allocates AST-referenced strings that aren't GC roots yet. Matters in
-  // the REPL, where interpret() is re-entered per line after GC was switched on.
-  vm.gcEnabled = false;
-
-  // 1. Parse source text into a Program (a list of statement trees).
-  Program program;
-  bool ok = parse(source, &program);
-  if (!ok) {
-    freeProgram(&program); // may hold partially-built statements
-    freeTypes();
-    return INTERPRET_COMPILE_ERROR;
-  }
-
+// Shared back end: type-check, optimise, compile and RUN an already parsed (and
+// import-resolved) Program. Consumes `program` (frees it) and the type arena.
+static InterpretResult runProgram(Program *program, bool trace) {
   // 1b. STATIC TYPE CHECK. A separate analysis pass over the AST that catches
   // type errors before any code runs. Gradual: unannotated code is `any` and
   // passes trivially. On failure we refuse to compile or run, like a real
   // ahead-of-time compiler rejecting an ill-typed program.
-  if (!typecheckProgram(&program)) {
-    freeProgram(&program);
+  if (!typecheckProgram(program)) {
+    freeProgram(program);
     freeTypes();
     return INTERPRET_COMPILE_ERROR;
   }
@@ -926,13 +915,13 @@ InterpretResult interpret(const char *source, bool trace) {
   // literals (`2 + 3 * 4` -> `14`) so the VM never recomputes them. Runs after
   // type-checking (which used the original tree for accurate error lines) and
   // before compilation, which then emits bytecode for the simpler tree.
-  foldConstants(&program);
+  foldConstants(program);
 
   // 2. Compile the program into a top-level ObjFunction. (Its chunk, and every
   // nested function's chunk, is owned by the VM object list — freed at shutdown,
   // not here.)
-  ObjFunction *function = compile(&program);
-  freeProgram(&program);   // trees no longer needed once bytecode exists
+  ObjFunction *function = compile(program);
+  freeProgram(program);    // trees no longer needed once bytecode exists
   freeTypes();             // ...and the type arena: bytecode doesn't reference types
   if (function == NULL)
     return INTERPRET_COMPILE_ERROR;
@@ -951,6 +940,32 @@ InterpretResult interpret(const char *source, bool trace) {
   // valid GC roots, and the AST has been freed. Safe to turn the collector on.
   vm.gcEnabled = true;
   return run(trace, /*stopFrame=*/0);
+}
+
+InterpretResult interpret(const char *source, bool trace) {
+  // Keep the collector off across the whole front end (parse/type-check/compile),
+  // which allocates AST-referenced strings that aren't GC roots yet. Matters in
+  // the REPL, where interpret() is re-entered per line after GC was switched on.
+  vm.gcEnabled = false;
+
+  // 1. Parse, then splice in any `import`ed files (relative to the CWD here).
+  Program program;
+  if (!loadModuleSource(source, &program)) {
+    freeTypes();
+    return INTERPRET_COMPILE_ERROR;
+  }
+  return runProgram(&program, trace);
+}
+
+InterpretResult interpretFile(const char *path, bool trace) {
+  vm.gcEnabled = false;
+  // Parse `path` and resolve its imports relative to the file's own directory.
+  Program program;
+  if (!loadModuleFile(path, &program)) {
+    freeTypes();
+    return INTERPRET_COMPILE_ERROR;
+  }
+  return runProgram(&program, trace);
 }
 
 bool callFromVM(Value callee, Value *args, int argCount, Value *result) {
@@ -975,25 +990,41 @@ bool callFromVM(Value callee, Value *args, int argCount, Value *result) {
   return true;
 }
 
-InterpretResult compileToC(const char *source, FILE *cFile) {
-  // Identical front end to interpret(): parse, type-check, fold. Reusing it means
-  // the native path accepts exactly the programs the VM does (and rejects the
-  // same errors), differing only in the BACKEND it feeds the AST to.
-  Program program;
-  if (!parse(source, &program)) {
-    freeProgram(&program);
+// Shared native back end: type-check, fold and emit C for a parsed (and
+// import-resolved) Program. Consumes `program` and the type arena.
+static InterpretResult emitProgram(Program *program, FILE *cFile) {
+  // Identical front end to runProgram(): type-check, fold. Reusing it means the
+  // native path accepts exactly the programs the VM does (and rejects the same
+  // errors), differing only in the BACKEND it feeds the AST to.
+  if (!typecheckProgram(program)) {
+    freeProgram(program);
     freeTypes();
     return INTERPRET_COMPILE_ERROR;
   }
-  if (!typecheckProgram(&program)) {
-    freeProgram(&program);
-    freeTypes();
-    return INTERPRET_COMPILE_ERROR;
-  }
-  foldConstants(&program);
+  foldConstants(program);
 
-  bool gen = emitC(&program, cFile);
-  freeProgram(&program);
+  bool gen = emitC(program, cFile);
+  freeProgram(program);
   freeTypes();
   return gen ? INTERPRET_OK : INTERPRET_COMPILE_ERROR;
+}
+
+InterpretResult compileToC(const char *source, FILE *cFile) {
+  vm.gcEnabled = false; // parsing interns strings into the (un-rooted) VM
+  Program program;
+  if (!loadModuleSource(source, &program)) {
+    freeTypes();
+    return INTERPRET_COMPILE_ERROR;
+  }
+  return emitProgram(&program, cFile);
+}
+
+InterpretResult compileFileToC(const char *path, FILE *cFile) {
+  vm.gcEnabled = false;
+  Program program;
+  if (!loadModuleFile(path, &program)) {
+    freeTypes();
+    return INTERPRET_COMPILE_ERROR;
+  }
+  return emitProgram(&program, cFile);
 }

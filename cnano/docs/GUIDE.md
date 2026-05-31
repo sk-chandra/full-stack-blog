@@ -1306,7 +1306,51 @@ records — a real dictionary, built mostly from machinery that already existed.
 
 ---
 
-## 24. Roadmap: where to go next
+## 24. Case study: a module system (`import`)
+
+Real programs span many files. cnano adds `import "path.cn";` — and the design
+choice worth studying is *where in the pipeline* a module system can live.
+
+### 24.1 Resolution as a pass, not a runtime feature
+
+The cheapest place to add modules is **right after parsing**, before anything
+else runs. `module.c` parses the entry file, then walks its top-level statements:
+a normal statement is moved into a single growing "merged" `Program`; an
+`import` is replaced by recursively resolving the named file and splicing *its*
+statements in first. The merged program is one flat translation unit that the
+**unchanged** type-checker, optimiser, compiler and VM consume. Nothing
+downstream knows files exist. This is the same "flatten then compile" model C's
+`#include` uses — and it means a cross-file type error is caught exactly like an
+in-file one, because by type-check time there are no files, just one tree.
+
+### 24.2 The two correctness rules
+
+- **Relative resolution.** An import resolves against the *importing file's* own
+  directory, not the process's working directory. So `lib/shapes.cn` can
+  `import "mathx.cn"` and get `lib/mathx.cn` no matter who imported `shapes.cn`.
+  Each recursive step recomputes the base directory from the file it just loaded.
+- **Once-only loading.** A canonical-path set (via `realpath`, which resolves
+  `..` and symlinks so two spellings of one file match) records every file
+  included so far. A file already in the set is skipped. That single rule makes
+  **diamonds** (two files importing a common third) include the third once — no
+  duplicate-definition error — and makes **cycles** (`a` imports `b` imports `a`)
+  terminate instead of looping forever.
+
+### 24.3 What it demonstrates
+
+Layering. By choosing a representation (one merged AST) that the rest of the
+compiler already understands, an entire language feature is added in ~200 lines
+that touch no other stage — the lexer gains one keyword, the AST one leaf node,
+and a `NODE_IMPORT` that reaches the type-checker is simply rejected as
+"misplaced" (top-level imports never get that far; the resolver consumed them).
+The honest limitations — a flat shared namespace, no qualified `mod.name` access,
+and merged line numbers that don't yet name their file — are the natural next
+iterations, and exactly the trade-offs a real module system spends its
+complexity budget on.
+
+---
+
+## 25. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -1529,8 +1573,21 @@ programs define their own types, and makes failure recoverable.
 44. ~~**Math builtins.**~~ **✅ DONE** (step 36) — `abs/min/max` made numeric
     (int or float, preserving type), plus `sqrt/floor/ceil/round/pow` via `math.h`
     (the Makefile now links `-lm`).
-45. **Performance** (inline caching/peephole), **modules/imports**, generics,
-    native closures — larger, still open.
+45. ~~**Modules / imports.**~~ **✅ DONE** (step 40) — `import "path.cn";` at the
+    top level. Resolved by a dedicated pass (`module.c`) that runs right after
+    parsing: each imported file is parsed and its top-level statements are spliced
+    into ONE merged Program, which the unchanged type-checker / compiler / VM then
+    consume. Paths resolve relative to the importing file's own directory, and a
+    canonical-path (`realpath`) set includes each file at most once — so diamonds
+    and cycles terminate safely. Because everything flattens into one program
+    before type-checking, errors are caught across file boundaries. (A worked
+    portability bug: `realpath` is POSIX, not ISO C, so under `-std=c11` it needs
+    a `_DEFAULT_SOURCE` feature-test macro — without it the prototype is missing
+    and the returned pointer is silently truncated. Limitations to revisit: a flat
+    shared namespace, no qualified access, and merged line numbers don't yet name
+    their source file.)
+46. **Performance** (inline caching/peephole), generics, native closures, and a
+    per-module namespace for `import` — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
 (free online). cnano's bytecode/VM design intentionally follows the same lineage
