@@ -1,0 +1,20 @@
+// Global variables: declare with `let`, then read and reassign.
+
+let width = 8;
+let height = 5;
+let area = width * height;
+print area;              // 40
+
+// Assignment is an expression and is right-associative.
+let a = 0;
+let b = 0;
+a = b = 100;
+print a;                // 100
+print b;                // 100
+
+// Strings are heap objects. `+` concatenates them; interning makes equal
+// strings compare as identical.
+let greeting = "hello";
+let target = "cnano";
+print greeting + ", " + target + "!";   // hello, cnano!
+print "ab" == "a" + "b";                // true

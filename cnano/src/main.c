@@ -22,17 +22,32 @@ static char *readFile(const char *path) {
     exit(74); // 74 = EX_IOERR
   }
 
-  fseek(file, 0L, SEEK_END);
-  long fileSize = ftell(file);
-  rewind(file);
-
-  char *buffer = malloc(fileSize + 1);
+  // Read in chunks, growing a buffer as we go. We deliberately do NOT use
+  // fseek/ftell to size the file up front: those fail on non-seekable inputs
+  // like pipes and /dev/stdin (ftell returns -1), which previously caused a
+  // buffer overflow. Chunked reading works for regular files AND streams.
+  size_t capacity = 1024;
+  size_t length = 0;
+  char *buffer = malloc(capacity);
   if (buffer == NULL) {
     fprintf(stderr, "cnano: not enough memory to read \"%s\".\n", path);
     exit(74);
   }
-  size_t bytesRead = fread(buffer, sizeof(char), fileSize, file);
-  buffer[bytesRead] = '\0';
+  for (;;) {
+    if (length + 1 >= capacity) { // leave room for the trailing '\0'
+      capacity *= 2;
+      buffer = realloc(buffer, capacity);
+      if (buffer == NULL) {
+        fprintf(stderr, "cnano: not enough memory to read \"%s\".\n", path);
+        exit(74);
+      }
+    }
+    size_t got = fread(buffer + length, 1, capacity - length - 1, file);
+    length += got;
+    if (got == 0)
+      break; // EOF or error
+  }
+  buffer[length] = '\0';
 
   fclose(file);
   return buffer;

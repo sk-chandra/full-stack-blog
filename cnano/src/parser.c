@@ -3,6 +3,7 @@
 
 #include "ast.h"
 #include "lexer.h"
+#include "object.h" // copyString — interns identifier and string-literal text
 #include "parser.h"
 
 // The grammar we implement, written in EBNF. Each rule below becomes a function.
@@ -10,14 +11,25 @@
 // A program is now a SEQUENCE OF STATEMENTS, not a single expression. The top of
 // the grammar is therefore about statements; expressions sit underneath:
 //
-//   program    -> statement* EOF ;
-//   statement  -> printStmt | exprStmt ;
-//   printStmt  -> "print" expression ";" ;
-//   exprStmt   -> expression ";" ;
+//   program     -> declaration* EOF ;
+//   declaration -> varDecl | statement ;
+//   varDecl     -> "let" IDENTIFIER "=" expression ";" ;
+//   statement   -> printStmt | exprStmt ;
+//   printStmt   -> "print" expression ";" ;
+//   exprStmt    -> expression ";" ;
 //
 // Lower expression rules bind tighter (higher precedence):
 //
-//   expression -> equality ;
+//   expression -> assignment ;
+//   assignment -> IDENTIFIER "=" assignment | equality ;   // right-associative
+//
+// ASSIGNMENT and the l-value problem: `a = 1` reads left-to-right, but the left
+// side is a *target* (where to store), not a value to compute. The clean
+// recursive-descent trick: parse the left side as an ordinary expression, then
+// if a "=" follows, check that what we parsed is actually assignable (a bare
+// variable) and rebuild it as an assignment. Assignment is right-associative
+// (a = b = 1 means a = (b = 1)) and lowest precedence, so it sits at the very
+// top of the expression grammar.
 //   equality   -> comparison ( ( "==" | "!=" ) comparison )* ;
 //   comparison -> term ( ( "<" | "<=" | ">" | ">=" ) term )* ;
 //   term       -> factor ( ( "+" | "-" ) factor )* ;       // left-associative
@@ -108,6 +120,7 @@ static bool match(TokenType type) {
 // --- grammar rules (forward declarations, since they call each other) -------
 
 static Node *expression(void);
+static Node *assignment(void);
 static Node *equality(void);
 static Node *comparison(void);
 static Node *term(void);
@@ -115,7 +128,34 @@ static Node *factor(void);
 static Node *unary(void);
 static Node *primary(void);
 
-static Node *expression(void) { return equality(); }
+static Node *expression(void) { return assignment(); }
+
+static Node *assignment(void) {
+  // Parse the left-hand side as a normal expression first.
+  Node *node = equality();
+
+  // If a '=' follows, this was actually an assignment target.
+  if (match(TOKEN_EQUAL)) {
+    int line = parser.previous.line;
+    Node *value = assignment(); // recurse right -> right-associative
+
+    if (node->type == NODE_VAR_GET) {
+      // Valid target: turn the "read x" we built into "assign to x". We salvage
+      // the interned name, then free the throwaway VAR_GET node.
+      ObjString *name = node->as.name;
+      freeNode(node);
+      return newAssign(name, value, line);
+    }
+
+    // Invalid l-value, e.g. `1 + 2 = 3` or `(a) = 3`. Report but don't abort the
+    // whole parse. We still free what we built to avoid a leak.
+    errorAt(&parser.current, "Invalid assignment target.");
+    freeNode(value);
+    return node;
+  }
+
+  return node;
+}
 
 static Node *equality(void) {
   Node *node = comparison();
@@ -213,6 +253,18 @@ static Node *primary(void) {
     return newBool(false, parser.previous.line);
   if (match(TOKEN_NIL))
     return newNil(parser.previous.line);
+  if (match(TOKEN_STRING)) {
+    // Strip the surrounding quotes: start+1, length-2. copyString interns it.
+    ObjString *s = copyString(parser.previous.start + 1,
+                              parser.previous.length - 2);
+    return newString(s, parser.previous.line);
+  }
+  if (match(TOKEN_IDENTIFIER)) {
+    // Intern the variable's name so it can be used as a hash-table key. We build
+    // a "read" node; assignment() rewrites it into an assign if a '=' follows.
+    ObjString *name = copyString(parser.previous.start, parser.previous.length);
+    return newVarGet(name, parser.previous.line);
+  }
   if (match(TOKEN_LPAREN)) {
     Node *node = expression();
     consume(TOKEN_RPAREN, "Expect ')' after expression.");
@@ -237,8 +289,9 @@ static void synchronize(void) {
     if (parser.previous.type == TOKEN_SEMICOLON)
       return; // just finished a statement; the next one can parse cleanly
     switch (parser.current.type) {
+    case TOKEN_LET:
     case TOKEN_PRINT:
-      return; // a keyword that starts a statement — resume here
+      return; // a keyword that starts a declaration/statement — resume here
     default:
       break;
     }
@@ -269,6 +322,28 @@ static Node *statement(void) {
   return expressionStatement();
 }
 
+// `let NAME = EXPR ;` — declare and initialise a new global variable. We require
+// an initialiser for simplicity (no bare `let x;`), which sidesteps the
+// "uninitialised variable" question entirely.
+static Node *varDeclaration(void) {
+  int line = parser.previous.line; // the 'let' keyword's line
+  consume(TOKEN_IDENTIFIER, "Expect variable name after 'let'.");
+  ObjString *name = copyString(parser.previous.start, parser.previous.length);
+  consume(TOKEN_EQUAL, "Expect '=' after variable name.");
+  Node *initializer = expression();
+  consume(TOKEN_SEMICOLON, "Expect ';' after variable declaration.");
+  return newVarDecl(name, initializer, line);
+}
+
+// One level above statement(): a declaration is either a `let` or any statement.
+// Splitting these mirrors the grammar and is where scoped declarations will hook
+// in later (step 4). This is also the natural synchronisation point for errors.
+static Node *declaration(void) {
+  if (match(TOKEN_LET))
+    return varDeclaration();
+  return statement();
+}
+
 bool parse(const char *source, Program *out) {
   initLexer(source);
   initProgram(out);
@@ -280,8 +355,8 @@ bool parse(const char *source, Program *out) {
   // synchronize and keep going, collecting as many independent errors as we can
   // in a single run — much friendlier than stopping at the first.
   while (!check(TOKEN_EOF)) {
-    Node *stmt = statement();
-    writeProgram(out, stmt);
+    Node *decl = declaration();
+    writeProgram(out, decl);
     if (parser.panicMode)
       synchronize();
   }

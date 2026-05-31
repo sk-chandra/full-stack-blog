@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "object.h"
 #include "value.h"
 
 void initValueArray(ValueArray *array) {
@@ -45,6 +46,9 @@ void printValue(Value value) {
     // PRId64 would be the fully portable way; %lld after a cast is simpler.
     printf("%lld", (long long)AS_INT(value));
     break;
+  case VAL_OBJ:
+    printObject(value); // dispatch to the heap-object printer
+    break;
   }
 }
 
@@ -61,6 +65,10 @@ bool valuesEqual(Value a, Value b) {
     return AS_BOOL(a) == AS_BOOL(b);
   case VAL_INT:
     return AS_INT(a) == AS_INT(b);
+  case VAL_OBJ:
+    // Thanks to interning, equal strings are the SAME object, so pointer
+    // equality is correct AND fast — no byte-by-byte comparison needed.
+    return AS_OBJ(a) == AS_OBJ(b);
   default:
     return false; // unreachable
   }

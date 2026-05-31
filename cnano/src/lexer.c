@@ -124,6 +124,22 @@ static Token number(void) {
   return makeToken(TOKEN_NUMBER);
 }
 
+// Scan a "double-quoted" string. We allow newlines inside (tracking the line
+// counter) and stop at the closing quote or end of file. The token's text
+// INCLUDES the surrounding quotes; the parser strips them. cnano keeps this
+// minimal: no escape sequences yet (\n, \" etc.) — a natural future exercise.
+static Token string(void) {
+  while (peek() != '"' && !isAtEnd()) {
+    if (peek() == '\n')
+      lexer.line++;
+    advance();
+  }
+  if (isAtEnd())
+    return errorToken("Unterminated string.");
+  advance(); // consume the closing quote
+  return makeToken(TOKEN_STRING);
+}
+
 // Decide whether the just-scanned identifier is actually a reserved keyword.
 // We compare the lexeme's length and bytes against each keyword. With only three
 // keywords a short if-chain is clearest; real lexers use a small trie or hash to
@@ -141,19 +157,18 @@ static TokenType identifierType(void) {
     return TOKEN_NIL;
   if (length == 5 && memcmp(s, "print", 5) == 0)
     return TOKEN_PRINT;
-  // Not a keyword. cnano has no user identifiers yet (that arrives with
-  // variables in roadmap step 3), so an unknown word is an error for now.
-  return TOKEN_ERROR;
+  if (length == 3 && memcmp(s, "let", 3) == 0)
+    return TOKEN_LET;
+  // Not a keyword: it's a user-defined identifier (a variable name).
+  return TOKEN_IDENTIFIER;
 }
 
-// Scan a maximal run of identifier characters, then classify it.
+// Scan a maximal run of identifier characters, then classify it as a keyword or
+// a plain identifier.
 static Token identifier(void) {
   while (isAlpha(peek()) || isDigit(peek()))
     advance();
-  TokenType type = identifierType();
-  if (type == TOKEN_ERROR)
-    return errorToken("Unknown keyword (variables are not supported yet).");
-  return makeToken(type);
+  return makeToken(identifierType());
 }
 
 Token scanToken(void) {
@@ -185,14 +200,14 @@ Token scanToken(void) {
     return makeToken(TOKEN_RPAREN);
   case ';':
     return makeToken(TOKEN_SEMICOLON);
+  case '"':
+    return string();
   // Operators that may be one or two characters. match('=') peeks ahead.
   case '!':
     return makeToken(match('=') ? TOKEN_BANG_EQUAL : TOKEN_BANG);
   case '=':
-    // A lone '=' is assignment, which doesn't exist yet — only '==' is valid.
-    if (match('='))
-      return makeToken(TOKEN_EQUAL_EQUAL);
-    return errorToken("Expect '==' (assignment is not supported yet).");
+    // '==' is equality; a lone '=' is now assignment.
+    return makeToken(match('=') ? TOKEN_EQUAL_EQUAL : TOKEN_EQUAL);
   case '<':
     return makeToken(match('=') ? TOKEN_LESS_EQUAL : TOKEN_LESS);
   case '>':

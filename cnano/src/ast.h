@@ -22,6 +22,7 @@
 #define CNANO_AST_H
 
 #include "common.h"
+#include "object.h" // ObjString, for string literals and variable names
 
 // cnano now has TWO categories of node, and the distinction is the single most
 // important structural idea in language design:
@@ -36,11 +37,15 @@ typedef enum {
   NODE_INT,     // a literal integer
   NODE_BOOL,    // a literal `true` or `false`
   NODE_NIL,     // the literal `nil`
+  NODE_STRING,  // a string literal (a heap ObjString)
   NODE_UNARY,   // a prefix operator applied to one child (e.g. -x, !x)
   NODE_BINARY,  // an operator with a left and right child (e.g. a + b, a < b)
+  NODE_VAR_GET, // read a variable: yields its current value
+  NODE_ASSIGN,  // `name = EXPR` : store EXPR into name, yields the value
   // --- statement nodes (performed for effect, yield nothing) ---
   NODE_PRINT,      // `print EXPR;` — evaluate EXPR and print it
   NODE_EXPR_STMT,  // `EXPR;` — evaluate EXPR, then discard its value
+  NODE_VAR_DECL,   // `let name = EXPR;` — create a new global variable
 } NodeType;
 
 // The operator carried by unary/binary nodes. Keeping this separate from the
@@ -77,6 +82,10 @@ typedef struct Node {
     // runtime value representation.
     int64_t intValue;
     bool boolValue;
+    ObjString *stringValue; // NODE_STRING: the interned string literal
+    // Variable name for NODE_VAR_GET. The name is an interned ObjString so the
+    // compiler can use it directly as a hash-table key.
+    ObjString *name;
     struct {
       NodeOp op;
       struct Node *operand;
@@ -91,6 +100,12 @@ typedef struct Node {
     struct {
       struct Node *expr;
     } stmt;
+    // NODE_ASSIGN and NODE_VAR_DECL: a variable name plus the value expression.
+    // Assignment is an expression (yields the value); declaration is a statement.
+    struct {
+      ObjString *name;
+      struct Node *value;
+    } var;
   } as;
 } Node;
 
@@ -116,8 +131,12 @@ Node *newBool(bool value, int line);
 Node *newNil(int line);
 Node *newUnary(NodeOp op, Node *operand, int line);
 Node *newBinary(NodeOp op, Node *left, Node *right, int line);
+Node *newString(ObjString *value, int line);
+Node *newVarGet(ObjString *name, int line);
+Node *newAssign(ObjString *name, Node *value, int line);
 Node *newPrint(Node *expr, int line);
 Node *newExprStmt(Node *expr, int line);
+Node *newVarDecl(ObjString *name, Node *value, int line);
 void freeNode(Node *node);
 
 #endif // CNANO_AST_H

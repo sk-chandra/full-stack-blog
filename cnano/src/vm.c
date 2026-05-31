@@ -1,20 +1,36 @@
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
 
 #include "compiler.h"
 #include "debug.h"
+#include "object.h"
 #include "parser.h"
 #include "vm.h"
 
-static VM vm;
+// The one global VM instance (declared `extern` in vm.h).
+VM vm;
 
 // Reset the stack by pointing the top back at the base. No need to clear the
 // memory — values below stackTop are simply considered "not there".
 static void resetStack(void) { vm.stackTop = vm.stack; }
 
-void initVM(void) { resetStack(); }
+void initVM(void) {
+  resetStack();
+  vm.objects = NULL;
+  initTable(&vm.globals);
+  initTable(&vm.strings);
+}
 
-void freeVM(void) { /* nothing heap-allocated in the VM itself yet */ }
+void freeVM(void) {
+  // Free the bookkeeping tables, then every heap object. The intern table holds
+  // borrowed pointers to the same ObjStrings that freeObjects() frees, so we
+  // must free the TABLE storage first, then the objects — never the reverse.
+  freeTable(&vm.globals);
+  freeTable(&vm.strings);
+  freeObjects();
+}
 
 static void push(Value value) {
   // (A production VM checks for overflow here; our expressions can't exceed
@@ -63,6 +79,30 @@ static bool isFalsey(Value value) {
   return IS_NIL(value) || (IS_BOOL(value) && !AS_BOOL(value));
 }
 
+// Concatenate the two strings on top of the stack into a new one. We build a
+// fresh char buffer, then hand it to copyString — which, thanks to interning,
+// returns the existing object if this exact text already exists. We peek (not
+// pop) the operands until the new string is safely created; if a GC existed,
+// keeping them reachable would matter here.
+static void concatenate(void) {
+  ObjString *b = AS_STRING(peek(0));
+  ObjString *a = AS_STRING(peek(1));
+  int length = a->length + b->length;
+  char *chars = malloc(length + 1);
+  if (chars == NULL) {
+    fprintf(stderr, "cnano: out of memory concatenating strings\n");
+    exit(70);
+  }
+  memcpy(chars, a->chars, a->length);
+  memcpy(chars + a->length, b->chars, b->length);
+  chars[length] = '\0';
+  ObjString *result = copyString(chars, length);
+  free(chars); // copyString copies; this temporary buffer is no longer needed
+  pop();       // b
+  pop();       // a
+  push(OBJ_VAL(result));
+}
+
 // The fetch-decode-execute loop — the core of the whole project.
 static InterpretResult run(bool trace) {
 // These macros make the loop read like an instruction reference. READ_BYTE
@@ -70,6 +110,9 @@ static InterpretResult run(bool trace) {
 // index. BINARY_OP factors out the identical pop/pop/push shape of +,-,*,/.
 #define READ_BYTE() (*vm.ip++)
 #define READ_CONSTANT() (vm.chunk->constants.values[READ_BYTE()])
+// Read a constant and interpret it as a string — used for variable names, which
+// the compiler always stores as ObjString constants.
+#define READ_STRING() (AS_STRING(READ_CONSTANT()))
 // BINARY_OP now does three jobs the bare-int version didn't have to: (1) verify
 // both operands are integers BEFORE touching them, erroring cleanly if not; (2)
 // unwrap the tagged Values to raw int64; (3) re-wrap the result with the given
@@ -131,7 +174,19 @@ static InterpretResult run(bool trace) {
       push(BOOL_VAL(isFalsey(pop())));
       break;
     case OP_ADD:
-      BINARY_OP(INT_VAL, +);
+      // `+` is OVERLOADED: integers add, strings concatenate. The VM inspects
+      // the operand types at runtime and dispatches — the essence of operator
+      // overloading in a dynamically typed language. Anything else is an error.
+      if (IS_STRING(peek(0)) && IS_STRING(peek(1))) {
+        concatenate();
+      } else if (IS_INT(peek(0)) && IS_INT(peek(1))) {
+        int64_t b = AS_INT(pop());
+        int64_t a = AS_INT(pop());
+        push(INT_VAL(a + b));
+      } else {
+        runtimeError("operands to '+' must be two integers or two strings");
+        return INTERPRET_RUNTIME_ERROR;
+      }
       break;
     case OP_SUB:
       BINARY_OP(INT_VAL, -);
@@ -171,6 +226,40 @@ static InterpretResult run(bool trace) {
     case OP_GREATER:
       BINARY_OP(BOOL_VAL, >);
       break;
+    case OP_DEFINE_GLOBAL: {
+      // The operand indexes the name in the constant pool. We read the value
+      // from the stack, store it, then pop. Defining over an existing global is
+      // allowed (it just overwrites) — a deliberate, lenient choice.
+      ObjString *name = READ_STRING();
+      tableSet(&vm.globals, name, peek(0));
+      pop();
+      break;
+    }
+    case OP_GET_GLOBAL: {
+      ObjString *name = READ_STRING();
+      Value value;
+      if (!tableGet(&vm.globals, name, &value)) {
+        // Reading a name that was never defined is a runtime error — the safety
+        // guarantee that makes variables usable. (A typo'd name fails loudly.)
+        runtimeError("undefined variable '%s'", name->chars);
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      push(value);
+      break;
+    }
+    case OP_SET_GLOBAL: {
+      ObjString *name = READ_STRING();
+      // tableSet returns true when it ADDED a new key. Assignment must only
+      // update an EXISTING variable, so if it was new we delete it back out and
+      // error. Unlike DEFINE, assignment does NOT pop: `a = 1` is an expression
+      // whose value (1) stays on the stack for the surrounding context.
+      if (tableSet(&vm.globals, name, peek(0))) {
+        tableDelete(&vm.globals, name);
+        runtimeError("undefined variable '%s'", name->chars);
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      break;
+    }
     case OP_PRINT:
       // The only way a cnano program produces output. It pops its operand, so
       // like every statement-level op it is stack-neutral overall.

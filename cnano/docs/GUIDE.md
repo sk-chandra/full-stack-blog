@@ -435,7 +435,96 @@ characters of lookahead (`peekNext`) — a small but real lexer technique.
 
 ---
 
-## 11. Roadmap: where to go next
+## 11. Case study: global variables, a hash table, and heap objects
+
+Roadmap step 3, completed — by far the largest step, and the one with the most
+classic computer-science content. It introduces cnano's first heap-allocated
+values and the data structure that stores variables: a hash table built from
+scratch. Five intertwined ideas:
+
+### 11.1 Heap objects and "inheritance" in C (`object.{h,c}`)
+
+Integers, booleans and nil fit inside a `Value`. Strings don't — they are
+variable-length, so they live on the heap and the `Value` only points at them
+(the new `VAL_OBJ` tag). Every heap value shares a common header, `Obj`, and each
+concrete type (so far just `ObjString`) puts an `Obj` as its **first field**:
+
+```c
+struct Obj { ObjType type; struct Obj *next; };
+struct ObjString { Obj obj; int length; char *chars; uint32_t hash; };
+```
+
+Because `obj` is first, a `ObjString*` can be safely cast to `Obj*` and back —
+this is **inheritance via struct embedding**, the standard C technique behind
+this kind of object system. The `type` tag recovers the concrete type. All
+objects are threaded onto a VM-owned intrusive linked list (`obj.next` →
+`vm.objects`) at birth, so `freeObjects()` can reclaim them at shutdown. That
+list is the exact hook a **garbage collector** would later use — we just free
+everything manually for now.
+
+### 11.2 A hash table from scratch (`table.{h,c}`)
+
+The store behind both globals and string interning. Design choices, each a real
+trade-off:
+
+- **Open addressing + linear probing**, not separate chaining. All entries sit
+  in one flat array; on collision we walk forward (wrapping) to the next slot.
+  This is cache-friendly and allocation-free per entry (chaining pointer-chases
+  and mallocs per node). The cost is the tombstone subtlety below.
+- **Power-of-two capacity** so the modulo is a fast bit-mask (`hash & (cap-1)`).
+- **0.75 load factor**: grow before the table is more than ¾ full. Emptier tables
+  have shorter probe sequences (faster) but waste memory; 0.75 is the classic
+  balance. Growing **re-inserts** every entry, because a key's home bucket
+  depends on the capacity.
+- **Tombstones for deletion.** You cannot just blank a deleted bucket — that
+  would break the probe chain for keys after it. Instead a delete leaves a
+  *tombstone* (`key == NULL`, `value == true`) that lookups skip over but inserts
+  may reuse. Getting this right is the single trickiest part of an
+  open-addressed table, and `table.c` is commented line-by-line on it.
+
+### 11.3 String interning (`copyString` + `tableFindString`)
+
+The same `Table`, used as a **set**, holds every live string. Before creating a
+string, `copyString` checks that set; if an identical one exists, it returns the
+*existing* object. The payoff is enormous: any two equal strings are then the
+**same pointer**, so string equality (and hash-table key comparison) is a single
+pointer compare instead of a byte-by-byte `memcmp`. This is why `findEntry` can
+write `entry->key == key`, and why `"ab" == "a" + "b"` is `true` and O(1). Hashes
+are computed once (FNV-1a) and cached on the object.
+
+### 11.4 The three global opcodes and the define/assign distinction
+
+Variable names are stored as string constants; each opcode carries a one-byte
+index to its name and uses it as a key into `vm.globals`:
+
+- `OP_DEFINE_GLOBAL` — pops the initialiser and binds the name (overwrite OK).
+- `OP_GET_GLOBAL` — looks the name up; **undefined name is a runtime error**.
+- `OP_SET_GLOBAL` — must update an *existing* binding. It exploits `tableSet`'s
+  return value (true = key was newly added): if assignment accidentally created
+  the key, it deletes it back out and errors. Crucially, `SET` does **not** pop —
+  assignment is an expression whose value flows on.
+
+That last point is the deep one: `let x = …;` is a *statement* (net stack effect
+zero, value consumed), but `x = …` is an *expression* (value left on the stack),
+which is why `print x = 5;` prints 5 and `a = b = 1;` chains.
+
+### 11.5 The l-value problem (`assignment` in `parser.c`)
+
+`a = 1` reads left-to-right, but the left side is a *target* (where to store), not
+a value. The clean recursive-descent solution: parse the left side as an ordinary
+expression; if a `=` follows, check that what we built is assignable (a bare
+`NODE_VAR_GET`) and rewrite it into an assignment, salvaging the name. Anything
+else (`1 + 2 = 3`) is reported as "invalid assignment target." Assignment recurses
+on its right side, making it right-associative, and sits at the lowest precedence.
+
+> **Bonus that fell out:** because strings are now real values, `+` became
+> **overloaded** — the VM checks operand types at runtime and either adds ints or
+> concatenates strings (`concatenate()` in `vm.c`). That runtime dispatch is the
+> essence of operator overloading in a dynamic language.
+
+---
+
+## 12. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -446,9 +535,9 @@ ordered so each builds on the last.
 2. ~~**Statements and `print`.**~~ **✅ DONE** — see §10 above. Programs are now
    statement sequences; `print`/`OP_PRINT`, expression statements/`OP_POP`,
    panic-mode error recovery, and `//` comments all landed.
-3. **Global variables.** Add an identifier token, `let`/assignment syntax, and
-   `OP_DEFINE_GLOBAL` / `OP_GET_GLOBAL` / `OP_SET_GLOBAL` backed by a hash
-   table. You will build the hash table — a great data-structures exercise.
+3. ~~**Global variables.**~~ **✅ DONE** — see §11 above. Built a from-scratch
+   hash table (open addressing, tombstones), heap objects with interning, string
+   values, and `let`/read/assign with l-value handling.
 4. **Local variables and scope.** Resolve locals to **stack slots** at compile
    time (no hash lookup at runtime). This introduces the *compile-time
    environment* and lexical scoping.

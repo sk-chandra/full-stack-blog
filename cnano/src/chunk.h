@@ -34,6 +34,14 @@ typedef enum {
   OP_EQUAL,    // [opcode]        : b = pop; a = pop; push (a == b)  (any types)
   OP_LESS,     // [opcode]        : b = pop; a = pop; push (a < b)   (ints only)
   OP_GREATER,  // [opcode]        : b = pop; a = pop; push (a > b)   (ints only)
+  // Global variables. Each carries a 1-byte constant-pool index that points at
+  // the variable's NAME (an ObjString stored as a constant). The VM uses that
+  // name as a key into its `globals` hash table. Storing names in the constant
+  // pool — rather than, say, resolving them to numeric slots now — is the simple
+  // approach for globals; step 4 will resolve LOCALS to stack slots for speed.
+  OP_DEFINE_GLOBAL, // [opcode][nameIdx] : pop value, create globals[name]=value
+  OP_GET_GLOBAL,    // [opcode][nameIdx] : push globals[name] (error if undefined)
+  OP_SET_GLOBAL,    // [opcode][nameIdx] : globals[name]=peek (error if undefined)
   // Statement-level opcodes. Unlike the operators above, these consume a value
   // WITHOUT pushing one back — they exist for their effect on output or the
   // stack, mirroring the expression/statement split in the language itself.

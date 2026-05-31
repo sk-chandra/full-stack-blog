@@ -15,29 +15,35 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (53 cases)
+make test       # run the end-to-end test suite (73 cases)
 make run        # start the REPL
 
 # run a file
 ./build/cnano examples/arithmetic.cn          #  prints 4
-./build/cnano examples/statements.cn          #  a multi-statement program
+./build/cnano examples/variables.cn           #  globals + strings
 
 # see the bytecode AND a step-by-step VM trace (the best way to learn)
-./build/cnano --dump examples/arithmetic.cn
+./build/cnano --dump examples/variables.cn
 
 # REPL (statements end with ';'; output only via `print`)
 ./build/cnano
-> print (1 + 2) * 3;
-9
+> let x = 21; print x * 2;
+42
 ```
 
 ## What it supports today
 
 - **Programs are sequences of statements**, each ending with `;`, run top to
   bottom. Output happens only via `print EXPR;`
+- **Global variables**: `let x = …;` to declare, `x` to read, `x = …` to
+  reassign (assignment is a right-associative expression, so `print a = 5;`
+  works and `a = b = 1;` chains)
+- **Strings**: `"double-quoted"` literals, `+` concatenates them, and they are
+  **interned** so equal strings compare in O(1) by pointer
 - **Line comments** with `//` (stripped by the lexer; `/` is still division)
-- Three runtime types: **integers** (64-bit signed), **booleans**, and **nil**,
-  represented with a tagged union (see `value.h`)
+- Four runtime types: **integers** (64-bit signed), **booleans**, **nil**, and
+  heap **strings**, represented with a tagged union + an object header (see
+  `value.h` / `object.h`)
 - Integer arithmetic `+  -  *  /` with correct **precedence** and
   **left-associativity**, unary minus (`-5`, even `--5`)
 - **Comparisons** `<  <=  >  >=` and **equality** `==  !=` (no implicit
@@ -46,7 +52,8 @@ make run        # start the REPL
   falsey; *every* integer including `0` is truthy)
 - Parentheses for grouping
 - **Runtime type checking**: arithmetic/ordering on non-integers (e.g.
-  `1 + true`, `true < false`) is a clean runtime error, not a crash
+  `1 + true`, `true < false`), reading/assigning an undefined variable, and
+  mixing string/int with `+` are all clean runtime errors, not crashes
 - **Multi-error parsing**: a syntax error doesn't stop the parse — it recovers at
   the next statement and reports further independent errors (panic-mode recovery)
 - Controlled errors: syntax errors, unexpected characters, **division by zero**,
@@ -59,11 +66,13 @@ make run        # start the REPL
 | `src/common.h` | shared toolbox | naming the concept vs. the representation |
 | `src/lexer.{h,c}` | text → tokens | lexing, string slices, lookahead, comments |
 | `src/ast.{h,c}` | the tree + `Program` | ASTs, tagged unions, expr vs. statement |
-| `src/parser.{h,c}` | tokens → AST | recursive descent, precedence, panic-mode recovery |
+| `src/parser.{h,c}` | tokens → AST | recursive descent, precedence, l-values, recovery |
 | `src/value.{h,c}` | values + constant pool | tagged-union dynamic values |
+| `src/object.{h,c}` | heap objects + strings | struct-embedding "inheritance", interning, FNV-1a |
+| `src/table.{h,c}` | hash table | open addressing, linear probing, tombstones |
 | `src/chunk.{h,c}` | bytecode container | designing an instruction set (ISA) |
 | `src/compiler.{h,c}` | AST → bytecode | tree walk → stack code; stack discipline |
-| `src/vm.{h,c}` | executes bytecode | the fetch-decode-execute loop; type checks |
+| `src/vm.{h,c}` | executes bytecode | fetch-decode-execute; globals; type checks |
 | `src/debug.{h,c}` | disassembler | seeing what your compiler produced |
 | `src/main.c` | CLI / REPL | wiring it together |
 

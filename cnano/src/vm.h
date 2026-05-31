@@ -9,6 +9,7 @@
 #define CNANO_VM_H
 
 #include "chunk.h"
+#include "table.h"
 
 // A fixed-size operand stack. 256 slots is plenty for arithmetic expressions;
 // real VMs grow the stack dynamically. A fixed cap keeps the code simple and
@@ -20,7 +21,15 @@ typedef struct {
   uint8_t *ip;         // instruction pointer: the NEXT byte to read
   Value stack[STACK_MAX];
   Value *stackTop;     // points just PAST the last pushed value
+  Table globals;       // global variable store: name (ObjString*) -> Value
+  Table strings;       // string intern pool, used as a set of all live strings
+  Obj *objects;        // head of the intrusive list of every heap object
 } VM;
+
+// The VM is a single global instance. object.c reaches in to register new
+// objects (vm.objects) and intern strings (vm.strings), so the struct is exposed
+// here rather than hidden in vm.c.
+extern VM vm;
 
 // The result of a run, so the CLI can pick the right process exit code.
 typedef enum {

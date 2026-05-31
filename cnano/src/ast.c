@@ -29,6 +29,25 @@ Node *newBool(bool value, int line) {
 
 Node *newNil(int line) { return allocNode(NODE_NIL, line); }
 
+Node *newString(ObjString *value, int line) {
+  Node *node = allocNode(NODE_STRING, line);
+  node->as.stringValue = value;
+  return node;
+}
+
+Node *newVarGet(ObjString *name, int line) {
+  Node *node = allocNode(NODE_VAR_GET, line);
+  node->as.name = name;
+  return node;
+}
+
+Node *newAssign(ObjString *name, Node *value, int line) {
+  Node *node = allocNode(NODE_ASSIGN, line);
+  node->as.var.name = name;
+  node->as.var.value = value;
+  return node;
+}
+
 Node *newUnary(NodeOp op, Node *operand, int line) {
   Node *node = allocNode(NODE_UNARY, line);
   node->as.unary.op = op;
@@ -56,6 +75,13 @@ Node *newExprStmt(Node *expr, int line) {
   return node;
 }
 
+Node *newVarDecl(ObjString *name, Node *value, int line) {
+  Node *node = allocNode(NODE_VAR_DECL, line);
+  node->as.var.name = name;
+  node->as.var.value = value;
+  return node;
+}
+
 // Post-order traversal: free children before the parent so we never follow a
 // dangling pointer. Recursion mirrors the tree's own shape — the natural way to
 // walk a tree in any compiler stage.
@@ -66,7 +92,9 @@ void freeNode(Node *node) {
   case NODE_INT:
   case NODE_BOOL:
   case NODE_NIL:
-    break; // leaf nodes, no children
+  case NODE_STRING:  // the ObjString is owned/freed by the VM, not the AST
+  case NODE_VAR_GET: // ditto for the variable name
+    break;           // leaf nodes, no child Nodes
   case NODE_UNARY:
     freeNode(node->as.unary.operand);
     break;
@@ -77,6 +105,10 @@ void freeNode(Node *node) {
   case NODE_PRINT:
   case NODE_EXPR_STMT:
     freeNode(node->as.stmt.expr);
+    break;
+  case NODE_ASSIGN:
+  case NODE_VAR_DECL:
+    freeNode(node->as.var.value); // free the value expr; name is VM-owned
     break;
   }
   free(node);

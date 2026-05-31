@@ -155,6 +155,33 @@ check_prog_err "expr-no-semicolon" "1 + 2"
 check_prog_err "print-no-value"    "print ;"
 check_prog_err "bare-semicolon"    ";"
 
+# --- global variables (step 3) ---
+check_prog "let-and-read"     "let x = 10; print x;"              "10"
+check_prog "var-in-expr"      "let x = 3; print x * x + 1;"       "10"
+check_prog "reassign"         "let x = 1; x = 99; print x;"       "99"
+check_prog "assign-chain"     "let a=0; let b=0; a = b = 5; print a; print b;" "$(printf '5\n5')"
+check_prog "assign-is-expr"   "let a = 0; print a = 7;"           "7"
+check_prog "var-keeps-state"  "let n = 1; n = n + n; n = n + n; print n;" "4"
+# Force the hash table to grow past its initial 8 buckets (>6 keys at 0.75 load).
+check_prog "many-globals"     "let a=1;let b=2;let c=3;let d=4;let e=5;let f=6;let g=7;let h=8;let i=9;print a+b+c+d+e+f+g+h+i;" "45"
+
+# --- strings (step 3) ---
+check_prog "string-literal"   'print "hello";'                    "hello"
+check_prog "string-concat"    'print "foo" + "bar";'              "foobar"
+check_prog "string-in-var"    'let s = "hi"; print s + s;'        "hihi"
+check_prog "string-eq-intern" 'print "ab" == "a" + "b";'         "true"
+check_prog "string-neq"       'print "a" == "b";'                 "false"
+check_prog "string-int-neq"   'print "1" == 1;'                   "false"
+
+# --- variable & string runtime/type errors (step 3) ---
+check_prog_err "undefined-read"   "print y;"
+check_prog_err "undefined-assign" "z = 5;"
+check_prog_err "bad-lvalue"       "1 + 2 = 3;"
+check_prog_err "let-no-init"      "let x;"
+check_prog_err "let-no-name"      "let = 5;"
+check_prog_err "string-plus-int"  'print "a" + 1;'
+check_prog_err "unterminated-str" 'print "oops;'
+
 rm -f "$tmp"
 echo "-----------------------------------------"
 echo "passed: $pass   failed: $fail"

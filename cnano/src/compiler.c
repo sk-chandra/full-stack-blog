@@ -47,6 +47,31 @@ static void emitExpr(Node *node) {
     emitByte(OP_NIL, node->line);
     break;
 
+  case NODE_STRING:
+    // A string literal is a heap object; it rides in the constant pool just like
+    // an integer, wrapped as an OBJ_VAL.
+    emitConstant(OBJ_VAL(node->as.stringValue), node->line);
+    break;
+
+  case NODE_VAR_GET: {
+    // Store the name as a constant, then emit GET_GLOBAL with its index.
+    int nameIdx = addConstant(current, OBJ_VAL(node->as.name));
+    emitByte(OP_GET_GLOBAL, node->line);
+    emitByte((uint8_t)nameIdx, node->line);
+    break;
+  }
+
+  case NODE_ASSIGN: {
+    // Evaluate the value first (it must be on the stack), then SET_GLOBAL. The
+    // VM leaves the value on the stack so assignment can be used as an
+    // expression: `print x = 5;` prints 5.
+    emitExpr(node->as.var.value);
+    int nameIdx = addConstant(current, OBJ_VAL(node->as.var.name));
+    emitByte(OP_SET_GLOBAL, node->line);
+    emitByte((uint8_t)nameIdx, node->line);
+    break;
+  }
+
   case NODE_UNARY:
     emitExpr(node->as.unary.operand); // operand value now on stack
     switch (node->as.unary.op) {
@@ -95,6 +120,7 @@ static void emitExpr(Node *node) {
 
   case NODE_PRINT:
   case NODE_EXPR_STMT:
+  case NODE_VAR_DECL:
     // Statement nodes are not expressions and must never be compiled as one.
     // This case exists only to keep the switch exhaustive (so -Wall warns if a
     // future node type is forgotten).
@@ -120,6 +146,17 @@ static void emitStatement(Node *node) {
     // stack-based VM's stack grow without bound — every expression statement
     // would leak one slot. The pop is what keeps the stack balanced.
     break;
+
+  case NODE_VAR_DECL: {
+    // `let name = value;`. Evaluate the initialiser onto the stack, then
+    // DEFINE_GLOBAL consumes it and binds the name. Net stack effect: zero, like
+    // every statement.
+    emitExpr(node->as.var.value);
+    int nameIdx = addConstant(current, OBJ_VAL(node->as.var.name));
+    emitByte(OP_DEFINE_GLOBAL, node->line);
+    emitByte((uint8_t)nameIdx, node->line);
+    break;
+  }
 
   default:
     // An expression appearing where a statement is expected: shouldn't happen,
