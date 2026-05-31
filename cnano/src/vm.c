@@ -516,6 +516,25 @@ static InterpretResult run(bool trace, int stopFrame) {
       ObjString *method = READ_STRING();
       int argCount = READ_BYTE();
       Value receiver = peek(argCount);
+
+      // A struct instance: dispatch to a USER method. The receiver already sits
+      // `argCount` slots below the top, exactly where a call frame's slot 0 goes —
+      // so calling the method closure makes slot 0 the receiver, i.e. `self`.
+      if (IS_INSTANCE(receiver)) {
+        ObjInstance *inst = AS_INSTANCE(receiver);
+        Value m;
+        if (!tableGet(&inst->type->methods, method, &m)) {
+          runtimeError("%s has no method '%s'", inst->type->name->chars,
+                       method->chars);
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        if (!call(AS_CLOSURE(m), argCount))
+          return INTERPRET_RUNTIME_ERROR;
+        frame = &vm.frames[vm.frameCount - 1]; // resume in the method
+        break;
+      }
+
+      // A built-in type (string/array/map): dispatch to a native method.
       Value result;
       if (!invokeMethod(receiver, method, argCount, vm.stackTop - argCount,
                         &result))
@@ -618,6 +637,14 @@ static InterpretResult run(bool trace, int stopFrame) {
         return INTERPRET_RUNTIME_ERROR;
       }
       push(value);
+      break;
+    }
+    case OP_METHOD: {
+      // Install a method on the struct during its declaration. Stack: [.. struct
+      // closure]; pop the closure into the struct's method table, leave struct.
+      ObjString *name = READ_STRING(); // struct is peek(1); closure is peek(0)
+      tableSet(&AS_STRUCT(peek(1))->methods, name, peek(0));
+      pop(); // the closure; the struct stays for the next method / define
       break;
     }
     case OP_GET_FIELD: {

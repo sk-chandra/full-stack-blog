@@ -184,6 +184,8 @@ Node *newStructDecl(ObjString *name, ObjString **fieldNames, Type **fieldTypes,
   node->as.structDecl.fieldNames = fieldNames;
   node->as.structDecl.fieldTypes = fieldTypes;
   node->as.structDecl.fieldCount = fieldCount;
+  node->as.structDecl.methods = NULL; // filled in by the parser
+  node->as.structDecl.methodCount = 0;
   return node;
 }
 
@@ -327,9 +329,13 @@ void freeNode(Node *node) {
     freeNode(node->as.field.value); // tolerates NULL (the get form)
     break;
   case NODE_STRUCT:
-    // name and field names are interned (VM-owned); free only the arrays.
+    // name and field names are interned (VM-owned); free only the arrays and the
+    // method declaration nodes.
     free(node->as.structDecl.fieldNames);
     free(node->as.structDecl.fieldTypes);
+    for (int i = 0; i < node->as.structDecl.methodCount; i++)
+      freeNode(node->as.structDecl.methods[i]);
+    free(node->as.structDecl.methods);
     break;
   case NODE_FUN:
     // name and the param ObjStrings are VM-owned (interned); free only the

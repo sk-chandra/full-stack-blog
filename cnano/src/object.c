@@ -207,6 +207,7 @@ ObjStruct *newStruct(ObjString *name, ObjString **fieldNames, int fieldCount) {
   s->name = name;
   s->fieldNames = fieldNames;
   s->fieldCount = fieldCount;
+  initTable(&s->methods);
   return s;
 }
 
@@ -368,6 +369,7 @@ void freeObject(Obj *object) {
   case OBJ_STRUCT: {
     ObjStruct *s = (ObjStruct *)object;
     free(s->fieldNames); // plain malloc'd by the compiler; not GC-accounted
+    freeTable(&s->methods);
     reallocate(s, sizeof(ObjStruct), 0);
     break;
   }

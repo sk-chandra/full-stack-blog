@@ -957,7 +957,23 @@ static Node *structDeclaration(void) {
   ObjString **fieldNames = NULL;
   Type **fieldTypes = NULL;
   int count = 0, capacity = 0;
+  Node **methods = NULL;
+  int methodCount = 0, methodCap = 0;
   while (!check(TOKEN_RBRACE) && !check(TOKEN_EOF)) {
+    if (match(TOKEN_FN)) {
+      // A method: an ordinary function declaration whose body may use `self`.
+      Node *m = funDeclaration();
+      if (methodCount + 1 > methodCap) {
+        methodCap = methodCap < 4 ? 4 : methodCap * 2;
+        methods = realloc(methods, sizeof(Node *) * methodCap);
+        if (methods == NULL) {
+          fprintf(stderr, "cnano: out of memory parsing struct methods\n");
+          exit(70);
+        }
+      }
+      methods[methodCount++] = m;
+      continue;
+    }
     consume(TOKEN_IDENTIFIER, "Expect a field name.");
     ObjString *fname = copyString(parser.previous.start, parser.previous.length);
     Type *ftype = match(TOKEN_COLON) ? parseType() : typeAny();
@@ -973,11 +989,13 @@ static Node *structDeclaration(void) {
     fieldNames[count] = fname;
     fieldTypes[count] = ftype;
     count++;
-    if (!match(TOKEN_COMMA))
-      break; // a trailing comma is allowed (the loop re-checks for '}')
+    match(TOKEN_COMMA); // a separating/trailing comma between fields is optional
   }
-  consume(TOKEN_RBRACE, "Expect '}' after the struct fields.");
-  return newStructDecl(name, fieldNames, fieldTypes, count, line);
+  consume(TOKEN_RBRACE, "Expect '}' after the struct body.");
+  Node *node = newStructDecl(name, fieldNames, fieldTypes, count, line);
+  node->as.structDecl.methods = methods;
+  node->as.structDecl.methodCount = methodCount;
+  return node;
 }
 
 // One level above statement(): a declaration is a `struct`, a `fn`, a `let`, or

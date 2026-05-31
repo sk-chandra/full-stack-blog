@@ -46,6 +46,7 @@ typedef struct {
 // final OP_RETURN does.
 typedef enum {
   TYPE_FUNCTION,
+  TYPE_METHOD, // a struct method: slot 0 is the receiver, `self`
   TYPE_SCRIPT,
 } FunctionType;
 
@@ -92,7 +93,10 @@ static void initCompilerState(CompilerState *state, FunctionType type) {
   // slot 1 and the indices line up with the runtime frame.
   Local *local = &current->locals[current->localCount++];
   local->depth = 0;
-  local->name = NULL;
+  // For a METHOD, slot 0 holds the receiver: name it `self` so the body can refer
+  // to it as an ordinary local. For plain functions slot 0 is the (unnamed)
+  // callee. Interning makes the body's `self` reads resolve here by pointer.
+  local->name = (type == TYPE_METHOD) ? copyString("self", 4) : NULL;
   local->isCaptured = false;
 }
 
@@ -333,7 +337,7 @@ static void markInitialized(void) {
 // recursive with emitStatement (a function body contains statements; a statement
 // may be a nested function).
 static void emitStatement(Node *node);
-static ObjFunction *compileFunction(Node *node);
+static ObjFunction *compileFunction(Node *node, FunctionType type);
 
 // Compile an EXPRESSION node. The contract: every path through here leaves
 // exactly ONE value on the VM stack. That invariant is what lets statements
@@ -678,7 +682,7 @@ static void emitStatement(Node *node) {
     // Compile the function, which emits OP_CLOSURE leaving the new closure on the
     // stack. Then bind it to its name exactly like a variable — global at top
     // level, local inside a block.
-    compileFunction(node);
+    compileFunction(node, TYPE_FUNCTION);
 
     ObjString *name = node->as.fun.name;
     if (current->scopeDepth > 0) {
@@ -713,6 +717,17 @@ static void emitStatement(Node *node) {
     }
     ObjStruct *s = newStruct(node->as.structDecl.name, names, n);
     emitConstant(OBJ_VAL(s), node->line); // pushes the struct object
+
+    // Define each method: compile it as a closure (TYPE_METHOD reserves slot 0 for
+    // `self`), then OP_METHOD pops the closure and installs it on the struct,
+    // which stays on the stack throughout.
+    for (int i = 0; i < node->as.structDecl.methodCount; i++) {
+      Node *m = node->as.structDecl.methods[i];
+      compileFunction(m, TYPE_METHOD);
+      int methodNameIdx = identifierConstant(m->as.fun.name, m->line);
+      emitByte(OP_METHOD, m->line);
+      emitByte((uint8_t)methodNameIdx, m->line);
+    }
 
     ObjString *name = node->as.structDecl.name;
     if (current->scopeDepth > 0) {
@@ -753,9 +768,9 @@ static void emitStatement(Node *node) {
 // its own chunk and its own locals/slot numbering starting fresh — exactly the
 // isolation a separate stack frame provides at runtime. Parameters are just the
 // function's first locals.
-static ObjFunction *compileFunction(Node *node) {
+static ObjFunction *compileFunction(Node *node, FunctionType type) {
   CompilerState state;
-  initCompilerState(&state, TYPE_FUNCTION);
+  initCompilerState(&state, type);
   current->function->name = node->as.fun.name;
   current->function->arity = node->as.fun.paramCount;
 

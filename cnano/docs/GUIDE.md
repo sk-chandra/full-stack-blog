@@ -1408,7 +1408,13 @@ programs define their own types, and makes failure recoverable.
     struct registry (so forward references work); construction is a function type
     `fn(fields)→Struct` (arity + arg types checked); field gets/sets are
     type-checked; native backend rejects instances.
-21. **Methods on user types** — `OP_INVOKE` extended to instances; `self`.
+21. ~~**Methods on user types.**~~ **✅ DONE** — methods live in the struct body;
+    each is compiled with `TYPE_METHOD` so slot 0 is the receiver, named `self`.
+    `OP_METHOD` installs each method closure into the struct's method table during
+    declaration; `OP_INVOKE` on an instance looks the method up there and calls it
+    with the receiver as slot 0 (clox's `this` machinery). Method bodies are
+    type-checked with `self` bound to the struct type. Methods mutate fields and
+    call each other (`self.area()`).
 22. **Constructors / initializers.**
 23. *(optional)* **single inheritance + `super`.**
 

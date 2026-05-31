@@ -122,6 +122,7 @@ typedef struct {
   ObjString *name;
   ObjString **fieldNames; // declaration order; positional construction
   int fieldCount;
+  Table methods; // method name -> ObjClosure, filled at declaration by OP_METHOD
 } ObjStruct;
 
 // An INSTANCE of a struct. Fields live in a Table keyed by interned field name —

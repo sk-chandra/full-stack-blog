@@ -100,6 +100,10 @@ typedef enum {
   // [.. instance value], stores, pops both and pushes value.
   OP_GET_FIELD,   // [opcode][nameIdx] : push instance.field
   OP_SET_FIELD,   // [opcode][nameIdx] : instance.field = value; push value
+  // Install a method on a struct during its declaration: the method closure is on
+  // top, the struct just below it. Pops the closure, adds it to the struct's
+  // method table under [nameIdx], and leaves the struct on the stack.
+  OP_METHOD,      // [opcode][nameIdx] : struct.methods[name] = pop()
   // Create a closure from the function constant at [idx], then read 2 bytes per
   // upvalue describing where each capture comes from: [isLocal][index]. This is
   // our only VARIABLE-LENGTH instruction — its size depends on the function's

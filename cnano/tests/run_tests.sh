@@ -587,6 +587,15 @@ check_prog_err "struct-unknown-ty" 'let p: Nope = 5; print p;'
 check_prog_err "struct-nominal"    'struct A { v: int } struct B { v: int } fn f(a: A): int { return a.v; } print f(B(1));'
 check_native_err "nat-rej-struct"  'struct P { x: int } let p = P(1); print p.x;'
 
+# --- methods on structs (step 21) ---
+check_prog "method-self"    'struct P { x: int, y: int fn sum(): int { return self.x + self.y; } } print P(3,4).sum();' "7"
+check_prog "method-mutate"  'struct C { n: int fn inc(by: int) { self.n += by; } } let c = C(0); c.inc(5); c.inc(3); print c.n;' "8"
+check_prog "method-calls-method" 'struct R { w: int, h: int fn area(): int { return self.w*self.h; } fn d(): str { return "a=" + str(self.area()); } } print R(3,4).d();' "a=12"
+check_prog "method-on-elem" 'struct P { x: int fn dbl(): int { return self.x*2; } } let a = [P(1), P(5)]; print a[1].dbl();' "10"
+check_prog_err "method-unknown"   'struct P { x: int } print P(1).nope();'
+check_prog_err "method-body-type" 'struct P { x: int fn bad(): str { return self.x; } } print P(1).bad();'
+check_prog_err "method-self-field" 'struct P { x: int fn f(): int { return self.z; } } print P(1).f();'
+
 # --- native backend: compile to C -> a real executable (step 9) ---
 # Each program is the typed first-order subset; its native output must match.
 check_native "nat-arith"    'print 2 + 3 * 4;'                          "14"

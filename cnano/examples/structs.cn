@@ -43,3 +43,17 @@ struct Account { owner: str, balance: int }
 let acct = Account("alice", 100);
 acct.balance -= 30;
 print acct.owner + " has " + str(acct.balance); // alice has 70
+
+// Methods live in the struct body and receive the instance as `self`. They can
+// read and mutate fields, and call each other.
+struct Rect {
+  w: int,
+  h: int
+  fn area(): int { return self.w * self.h; }
+  fn scale(k: int) { self.w *= k; self.h *= k; }
+  fn describe(): str { return "Rect area=" + str(self.area()); }
+}
+let r = Rect(3, 4);
+print r.area();         // 12
+r.scale(2);
+print r.describe();     // Rect area=48

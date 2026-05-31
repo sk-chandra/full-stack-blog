@@ -105,11 +105,12 @@ static void blackenObject(Obj *object) {
     break;
   }
   case OBJ_STRUCT: {
-    // Keep the struct's name and every field name alive.
+    // Keep the struct's name, every field name, and every method alive.
     ObjStruct *s = (ObjStruct *)object;
     markObject((Obj *)s->name);
     for (int i = 0; i < s->fieldCount; i++)
       markObject((Obj *)s->fieldNames[i]);
+    markTable(&s->methods);
     break;
   }
   case OBJ_INSTANCE: {

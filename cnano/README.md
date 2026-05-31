@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (331 cases, incl. native + GC)
+make test       # run the end-to-end test suite (338 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -84,10 +84,12 @@ make run        # start the REPL
   keys *and* values; typed as `{K: V}` and checked structurally
 - **Structs**: `struct Point { x: int, y: int }` declares a record type;
   `Point(1, 2)` constructs an instance, `p.x` / `p.x = v` access fields (the same
-  `.` that calls methods). GC-managed instances. Statically **nominal** (`A` ≠ `B`
-  even with identical fields), with construction arg/arity, field-type, and
-  unknown-field/type errors all caught before execution; usable as `[Point]`,
-  `{str: Point}`, function params/returns, etc.
+  `.` that calls methods). **Methods** live in the struct body and receive the
+  instance as `self` (`fn area(): int { return self.w * self.h; }`); they can
+  mutate fields and call each other. GC-managed instances. Statically **nominal**
+  (`A` ≠ `B` even with identical fields), with construction arg/arity, field-type,
+  and unknown-field/type errors caught before execution (method bodies too);
+  usable as `[Point]`, `{str: Point}`, function params/returns, etc.
 - **Optional static types** (gradual typing): annotate with `let x: int = …;`
   and `fn add(a: int, b: int): int { … }`. Types are **structured** —
   `int`/`bool`/`str`/`nil`/`any` plus the parametric `[T]` (arrays) and

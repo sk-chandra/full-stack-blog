@@ -452,6 +452,22 @@ static void checkFunction(Node *node) {
   checker.currentReturnType = savedReturn;
 }
 
+// Type-check a struct METHOD body, with `self` bound to the struct type so the
+// body can use `self.field`. Mirrors checkFunction but adds the receiver.
+static void checkMethod(Type *structType, Node *m) {
+  Type *savedReturn = checker.currentReturnType;
+  checker.currentReturnType = resolve(m->as.fun.returnType, m->line);
+  beginScope();
+  declareSymbol(copyString("self", 4), structType);
+  for (int i = 0; i < m->as.fun.paramCount; i++)
+    declareSymbol(m->as.fun.params[i], resolve(m->as.fun.paramTypes[i], m->line));
+  Program *body = m->as.fun.body;
+  for (int i = 0; i < body->count; i++)
+    checkStatement(body->statements[i]);
+  endScope();
+  checker.currentReturnType = savedReturn;
+}
+
 static void checkStatement(Node *node) {
   switch (node->type) {
   case NODE_PRINT:
@@ -494,12 +510,16 @@ static void checkStatement(Node *node) {
   case NODE_FUN:
     checkFunction(node);
     break;
-  case NODE_STRUCT:
-    // Registered in the pre-pass; here just validate that each field's annotated
-    // type names a real type (resolve reports unknown struct references).
+  case NODE_STRUCT: {
+    // Registered in the pre-pass; here validate field types resolve, then check
+    // each method body with `self` bound to this struct's type.
     for (int i = 0; i < node->as.structDecl.fieldCount; i++)
       resolve(node->as.structDecl.fieldTypes[i], node->line);
+    Type *structType = resolve(typeStructRef(node->as.structDecl.name), node->line);
+    for (int i = 0; i < node->as.structDecl.methodCount; i++)
+      checkMethod(structType, node->as.structDecl.methods[i]);
     break;
+  }
   case NODE_RETURN: {
     Type *retType = node->as.ret.value ? checkExpr(node->as.ret.value) : typeNil();
     if (checker.currentReturnType != NULL &&

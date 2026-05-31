@@ -202,6 +202,8 @@ typedef struct Node {
       ObjString **fieldNames;
       Type **fieldTypes;
       int fieldCount;
+      struct Node **methods; // NODE_FUN declarations inside the struct body
+      int methodCount;
     } structDecl;
     // NODE_FUN: a function declaration. params holds the parameter NAMES (interned
     // ObjStrings); paramTypes the parallel `: T` annotations (typeAny() if
