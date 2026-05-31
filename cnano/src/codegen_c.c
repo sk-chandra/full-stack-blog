@@ -513,6 +513,11 @@ static void emitExpr(Node *node) {
   case NODE_IS:
     unsupported(node->line, "an `is` type test");
     break;
+  case NODE_FUN:
+    // A lambda needs a heap closure (and possibly captured upvalues), which the
+    // scalar native subset has no runtime for.
+    unsupported(node->line, "an anonymous function (lambda)");
+    break;
   default:
     unsupported(node->line, "this expression");
     break;

@@ -652,13 +652,19 @@ static void emitExpr(Node *node) {
     }
     break;
 
+  case NODE_FUN:
+    // A lambda: compile the function (emits OP_CLOSURE) and LEAVE the closure on
+    // the stack as this expression's value — the only difference from a named
+    // function declaration is that we don't bind it to a name afterwards.
+    compileFunction(node, TYPE_FUNCTION);
+    break;
+
   case NODE_PRINT:
   case NODE_EXPR_STMT:
   case NODE_VAR_DECL:
   case NODE_BLOCK:
   case NODE_IF:
   case NODE_WHILE:
-  case NODE_FUN:
   case NODE_RETURN:
   case NODE_STRUCT:
   case NODE_THROW:

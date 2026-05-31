@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (524 cases, incl. native + GC)
+make test       # run the end-to-end test suite (535 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -86,6 +86,10 @@ make run        # start the REPL
   via upvalues, and those variables outlive the frame that created them (so a
   returned counter keeps counting). Captured variables can be shared and mutated
   between sibling closures
+- **Anonymous functions (lambdas)**: `fn(x) { … }` or the `fn(x) => expr`
+  shorthand in any expression position — `[1,2,3].map(fn(x) => x*x)`. They are
+  ordinary closures (capture, share, and outlive their scope just like named
+  functions) and, when annotated, are arity/return-type checked at call sites
 - **Builtins & methods**: native functions implemented in C — `clock()`,
   `str(x)`, `len(x)`, `type(x)`, `assert(c)`, math (`abs min max sqrt floor ceil round pow`) — registered as
   globals, plus **method-call syntax** `receiver.method(args)` that dispatches on

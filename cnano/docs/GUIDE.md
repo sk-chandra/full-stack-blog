@@ -1602,7 +1602,19 @@ programs define their own types, and makes failure recoverable.
     when both branches share a scalar type (a mismatch is rejected, not
     miscompiled). Demonstrates that "expression vs statement" is a compiler
     convention, not a runtime one — the same jumps build both.
-47. **Performance** (inline caching/peephole), generics, native closures, and a
+47. ~~**Anonymous functions / lambdas** (`fn(x) => expr`).~~ **✅ DONE** (step 43)
+    — `fn` in expression position builds an unnamed function; a `=> expr`
+    shorthand desugars to `{ return expr; }`. It reuses the *entire* function
+    machinery: the parser shares one `finishFunction` for named and anonymous
+    forms; the compiler reuses `compileFunction` (emitting `OP_CLOSURE`) and
+    simply leaves the closure on the stack instead of binding a name — so lambdas
+    are full closures (capture, share, outlive their scope) for free. The checker
+    gives a lambda a real function type (so a direct typed call is arity/return
+    checked) without binding its synthetic name (no false "redeclaration" when
+    several lambdas coexist). Native rejects them (a heap closure has no place in
+    the scalar subset). A neat demonstration that "named function" was only ever
+    sugar for "a closure value plus a binding".
+48. **Performance** (inline caching/peephole), generics, native closures, and a
     per-module namespace for `import` — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom

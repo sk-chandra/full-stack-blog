@@ -422,6 +422,19 @@ check_prog "fn-bare-ret"  'fn f(){return;} print f();'                        "n
 check_prog "fn-uses-global" 'let g=100; fn add(x){return x+g;} print add(1);'  "101"
 check_prog "fn-arg-expr"  'fn id(x){return x;} print id(2+3*4);'               "14"
 
+# --- anonymous function expressions / lambdas (step 43) ---
+check_prog "lam-arrow"    'let d = fn(x) => x*2; print d(21);'                 "42"
+check_prog "lam-block"    'let a = fn(x,y){return x+y;}; print a(3,4);'        "7"
+check_prog "lam-inline"   'print (fn(n) => n+1)(41);'                          "42"
+check_prog "lam-hof"      'print [1,2,3,4].map(fn(x) => x*x).filter(fn(x)=>x>4).reduce(fn(a,b)=>a+b, 0);' "25"
+check_prog "lam-closure"  'fn adder(n){return fn(x) => x+n;} let a=adder(10); print a(5);' "15"
+check_prog "lam-noargs"   'let f = fn() => 7; print f();'                      "7"
+check_prog "lam-shared"   'fn mk(){let c=0; let inc=fn()=>c; return inc;} print mk()();' "0"
+check_prog "lam-typed"    'let id = fn(x: int): int => x; print id(99);'       "99"
+check_prog_err "lam-typed-arg-err" 'let f = fn(a: int): int => a; print f("x");'
+check_prog_err "lam-typed-ret-err" 'let f = fn(): int => "no"; print f();'
+check_native_err "nat-rej-lambda" 'fn run(): int { let f = fn(x: int): int => x; return f(3); } print run();'
+
 # --- function errors (step 6) ---
 check_prog_err "fn-too-few-args"  'fn f(a,b){return a;} f(1);'
 check_prog_err "fn-too-many-args" 'fn f(a){return a;} f(1,2);'

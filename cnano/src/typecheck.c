@@ -189,6 +189,7 @@ static Type *resolve(Type *t, int line) {
 
 static Type *checkExpr(Node *node);
 static void checkStatement(Node *node);
+static Type *functionTypeOf(Node *fun); // defined below; used for lambdas
 
 // Helper: an arithmetic operand must be int OR any. Returns false (and reports)
 // only when the operand is a KNOWN non-int — the gradual rule in action.
@@ -370,6 +371,26 @@ static Type *checkExpr(Node *node) {
     Type *thenT = checkExpr(node->as.ifStmt.then);
     Type *elseT = checkExpr(node->as.ifStmt.otherwise);
     return thenT->kind == elseT->kind ? thenT : typeAny();
+  }
+  case NODE_FUN: {
+    // A lambda (anonymous function expression). Check its body like a named
+    // function — but WITHOUT binding its synthetic name, so several lambdas
+    // sharing the name don't look like a redeclaration and there's no
+    // recursion-by-name. Its type is a real function type, so a direct call is
+    // arity/return-checked like any other.
+    Type *fnType = functionTypeOf(node);
+    Type *savedReturn = checker.currentReturnType;
+    checker.currentReturnType = resolve(node->as.fun.returnType, node->line);
+    beginScope();
+    for (int i = 0; i < node->as.fun.paramCount; i++)
+      declareSymbol(node->as.fun.params[i],
+                    resolve(node->as.fun.paramTypes[i], node->line));
+    Program *body = node->as.fun.body;
+    for (int i = 0; i < body->count; i++)
+      checkStatement(body->statements[i]);
+    endScope();
+    checker.currentReturnType = savedReturn;
+    return fnType;
   }
   case NODE_CALL:
     return checkCall(node);

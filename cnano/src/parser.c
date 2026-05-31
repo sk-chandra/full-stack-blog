@@ -138,6 +138,7 @@ static Node *expression(void);
 static Node *assignment(void);
 static Node *logicOr(void);
 static Node *logicAnd(void);
+static Node *finishFunction(ObjString *name, int line); // lambdas + fn decls
 static Node *bitOr(void);
 static Node *bitXor(void);
 static Node *bitAnd(void);
@@ -628,6 +629,14 @@ static Node *interpolate(const char *text, int len, int line) {
 }
 
 static Node *primary(void) {
+  if (match(TOKEN_FN)) {
+    // An anonymous function expression (lambda): `fn(params) { … }` or the
+    // `fn(params) => expr` shorthand. It compiles to the same closure a named
+    // function does — it just isn't bound to a name. Synthesise "lambda" for
+    // stack traces. (A *named* `fn` is parsed by funDeclaration at statement
+    // level; `fn` reaching here is always anonymous.)
+    return finishFunction(copyString("lambda", 6), parser.previous.line);
+  }
   if (match(TOKEN_NUMBER)) {
     // A '.' in the token's text means a float literal; otherwise an integer.
     // strtoll/strtod parse the slice in place (they stop at the first character
@@ -1248,12 +1257,12 @@ static Node *varDeclaration(bool isConst) {
 // then the body as a block. The compiler turns this into an ObjFunction. Like
 // `let`, a function declaration BINDS a name (so functions can be called, and
 // can recurse / be mutually recursive among globals).
-static Node *funDeclaration(void) {
-  int line = parser.previous.line; // the 'fn'
-  consume(TOKEN_IDENTIFIER, "Expect function name after 'fn'.");
-  ObjString *name = copyString(parser.previous.start, parser.previous.length);
-
-  consume(TOKEN_LPAREN, "Expect '(' after function name.");
+// Parse the part of a function after its name (or after `fn` for a lambda):
+//   "(" params ")" [":" TYPE] ( "{" block "}" | "=>" expression )
+// `name` is the function's name — a synthetic "lambda" for anonymous functions.
+// The `=> expr` shorthand desugars to a body of `{ return expr; }`.
+static Node *finishFunction(ObjString *name, int line) {
+  consume(TOKEN_LPAREN, "Expect '(' after a function's parameter list.");
   ObjString **params = NULL;
   Type **paramTypes = NULL;
   int paramCount = 0;
@@ -1286,14 +1295,30 @@ static Node *funDeclaration(void) {
   // Optional return-type annotation: `fn f(...) : TYPE { ... }`. Default any.
   Type *returnType = match(TOKEN_COLON) ? parseType() : typeAny();
 
-  consume(TOKEN_LBRACE, "Expect '{' before function body.");
-  Node *bodyBlock = block(); // parses up to and including the closing '}'
-  // block() returns a NODE_BLOCK owning a Program; unwrap it for the fun node.
-  Program *body = bodyBlock->as.block;
-  bodyBlock->as.block = NULL; // detach so freeing the wrapper won't free body
-  freeNode(bodyBlock);
+  Program *body;
+  if (match(TOKEN_FAT_ARROW)) {
+    // `=> expr` shorthand: a single-expression body, desugared to `return expr;`.
+    int aline = parser.previous.line;
+    Node *value = expression();
+    body = makeProgram();
+    writeProgram(body, newReturn(value, aline));
+  } else {
+    consume(TOKEN_LBRACE, "Expect '{' or '=>' before a function body.");
+    Node *bodyBlock = block(); // parses up to and including the closing '}'
+    // block() returns a NODE_BLOCK owning a Program; unwrap it for the fun node.
+    body = bodyBlock->as.block;
+    bodyBlock->as.block = NULL; // detach so freeing the wrapper won't free body
+    freeNode(bodyBlock);
+  }
 
   return newFun(name, params, paramTypes, paramCount, returnType, body, line);
+}
+
+static Node *funDeclaration(void) {
+  int line = parser.previous.line; // the 'fn'
+  consume(TOKEN_IDENTIFIER, "Expect function name after 'fn'.");
+  ObjString *name = copyString(parser.previous.start, parser.previous.length);
+  return finishFunction(name, line);
 }
 
 // `struct NAME { field [: TYPE] (, field [: TYPE])* }` — a record-type
