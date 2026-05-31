@@ -254,6 +254,20 @@ static Type *checkExpr(Node *node) {
     }
     return typeArray(elem);
   }
+  case NODE_MAP: {
+    // Infer key and value types independently, each homogeneous-or-`any`, exactly
+    // like array element inference. An empty literal is `{any: any}`.
+    int n = node->as.map.count;
+    Type *keyT = n > 0 ? checkExpr(node->as.map.keys[0]) : typeAny();
+    Type *valT = n > 0 ? checkExpr(node->as.map.values[0]) : typeAny();
+    for (int i = 1; i < n; i++) {
+      if (checkExpr(node->as.map.keys[i])->kind != keyT->kind)
+        keyT = typeAny();
+      if (checkExpr(node->as.map.values[i])->kind != valT->kind)
+        valT = typeAny();
+    }
+    return typeMap(keyT, valT);
+  }
   case NODE_INDEX_GET: {
     Type *obj = checkExpr(node->as.index.object);
     Type *idx = checkExpr(node->as.index.index);
@@ -261,6 +275,15 @@ static Type *checkExpr(Node *node) {
       if (idx->kind != TY_INT && idx->kind != TY_ANY)
         typeError(node->line, "array index must be int");
       return obj->element; // a known element type — real static information
+    }
+    if (obj->kind == TY_MAP) {
+      if (!compatible(obj->map.key, idx)) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "map key should be %s but got %s",
+                 typeName(obj->map.key), typeName(idx));
+        typeError(node->line, msg);
+      }
+      return obj->map.value; // the map's value type
     }
     if (obj->kind != TY_ANY) {
       char msg[96];
@@ -280,6 +303,19 @@ static Type *checkExpr(Node *node) {
         char msg[128];
         snprintf(msg, sizeof(msg), "cannot store %s into an array of %s",
                  typeName(val), typeName(obj->element));
+        typeError(node->line, msg);
+      }
+    } else if (obj->kind == TY_MAP) {
+      if (!compatible(obj->map.key, idx)) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "map key should be %s but got %s",
+                 typeName(obj->map.key), typeName(idx));
+        typeError(node->line, msg);
+      }
+      if (!compatible(obj->map.value, val)) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "cannot store %s as a %s value", typeName(val),
+                 typeName(obj->map.value));
         typeError(node->line, msg);
       }
     } else if (obj->kind != TY_ANY) {

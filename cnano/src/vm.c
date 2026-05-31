@@ -499,25 +499,56 @@ static InterpretResult run(bool trace) {
       push(OBJ_VAL(array));     // push the finished array
       break;
     }
+    case OP_BUILD_MAP: {
+      int pairs = READ_BYTE();
+      // Allocate while the key/value pairs are still on the stack (rooted), then
+      // insert them. mapSet grows with plain realloc and never collects, so the
+      // new map can't be reclaimed before we push it.
+      ObjMap *map = newMapObject();
+      for (int i = 0; i < pairs; i++) {
+        Value key = vm.stackTop[-2 * pairs + 2 * i];
+        Value value = vm.stackTop[-2 * pairs + 2 * i + 1];
+        if (!isHashableKey(key)) {
+          runtimeError("a map key must be an int, bool, nil, or str");
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        mapSet(map, key, value);
+      }
+      vm.stackTop -= 2 * pairs; // pop the keys and values
+      push(OBJ_VAL(map));
+      break;
+    }
     case OP_INDEX_GET: {
       Value index = pop();
       Value object = pop();
-      if (!IS_ARRAY(object)) {
-        runtimeError("can only index into arrays");
+      if (IS_ARRAY(object)) {
+        if (!IS_INT(index)) {
+          runtimeError("array index must be an int");
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        ObjArray *array = AS_ARRAY(object);
+        int64_t i = AS_INT(index);
+        if (i < 0 || i >= array->elements.count) {
+          runtimeError("array index %lld out of range (length %d)",
+                       (long long)i, array->elements.count);
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        push(array->elements.values[i]);
+      } else if (IS_MAP(object)) {
+        if (!isHashableKey(index)) {
+          runtimeError("a map key must be an int, bool, nil, or str");
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        Value value;
+        if (!mapGet(AS_MAP(object), index, &value)) {
+          runtimeError("key not found in map");
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        push(value);
+      } else {
+        runtimeError("can only index into arrays and maps");
         return INTERPRET_RUNTIME_ERROR;
       }
-      if (!IS_INT(index)) {
-        runtimeError("array index must be an int");
-        return INTERPRET_RUNTIME_ERROR;
-      }
-      ObjArray *array = AS_ARRAY(object);
-      int64_t i = AS_INT(index);
-      if (i < 0 || i >= array->elements.count) {
-        runtimeError("array index %lld out of range (length %d)", (long long)i,
-                     array->elements.count);
-        return INTERPRET_RUNTIME_ERROR;
-      }
-      push(array->elements.values[i]);
       break;
     }
     case OP_INDEX_SET: {
@@ -525,22 +556,29 @@ static InterpretResult run(bool trace) {
       Value value = pop();
       Value index = pop();
       Value object = pop();
-      if (!IS_ARRAY(object)) {
-        runtimeError("can only index into arrays");
+      if (IS_ARRAY(object)) {
+        if (!IS_INT(index)) {
+          runtimeError("array index must be an int");
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        ObjArray *array = AS_ARRAY(object);
+        int64_t i = AS_INT(index);
+        if (i < 0 || i >= array->elements.count) {
+          runtimeError("array index %lld out of range (length %d)",
+                       (long long)i, array->elements.count);
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        array->elements.values[i] = value;
+      } else if (IS_MAP(object)) {
+        if (!isHashableKey(index)) {
+          runtimeError("a map key must be an int, bool, nil, or str");
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        mapSet(AS_MAP(object), index, value); // inserts or overwrites
+      } else {
+        runtimeError("can only index into arrays and maps");
         return INTERPRET_RUNTIME_ERROR;
       }
-      if (!IS_INT(index)) {
-        runtimeError("array index must be an int");
-        return INTERPRET_RUNTIME_ERROR;
-      }
-      ObjArray *array = AS_ARRAY(object);
-      int64_t i = AS_INT(index);
-      if (i < 0 || i >= array->elements.count) {
-        runtimeError("array index %lld out of range (length %d)", (long long)i,
-                     array->elements.count);
-        return INTERPRET_RUNTIME_ERROR;
-      }
-      array->elements.values[i] = value;
       push(value);
       break;
     }

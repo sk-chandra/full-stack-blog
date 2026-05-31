@@ -297,9 +297,12 @@ static void emitExpr(Node *node) {
   case NODE_ARRAY:
     unsupported(node->line, "an array literal");
     break;
+  case NODE_MAP:
+    unsupported(node->line, "a map literal");
+    break;
   case NODE_INDEX_GET:
   case NODE_INDEX_SET:
-    unsupported(node->line, "an array index");
+    unsupported(node->line, "an index expression");
     break;
   default:
     unsupported(node->line, "this expression");

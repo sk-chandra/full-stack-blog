@@ -465,6 +465,17 @@ static void emitExpr(Node *node) {
     break;
   }
 
+  case NODE_MAP: {
+    // Push key0, value0, key1, value1, ... then build the map from the top pairs.
+    for (int i = 0; i < node->as.map.count; i++) {
+      emitExpr(node->as.map.keys[i]);
+      emitExpr(node->as.map.values[i]);
+    }
+    emitByte(OP_BUILD_MAP, node->line);
+    emitByte((uint8_t)node->as.map.count, node->line);
+    break;
+  }
+
   case NODE_INDEX_GET:
     emitExpr(node->as.index.object); // [.. object]
     emitExpr(node->as.index.index);  // [.. object index]

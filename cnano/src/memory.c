@@ -93,6 +93,17 @@ static void blackenObject(Obj *object) {
     // An array keeps every element reachable.
     markArray(&((ObjArray *)object)->elements);
     break;
+  case OBJ_MAP: {
+    // A map keeps every live key AND value reachable.
+    ObjMap *map = (ObjMap *)object;
+    for (int i = 0; i < map->capacity; i++) {
+      if (map->entries[i].occupied) {
+        markValue(map->entries[i].key);
+        markValue(map->entries[i].value);
+      }
+    }
+    break;
+  }
   case OBJ_UPVALUE:
     // A closed upvalue owns a heap value; keep whatever it holds alive.
     markValue(((ObjUpvalue *)object)->closed);

@@ -25,6 +25,7 @@ typedef enum {
   OBJ_FUNCTION,
   OBJ_NATIVE,
   OBJ_ARRAY,
+  OBJ_MAP,
   OBJ_UPVALUE,
   OBJ_CLOSURE,
 } ObjType;
@@ -89,6 +90,26 @@ typedef struct {
   ValueArray elements;
 } ObjArray;
 
+// A MAP: a dictionary from keys to values. Unlike the global/intern Table (which
+// is keyed by interned ObjString* and compared by pointer), a map keys on ARBITRARY
+// values — ints, bools, nil, strings — so it needs value hashing (hashValue) and
+// value equality (valuesEqual). It is its own open-addressed, linear-probing hash
+// table; because maps don't support deletion (yet), there are no tombstones — an
+// entry is simply occupied or not (we can't use a sentinel key, since nil is a
+// legal key).
+typedef struct {
+  Value key;
+  Value value;
+  bool occupied;
+} MapEntry;
+
+typedef struct {
+  Obj obj; // MUST be first
+  int count;
+  int capacity;
+  MapEntry *entries;
+} ObjMap;
+
 // An "upvalue": the runtime representation of a variable captured by a closure
 // from an enclosing function. The whole problem closures solve is that a captured
 // local lives on the stack but may OUTLIVE the frame that created it. An upvalue
@@ -122,6 +143,8 @@ typedef struct {
 #define AS_NATIVE(value) ((ObjNative *)AS_OBJ(value))
 #define IS_ARRAY(value) isObjType(value, OBJ_ARRAY)
 #define AS_ARRAY(value) ((ObjArray *)AS_OBJ(value))
+#define IS_MAP(value) isObjType(value, OBJ_MAP)
+#define AS_MAP(value) ((ObjMap *)AS_OBJ(value))
 #define IS_CLOSURE(value) isObjType(value, OBJ_CLOSURE)
 #define AS_CLOSURE(value) ((ObjClosure *)AS_OBJ(value))
 
@@ -155,6 +178,19 @@ ObjNative *newNative(NativeFn fn, const char *name, int arity);
 
 // Allocate a fresh, empty array. The VM appends elements (e.g. from a literal).
 ObjArray *newArrayObject(void);
+
+// Allocate a fresh, empty map.
+ObjMap *newMapObject(void);
+
+// Map operations. mapGet copies the value for `key` into *out and returns true if
+// present. mapSet inserts or overwrites, growing as needed. Both assume the key
+// is hashable — callers MUST check isHashableKey first and report a clean error.
+bool mapGet(ObjMap *map, Value key, Value *out);
+void mapSet(ObjMap *map, Value key, Value value);
+
+// Only primitive values and strings can be map keys. Heap aggregates (arrays,
+// maps, functions, ...) are not hashable — using one as a key is a runtime error.
+bool isHashableKey(Value key);
 
 // Allocate a fresh open upvalue pointing at the stack `slot`.
 ObjUpvalue *newUpvalue(Value *slot);

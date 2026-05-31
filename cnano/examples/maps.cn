@@ -1,0 +1,56 @@
+// Maps — cnano's key/value dictionary, the last collection in the arc. Keys can
+// be any HASHABLE value (int, bool, nil, or str); values are anything. Maps are
+// heap objects traced by the garbage collector.
+//
+//   cnano examples/maps.cn
+//
+// (Maps need the dynamic runtime, so they run on the VM, not the --native path.)
+//
+// Note: a `{` that STARTS a statement opens a block, so write map literals as a
+// value — `let m = {...};` — or parenthesised. And iteration is bucket order,
+// not insertion order, so we read entries by key rather than printing the whole map.
+
+// A string-keyed map: literal, lookup, insert, size.
+let ages = {"alice": 30, "bob": 25};
+print ages["alice"];     // 30
+ages["carol"] = 28;      // insert a new entry
+print ages["carol"];     // 28
+print ages.len();        // 3
+
+// has() guards a lookup (reading a missing key is a runtime error).
+print ages.has("bob");   // true
+print ages.has("dave");  // false
+
+// keys() returns an array you can work with using the array API.
+print ages.keys().len(); // 3
+
+// Keys aren't limited to strings — ints, bools and nil all work.
+let squares = {};
+let n = 1;
+while (n <= 5) {
+  squares[n] = n * n;
+  n = n + 1;
+}
+print squares[4];        // 16
+
+let flags = {true: "on", false: "off"};
+print flags[true];       // on
+
+// Maps nest with arrays and other maps.
+let data = {"primes": [2, 3, 5], "info": {"count": 3}};
+print data["primes"][2]; // 5
+print data["info"]["count"]; // 3
+
+// Typed maps are checked structurally before the program runs. Try storing a
+// non-int value into this {str: int} to see the checker reject it.
+fn total(scores: {str: int}): int {
+  let sum: int = 0;
+  let ks = scores.keys();
+  let i: int = 0;
+  while (i < ks.len()) {
+    sum = sum + scores[ks[i]];
+    i = i + 1;
+  }
+  return sum;
+}
+print total({"math": 90, "cs": 95, "art": 80}); // 265

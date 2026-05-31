@@ -137,6 +137,14 @@ Node *newArray(Node **elements, int count, int line) {
   return node;
 }
 
+Node *newMap(Node **keys, Node **values, int count, int line) {
+  Node *node = allocNode(NODE_MAP, line);
+  node->as.map.keys = keys;
+  node->as.map.values = values;
+  node->as.map.count = count;
+  return node;
+}
+
 Node *newIndexGet(Node *object, Node *index, int line) {
   Node *node = allocNode(NODE_INDEX_GET, line);
   node->as.index.object = object;
@@ -238,6 +246,14 @@ void freeNode(Node *node) {
     for (int i = 0; i < node->as.array.count; i++)
       freeNode(node->as.array.elements[i]);
     free(node->as.array.elements);
+    break;
+  case NODE_MAP:
+    for (int i = 0; i < node->as.map.count; i++) {
+      freeNode(node->as.map.keys[i]);
+      freeNode(node->as.map.values[i]);
+    }
+    free(node->as.map.keys);
+    free(node->as.map.values);
     break;
   case NODE_INDEX_GET:
   case NODE_INDEX_SET:

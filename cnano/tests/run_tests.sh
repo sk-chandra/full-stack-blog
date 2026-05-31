@@ -469,6 +469,38 @@ check_prog "gc-array-live" \
    while (i < 2000) { let junk = [i, i+1, i+2]; live.push(i); i = i + 1; }
    print live.len(); print live[1999];' "$(printf '2000\n1999')"
 
+# --- maps (step 14) ---
+# General value keys: strings, ints, bools, nil. (Multi-entry print order is
+# bucket order, so we assert via indexing/len/has, not by printing the whole map.)
+check "map-str-key"      '{"a": 1, "b": 2}["b"]'  "2"
+check "map-int-key"      '{1: "one", 2: "two"}[2]' "two"
+check "map-bool-key"     '{true: "yes", false: "no"}[false]' "no"
+check "map-nil-key"      '{nil: 42}[nil]'         "42"
+check "map-len"          '{"x": 1, "y": 2}.len()' "2"
+check_prog "map-empty-print" 'print {};'          "{}"
+check_prog "map-set-get" 'let m = {"a": 1}; m["b"] = 2; print m["b"]; print m.len();' "$(printf '2\n2')"
+check_prog "map-overwrite" 'let m = {"k": 1}; m["k"] = 9; print m["k"]; print m.len();' "$(printf '9\n1')"
+check_prog "map-has"     'let m = {"x": 1}; print m.has("x"); print m.has("z");' "$(printf 'true\nfalse')"
+check_prog "map-keys"    'let m = {"a": 1, "b": 2, "c": 3}; print m.keys().len();' "3"
+check_prog "map-int-loop" 'let m = {}; let i = 0; while (i<5) { m[i] = i*i; i=i+1; } print m[4]; print m.len();' "$(printf '16\n5')"
+check_prog "map-nested"  'let m = {"evens": [2,4,6]}; print m["evens"][2];' "6"
+# Typed maps: key and value types are checked structurally.
+check_prog "map-typed-ok" 'let m: {str: int} = {"a": 1, "b": 2}; print m["a"];' "1"
+check_prog "map-typed-nested" 'let m: {str: [int]} = {"a": [1,2,3]}; print m["a"][1];' "2"
+check_prog_err "map-key-bad"  'let m: {str: int} = {"a": 1}; print m[1];'
+check_prog_err "map-val-bad"  'let m: {str: int} = {"a": 1}; m["a"] = true; print 1;'
+check_prog_err "map-lit-bad"  'let m: {str: int} = {"a": "x"}; print 1;'
+check_prog_err "map-elem-out" 'let m: {str: int} = {"a": 1}; let b: bool = m["a"]; print b;'
+# Runtime errors.
+check_prog_err "map-missing"  'let m = {"a": 1}; print m["b"];'
+check_prog_err "map-nonhash"  'let m = {}; m[[1,2]] = 3; print 1;'
+# GC: churn 2000 short-lived maps while one live map grows to 2000 entries. The
+# collector must trace map keys AND values (run under `make gcstress`).
+check_prog "gc-map-live" \
+  'let live = {}; let i = 0;
+   while (i < 2000) { let junk = {i: i * 2}; live[i] = i; i = i + 1; }
+   print live.len(); print live[1999];' "$(printf '2000\n1999')"
+
 # --- native backend: compile to C -> a real executable (step 9) ---
 # Each program is the typed first-order subset; its native output must match.
 check_native "nat-arith"    'print 2 + 3 * 4;'                          "14"
@@ -493,6 +525,8 @@ check_native_err "nat-rej-array"   'fn id(a: [int]): [int] { return a; } print 1
 check_native_err "nat-rej-method"  'fn f(): int { return "x".len(); } print f();'
 # Arrays are heap/GC values — outside the scalar native subset.
 check_native_err "nat-rej-arrlit"  'let a = [1, 2, 3]; print a[0];'
+# Maps likewise.
+check_native_err "nat-rej-maplit"  'let m = {"a": 1}; print m["a"];'
 
 rm -f "$tmp" "${tmp}.native" "${tmp}.native.c" 2>/dev/null
 echo "-----------------------------------------"

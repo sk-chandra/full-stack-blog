@@ -425,6 +425,39 @@ static Node *primary(void) {
     consume(TOKEN_RBRACKET, "Expect ']' after array elements.");
     return newArray(elements, count, line);
   }
+  if (match(TOKEN_LBRACE)) {
+    // Map literal: `{k0: v0, k1: v1, ...}`. Reached only in EXPRESSION position;
+    // a `{` that begins a statement is parsed as a block (see statement()), so
+    // there is no ambiguity — but a map-literal statement must be parenthesised
+    // or used as a value (e.g. `let m = {..};`).
+    int line = parser.previous.line;
+    Node **keys = NULL;
+    Node **values = NULL;
+    int count = 0, capacity = 0;
+    if (!check(TOKEN_RBRACE)) {
+      do {
+        if (count == 255) {
+          errorAt(&parser.current, "Cannot have more than 255 map entries.");
+          break;
+        }
+        if (count + 1 > capacity) {
+          capacity = capacity < 4 ? 4 : capacity * 2;
+          keys = realloc(keys, sizeof(Node *) * capacity);
+          values = realloc(values, sizeof(Node *) * capacity);
+          if (keys == NULL || values == NULL) {
+            fprintf(stderr, "cnano: out of memory parsing map literal\n");
+            exit(70);
+          }
+        }
+        keys[count] = expression();
+        consume(TOKEN_COLON, "Expect ':' between a map key and its value.");
+        values[count] = expression();
+        count++;
+      } while (match(TOKEN_COMMA));
+    }
+    consume(TOKEN_RBRACE, "Expect '}' after map entries.");
+    return newMap(keys, values, count, line);
+  }
   errorAt(&parser.current, "Expect a value or '('.");
   // CRITICAL for error recovery: consume the offending token so the parser
   // always makes forward progress. Without this, a token that cannot start an

@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (239 cases, incl. native + GC)
+make test       # run the end-to-end test suite (261 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make run        # start the REPL
 
@@ -23,6 +23,7 @@ make run        # start the REPL
 ./build/cnano examples/types.cn               #  optional static type annotations
 ./build/cnano examples/closures.cn            #  counters, adders, an account
 ./build/cnano examples/arrays.cn              #  arrays: literals, indexing, methods
+./build/cnano examples/maps.cn                #  maps: any-key dictionaries, methods
 
 # see the bytecode AND a step-by-step VM trace (the best way to learn)
 ./build/cnano --dump examples/variables.cn
@@ -70,6 +71,10 @@ make run        # start the REPL
   (bounds-checked), nesting (`m[1][0]`), and methods `.len()`/`.push(x)`/`.pop()`.
   A heap object **managed by the GC** (elements are traced). Typed as `[T]` and
   checked structurally, or `[any]` to stay fully dynamic/heterogeneous
+- **Maps**: `{"a": 1, "b": 2}` literals with **any hashable key** (int, bool,
+  nil, str — its own value-keyed hash table), `m[k]` get/set sharing the array
+  index opcodes, and methods `.len()`/`.has(k)`/`.keys()`. GC-traced keys *and*
+  values; typed as `{K: V}` and checked structurally
 - **Optional static types** (gradual typing): annotate with `let x: int = …;`
   and `fn add(a: int, b: int): int { … }`. Types are **structured** —
   `int`/`bool`/`str`/`nil`/`any` plus the parametric `[T]` (arrays) and
@@ -130,7 +135,7 @@ make run        # start the REPL
 | `src/codegen_c.{h,c}` | native backend | AST → C source → `cc` → executable (AOT) |
 | `src/memory.{h,c}` | GC + allocator | mark-and-sweep, tri-colour worklist, weak intern table |
 | `src/value.{h,c}` | values + constant pool | tagged-union dynamic values |
-| `src/object.{h,c}` | heap objects: strings, functions, natives, arrays, closures, upvalues | object model, interning |
+| `src/object.{h,c}` | heap objects: strings, functions, natives, arrays, maps, closures, upvalues | object model, interning, value-keyed map table |
 | `src/builtins.{h,c}` | native functions + method dispatch | `clock`/`str`; `OP_INVOKE` method tables |
 | `src/table.{h,c}` | hash table | open addressing, linear probing, tombstones |
 | `src/chunk.{h,c}` | bytecode container | designing an instruction set (ISA) |

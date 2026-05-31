@@ -121,6 +121,12 @@ static Node *foldExpr(Node *node) {
     for (int i = 0; i < node->as.array.count; i++)
       node->as.array.elements[i] = foldExpr(node->as.array.elements[i]);
     return node;
+  case NODE_MAP:
+    for (int i = 0; i < node->as.map.count; i++) {
+      node->as.map.keys[i] = foldExpr(node->as.map.keys[i]);
+      node->as.map.values[i] = foldExpr(node->as.map.values[i]);
+    }
+    return node;
   case NODE_INDEX_GET:
     node->as.index.object = foldExpr(node->as.index.object);
     node->as.index.index = foldExpr(node->as.index.index);

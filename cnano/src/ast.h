@@ -47,6 +47,7 @@ typedef enum {
   NODE_CALL,    // `callee(arg, arg, ...)` : call a function, yields its result
   NODE_INVOKE,  // `receiver.method(arg, ...)` : call a builtin method, yields result
   NODE_ARRAY,   // `[a, b, c]` : an array literal, yields a new array
+  NODE_MAP,     // `{k: v, ...}` : a map literal, yields a new map
   NODE_INDEX_GET, // `obj[i]` : read element i of obj
   NODE_INDEX_SET, // `obj[i] = v` : store v at element i, yields v
   // --- statement nodes (performed for effect, yield nothing) ---
@@ -169,6 +170,13 @@ typedef struct Node {
       struct Node **elements;
       int count;
     } array;
+    // NODE_MAP: a map literal `{k0: v0, ...}`. Keys and values are kept in two
+    // parallel heap arrays, both of length `count`.
+    struct {
+      struct Node **keys;
+      struct Node **values;
+      int count;
+    } map;
     // NODE_INDEX_GET (`obj[index]`) and NODE_INDEX_SET (`obj[index] = value`).
     // Index-set is produced by assignment() when an index expression is the
     // l-value; its `value` is NULL for the get form.
@@ -235,6 +243,8 @@ Node *newInvoke(Node *receiver, ObjString *method, Node **args, int argCount,
                 int line);
 // `[e0, e1, ...]`. Takes ownership of the `elements` array.
 Node *newArray(Node **elements, int count, int line);
+// `{k0: v0, ...}`. Takes ownership of both the `keys` and `values` arrays.
+Node *newMap(Node **keys, Node **values, int count, int line);
 // `obj[index]` (a read) and `obj[index] = value` (a write).
 Node *newIndexGet(Node *object, Node *index, int line);
 Node *newIndexSet(Node *object, Node *index, Node *value, int line);

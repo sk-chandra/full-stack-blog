@@ -1252,7 +1252,54 @@ in one focused step.
 
 ---
 
-## 23. Roadmap: where to go next
+## 23. Case study: maps — value-keyed hash tables
+
+Maps complete the data-structure arc, and they force the one piece cnano had so
+far avoided: **hashing arbitrary values**. The existing `Table` (globals, string
+interning) keys only on interned `ObjString*` and compares by pointer. A map must
+accept `1`, `true`, `nil`, and `"key"` as keys — so it needs its own table built
+on *value* hashing and *value* equality.
+
+### 23.1 A second hash table, by necessity
+
+`ObjMap` is open-addressed with linear probing, like the string `Table`, but two
+things differ. First, the key is a full `Value`, hashed by a new `hashValue`
+(strings reuse their cached hash; integers get a bit-mix so neighbours scatter)
+and compared with the existing `valuesEqual`. Second, there are **no tombstones**:
+maps don't support deletion yet, and — crucially — there is no spare `Value` to
+use as an "empty" sentinel the way `NULL` marks an empty string bucket (`nil` is a
+*legal key*). So each slot carries an explicit `occupied` flag instead. Two
+near-identical tables, kept separate precisely because their key model differs —
+sometimes the honest design is duplication, not a forced abstraction.
+
+### 23.2 What's hashable — and the reuse payoff
+
+Only primitives and strings are hashable keys; an array or another map as a key is
+a clean runtime error (`isHashableKey` gates every access). Everything else was
+*free*: `m[k]` reuses the exact `OP_INDEX_GET`/`OP_INDEX_SET` opcodes arrays
+introduced — the VM just dispatches on the object's type — and `.len()/.has()/
+.keys()` are three more rows in the method table `invokeMethod` already walks.
+Step 13 genuinely paid for step 14.
+
+### 23.3 Types, GC, and two deliberate choices
+
+`{K: V}` types finally carry values: a literal's key and value types are inferred
+independently, indexing yields the value type, and structural `compatible()`
+catches a wrong key or value type before the program runs — recursing into
+`{str: [int]}` for free. The collector marks **both** key and value of every live
+entry (the `gc-map-live` torture test churns 2000 maps under stress GC while one
+grows to 2000 entries). Two design decisions worth naming: reading a **missing key
+is an error**, not a silent `nil` (a `nil` would violate the value type `V` of a
+typed map — type soundness beats convenience, and `.has()` is the guard); and
+map **iteration is bucket order**, an honest consequence of a hash table that we
+document rather than paper over.
+
+The result: `{"alice": 30}["alice"]`, int/bool/nil keys, typed `{str: int}`
+records — a real dictionary, built mostly from machinery that already existed.
+
+---
+
+## 24. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -1311,14 +1358,22 @@ With the collector in place, cnano is growing real aggregate data on top of it:
     existing ValueArray; `OP_BUILD_ARRAY`/`OP_INDEX_GET`/`OP_INDEX_SET`
     (bounds-checked); `.len()/.push()/.pop()`; inferred element types, structural
     `[T]` checking, GC-traced elements.
-14. **Maps** (`{K: V}`): general value-keyed hashing, literals, indexing,
-    `.keys()/.has()`, GC-managed.
+14. ~~**Maps** (`{K: V}`).~~ **✅ DONE** — see §23 above. `ObjMap` is its own
+    value-keyed hash table (general `hashValue` + `valuesEqual`, occupancy flags,
+    no tombstones); literals + `OP_BUILD_MAP`; `m[k]` reuses the array index
+    opcodes; `.len()/.has()/.keys()`; structural `{K: V}` checking; GC traces keys
+    and values.
 
-### Beyond that
+**The memory + data-structures arc (steps 10–14) is complete.** cnano now has a
+garbage collector, a structured type system, builtin functions and methods, and
+both array and map collections — typed or dynamic, all GC-managed.
+
+### Beyond the arc
 
 Further directions, each a substantial project: **true closures in the native
-backend** (lower upvalues to C structs), a **Pratt parser** refactor, generics /
-union types, or an exception/`Result` error model.
+backend** (lower upvalues to C structs), map **deletion** (`.remove()`, which
+brings tombstones), `for-in` **iteration** over collections, a **Pratt parser**
+refactor, generics / union types, or an exception/`Result` error model.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
 (free online). cnano's bytecode/VM design intentionally follows the same lineage

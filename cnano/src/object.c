@@ -104,6 +104,104 @@ ObjArray *newArrayObject(void) {
   return array;
 }
 
+// --- maps: a value-keyed hash table ----------------------------------------
+
+#define MAP_MAX_LOAD 0.75
+
+bool isHashableKey(Value key) {
+  // Primitives are always hashable; among objects, only (interned) strings are.
+  // Heap aggregates have no stable hash/equality we want to commit to as keys.
+  return !IS_OBJ(key) || IS_STRING(key);
+}
+
+// Hash a hashable value. Strings reuse their cached FNV hash; integers get a
+// 64->32 bit mix (SplitMix64's finaliser) so nearby keys scatter across buckets.
+static uint32_t hashValue(Value key) {
+  switch (key.type) {
+  case VAL_NIL:
+    return 0;
+  case VAL_BOOL:
+    return AS_BOOL(key) ? 1u : 2u;
+  case VAL_INT: {
+    uint64_t x = (uint64_t)AS_INT(key);
+    x = (x ^ (x >> 30)) * 0xbf58476d1ce4e5b9ULL;
+    x = (x ^ (x >> 27)) * 0x94d049bb133111ebULL;
+    return (uint32_t)(x ^ (x >> 31));
+  }
+  case VAL_OBJ:
+    return AS_STRING(key)->hash; // guaranteed a string by isHashableKey
+  default:
+    return 0;
+  }
+}
+
+// Find the slot for `key`: either the occupied entry holding it, or the first
+// empty entry where it would be inserted. No tombstones (maps don't delete) and
+// load < 1, so an empty slot always exists — the probe always terminates.
+static MapEntry *findMapEntry(MapEntry *entries, int capacity, Value key) {
+  uint32_t index = hashValue(key) & (capacity - 1);
+  for (;;) {
+    MapEntry *entry = &entries[index];
+    if (!entry->occupied || valuesEqual(entry->key, key))
+      return entry;
+    index = (index + 1) & (capacity - 1);
+  }
+}
+
+static void adjustMapCapacity(ObjMap *map, int capacity) {
+  MapEntry *entries = malloc(sizeof(MapEntry) * capacity);
+  if (entries == NULL) {
+    fprintf(stderr, "cnano: out of memory growing a map\n");
+    exit(70);
+  }
+  for (int i = 0; i < capacity; i++)
+    entries[i].occupied = false;
+  // Re-insert every live entry: its bucket depends on the new capacity.
+  for (int i = 0; i < map->capacity; i++) {
+    MapEntry *src = &map->entries[i];
+    if (!src->occupied)
+      continue;
+    MapEntry *dest = findMapEntry(entries, capacity, src->key);
+    dest->key = src->key;
+    dest->value = src->value;
+    dest->occupied = true;
+  }
+  free(map->entries);
+  map->entries = entries;
+  map->capacity = capacity;
+}
+
+bool mapGet(ObjMap *map, Value key, Value *out) {
+  if (map->count == 0)
+    return false;
+  MapEntry *entry = findMapEntry(map->entries, map->capacity, key);
+  if (!entry->occupied)
+    return false;
+  *out = entry->value;
+  return true;
+}
+
+void mapSet(ObjMap *map, Value key, Value value) {
+  if (map->count + 1 > map->capacity * MAP_MAX_LOAD) {
+    int capacity = map->capacity < 8 ? 8 : map->capacity * 2;
+    adjustMapCapacity(map, capacity);
+  }
+  MapEntry *entry = findMapEntry(map->entries, map->capacity, key);
+  if (!entry->occupied)
+    map->count++;
+  entry->key = key;
+  entry->value = value;
+  entry->occupied = true;
+}
+
+ObjMap *newMapObject(void) {
+  ObjMap *map = (ObjMap *)allocateObject(sizeof(ObjMap), OBJ_MAP);
+  map->count = 0;
+  map->capacity = 0;
+  map->entries = NULL;
+  return map;
+}
+
 ObjUpvalue *newUpvalue(Value *slot) {
   ObjUpvalue *upvalue =
       (ObjUpvalue *)allocateObject(sizeof(ObjUpvalue), OBJ_UPVALUE);
@@ -151,6 +249,25 @@ void printObject(Value value) {
     printf("]");
     break;
   }
+  case OBJ_MAP: {
+    // Print like the literal: {k0: v0, k1: v1}. Iteration order is bucket order,
+    // not insertion order — a deliberate, documented property of a hash map.
+    ObjMap *map = AS_MAP(value);
+    printf("{");
+    bool first = true;
+    for (int i = 0; i < map->capacity; i++) {
+      if (!map->entries[i].occupied)
+        continue;
+      if (!first)
+        printf(", ");
+      first = false;
+      printValue(map->entries[i].key);
+      printf(": ");
+      printValue(map->entries[i].value);
+    }
+    printf("}");
+    break;
+  }
   case OBJ_UPVALUE:
     // Upvalues never appear as first-class values; this is here for completeness.
     printf("<upvalue>");
@@ -195,6 +312,14 @@ void freeObject(Obj *object) {
     ObjArray *array = (ObjArray *)object;
     freeValueArray(&array->elements);
     reallocate(array, sizeof(ObjArray), 0);
+    break;
+  }
+  case OBJ_MAP: {
+    // The entries array is plain malloc'd (like the string Table); free it, then
+    // the struct. The keys/values it held are separate objects on the GC list.
+    ObjMap *map = (ObjMap *)object;
+    free(map->entries);
+    reallocate(map, sizeof(ObjMap), 0);
     break;
   }
   case OBJ_UPVALUE:

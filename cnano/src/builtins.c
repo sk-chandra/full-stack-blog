@@ -132,6 +132,47 @@ static Method arrayMethods[] = {
     {NULL, 0, NULL},
 };
 
+// map.len() -> int : the number of entries.
+static bool mapLen(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount;
+  (void)args;
+  *result = INT_VAL(AS_MAP(receiver)->count);
+  return true;
+}
+
+// map.has(key) -> bool : whether `key` is present. A non-hashable key can never
+// be present, so it answers false rather than erroring.
+static bool mapHas(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount;
+  Value ignored;
+  bool present =
+      isHashableKey(args[0]) && mapGet(AS_MAP(receiver), args[0], &ignored);
+  *result = BOOL_VAL(present);
+  return true;
+}
+
+// map.keys() -> array : a new array of the map's keys (in bucket order).
+static bool mapKeys(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount;
+  (void)args;
+  ObjMap *map = AS_MAP(receiver);
+  // GC-safe: the map (receiver) is on the stack; newArrayObject may collect but
+  // sees it, and writeValueArray never collects.
+  ObjArray *keys = newArrayObject();
+  for (int i = 0; i < map->capacity; i++)
+    if (map->entries[i].occupied)
+      writeValueArray(&keys->elements, map->entries[i].key);
+  *result = OBJ_VAL(keys);
+  return true;
+}
+
+static Method mapMethods[] = {
+    {"len", 0, mapLen},
+    {"has", 1, mapHas},
+    {"keys", 0, mapKeys},
+    {NULL, 0, NULL},
+};
+
 // Find the method table for a receiver's type, plus a human-readable type name
 // for error messages. Returns NULL if the type has no methods.
 static Method *methodsFor(Value receiver, const char **typeName) {
@@ -142,6 +183,10 @@ static Method *methodsFor(Value receiver, const char **typeName) {
   if (IS_ARRAY(receiver)) {
     *typeName = "array";
     return arrayMethods;
+  }
+  if (IS_MAP(receiver)) {
+    *typeName = "map";
+    return mapMethods;
   }
   *typeName = NULL;
   return NULL;

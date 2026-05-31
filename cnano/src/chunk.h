@@ -88,7 +88,11 @@ typedef enum {
   // pushes object[index]; OP_INDEX_SET expects [.. object index value], stores
   // value at object[index], pops all three and pushes value (assignment's result).
   OP_BUILD_ARRAY, // [opcode][count] : push a new array of the top `count` values
-  OP_INDEX_GET,   // [opcode]        : push object[index]   (bounds-checked)
+  // OP_BUILD_MAP's operand is the PAIR count; the top 2*count stack values are
+  // key0 value0 key1 value1 ... (pushed in that order). OP_INDEX_GET/SET are
+  // shared with arrays — the VM dispatches on the object's type.
+  OP_BUILD_MAP,   // [opcode][pairs] : push a new map of the top 2*`pairs` values
+  OP_INDEX_GET,   // [opcode]        : push object[index]   (arrays + maps)
   OP_INDEX_SET,   // [opcode]        : object[index] = value; push value
   // Create a closure from the function constant at [idx], then read 2 bytes per
   // upvalue describing where each capture comes from: [isLocal][index]. This is
