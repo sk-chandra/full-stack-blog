@@ -1482,11 +1482,19 @@ programs define their own types, and makes failure recoverable.
     `OP_IS_STRUCT` for instances) doubles as the narrowing guard: `if (x is int)`
     retypes `x` to `int` in that branch (unified with the nil-guard narrowing, now
     also union-nil-aware). Native rejects unions/`is`.
-27. **Generics** (`fn first<T>(a: [T]): T`).
+32. **Generics** (`fn first<T>(a: [T]): T`).
 
-**Phase E — compiler & runtime polish**
-28. **Performance** — inline caching + a bytecode peephole pass + a benchmark.
-29. **Native-backend extensions** — closures (and/or simple arrays) lowered to C.
+**Phase E — ergonomics & runtime polish (some done)**
+33. ~~**`break` / `continue`.**~~ **✅ DONE** (see step 26 above).
+34. ~~**Integer ranges** `0..n`.~~ **✅ DONE** (step 27).
+35. ~~**Collection deletion** `.remove`/`.removeAt`.~~ **✅ DONE** (step 28).
+36. ~~**Bitwise operators.**~~ **✅ DONE** (step 29).
+37. ~~**`const` bindings.**~~ **✅ DONE** (step 30).
+38. ~~**String interpolation.**~~ **✅ DONE** (step 32).
+39. **Performance** — inline caching + a bytecode peephole pass + a benchmark.
+40. **Native-backend extensions** — closures (and/or simple arrays) lowered to C.
+41. **Pattern matching** (`match`), **modules/imports**, **floats** — larger,
+    still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
 (free online). cnano's bytecode/VM design intentionally follows the same lineage

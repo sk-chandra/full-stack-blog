@@ -97,6 +97,16 @@ typedef struct {
 
 // Point the lexer at a NUL-terminated source string.
 void initLexer(const char *source);
+
+// Save / restore the lexer's whole position. Used to lex an embedded expression
+// (string interpolation) on a temporary buffer, then resume the outer source.
+typedef struct {
+  const char *start;
+  const char *current;
+  int line;
+} LexerState;
+LexerState lexerSave(void);
+void lexerRestore(LexerState state);
 // Produce the next token. Called repeatedly by the parser until TOKEN_EOF.
 Token scanToken(void);
 

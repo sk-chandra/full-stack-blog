@@ -20,6 +20,16 @@ void initLexer(const char *source) {
   lexer.line = 1;
 }
 
+LexerState lexerSave(void) {
+  LexerState s = {lexer.start, lexer.current, lexer.line};
+  return s;
+}
+void lexerRestore(LexerState s) {
+  lexer.start = s.start;
+  lexer.current = s.current;
+  lexer.line = s.line;
+}
+
 static bool isAtEnd(void) { return *lexer.current == '\0'; }
 
 static bool isDigit(char c) { return c >= '0' && c <= '9'; }
@@ -129,9 +139,24 @@ static Token number(void) {
 // INCLUDES the surrounding quotes; the parser strips them. cnano keeps this
 // minimal: no escape sequences yet (\n, \" etc.) — a natural future exercise.
 static Token string(void) {
-  while (peek() != '"' && !isAtEnd()) {
-    if (peek() == '\n')
+  // Track `${ ... }` interpolation depth so a `"` inside an interpolation hole
+  // (e.g. "key=${m["k"]}") does NOT end the outer string. The parser re-lexes the
+  // hole's contents later; here we only need to find the true closing quote.
+  int interp = 0;
+  for (;;) {
+    char c = peek();
+    if (c == '\0')
+      break; // end of source -> unterminated (handled below)
+    if (c == '"' && interp == 0)
+      break; // the real closing quote
+    if (c == '$' && lexer.current[1] == '{') {
+      interp++;
+      advance(); // '$'
+    } else if (c == '}' && interp > 0) {
+      interp--;
+    } else if (c == '\n') {
       lexer.line++;
+    }
     advance();
   }
   if (isAtEnd())

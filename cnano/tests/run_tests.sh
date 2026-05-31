@@ -618,6 +618,16 @@ check_prog_err "init-return-val"  'struct P { x: int fn init(v: int) { self.x = 
 check_prog_err "init-arg-type"    'struct T { c: int fn init(v: int) { self.c = v; } } let t = T("hot"); print t;'
 check_prog_err "init-arity-err"   'struct T { c: int fn init(v: int) { self.c = v; } } let t = T(1, 2); print t;'
 
+# --- string interpolation (step 32) ---
+check_prog "interp-basic"  'let name = "world"; print "Hello, ${name}!";' "Hello, world!"
+check_prog "interp-expr"   'let a=3; let b=4; print "${a} + ${b} = ${a+b}";' "3 + 4 = 7"
+check_prog "interp-convert" 'print "n=${42}, b=${true}, x=${nil}";' "n=42, b=true, x=nil"
+check_prog "interp-field"  'struct P { x: int, y: int } let p=P(3,4); print "(${p.x}, ${p.y})";' "(3, 4)"
+check_prog "interp-method" 'print "len ${[1,2,3].len()}";' "len 3"
+check_prog "interp-adjacent" 'let x=7; print "${x}${x}";' "77"
+check_prog "interp-index" 'let m={1:99}; print "v=${m[1]}";' "v=99"
+check_prog "interp-plain-dollar" 'print "costs $5 (not interpolated)";' 'costs $5 (not interpolated)'
+
 # --- union types + `is` narrowing (step 31) ---
 check "is-int"          '5 is int'                 "true"
 check "is-str-false"    '5 is str'                 "false"

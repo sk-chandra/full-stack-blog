@@ -513,6 +513,73 @@ static Node *call(void) {
   return node;
 }
 
+// Parse one embedded `${ ... }` expression: lex+parse `text[0..len)` on a fresh
+// temporary buffer, saving and restoring the outer lexer/parser cursor so the
+// surrounding parse continues undisturbed.
+static Node *parseEmbedded(const char *text, int len, int line) {
+  char *buf = malloc(len + 1);
+  if (buf == NULL) {
+    fprintf(stderr, "cnano: out of memory in string interpolation\n");
+    exit(70);
+  }
+  memcpy(buf, text, len);
+  buf[len] = '\0';
+
+  LexerState savedLexer = lexerSave();
+  Token savedCur = parser.current, savedPrev = parser.previous;
+  initLexer(buf);
+  advance(); // prime `current` from the embedded buffer
+  Node *e = expression();
+  if (!check(TOKEN_EOF))
+    errorAt(&parser.current, "Unexpected text after expression in '${ ... }'.");
+  lexerRestore(savedLexer);
+  parser.current = savedCur;
+  parser.previous = savedPrev;
+  free(buf);
+  (void)line;
+  return e;
+}
+
+// Desugar an interpolated string literal's inner text into a concatenation:
+// each `${ expr }` becomes `str(expr)`, glued to the surrounding literal runs
+// with `+`. Assumes the text contains at least one `${`.
+static Node *interpolate(const char *text, int len, int line) {
+  Node *result = NULL;
+  int seg = 0;
+  for (int i = 0; i < len;) {
+    if (text[i] == '$' && i + 1 < len && text[i + 1] == '{') {
+      if (i > seg) { // flush the literal run before the hole
+        Node *lit = newString(copyString(text + seg, i - seg), line);
+        result = result ? newBinary(OP_NODE_ADD, result, lit, line) : lit;
+      }
+      int depth = 1, j = i + 2; // find the matching '}'
+      while (j < len && depth > 0) {
+        if (text[j] == '{')
+          depth++;
+        else if (text[j] == '}' && --depth == 0)
+          break;
+        j++;
+      }
+      Node *e = parseEmbedded(text + i + 2, j - (i + 2), line);
+      Node **args = malloc(sizeof(Node *));
+      if (args == NULL) { fprintf(stderr, "cnano: out of memory\n"); exit(70); }
+      args[0] = e;
+      // Wrap in str() so any value type converts to text.
+      Node *call = newCall(newVarGet(copyString("str", 3), line), args, 1, line);
+      result = result ? newBinary(OP_NODE_ADD, result, call, line) : call;
+      i = j + 1;
+      seg = i;
+    } else {
+      i++;
+    }
+  }
+  if (len > seg) {
+    Node *lit = newString(copyString(text + seg, len - seg), line);
+    result = result ? newBinary(OP_NODE_ADD, result, lit, line) : lit;
+  }
+  return result ? result : newString(copyString("", 0), line);
+}
+
 static Node *primary(void) {
   if (match(TOKEN_NUMBER)) {
     // strtoll parses the slice of source text the token points at. The token is
@@ -528,10 +595,15 @@ static Node *primary(void) {
   if (match(TOKEN_NIL))
     return newNil(parser.previous.line);
   if (match(TOKEN_STRING)) {
-    // Strip the surrounding quotes: start+1, length-2. copyString interns it.
-    ObjString *s = copyString(parser.previous.start + 1,
-                              parser.previous.length - 2);
-    return newString(s, parser.previous.line);
+    // The inner text, without the surrounding quotes.
+    const char *text = parser.previous.start + 1;
+    int len = parser.previous.length - 2;
+    int line = parser.previous.line;
+    // If it contains `${`, it's an interpolation; otherwise a plain literal.
+    for (int i = 0; i + 1 < len; i++)
+      if (text[i] == '$' && text[i + 1] == '{')
+        return interpolate(text, len, line);
+    return newString(copyString(text, len), line);
   }
   if (match(TOKEN_IDENTIFIER)) {
     // Intern the variable's name so it can be used as a hash-table key. We build
