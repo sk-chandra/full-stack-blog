@@ -72,9 +72,37 @@ ObjFunction *newFunction(void) {
   ObjFunction *function =
       (ObjFunction *)allocateObject(sizeof(ObjFunction), OBJ_FUNCTION);
   function->arity = 0;
+  function->upvalueCount = 0;
   function->name = NULL;
   initChunk(&function->chunk); // each function owns a fresh, empty chunk
   return function;
+}
+
+ObjClosure *newClosure(ObjFunction *function) {
+  // Allocate the upvalue pointer array first; the VM populates it right after.
+  ObjUpvalue **upvalues = malloc(sizeof(ObjUpvalue *) * function->upvalueCount);
+  if (upvalues == NULL && function->upvalueCount > 0) {
+    fprintf(stderr, "cnano: out of memory allocating closure upvalues\n");
+    exit(70);
+  }
+  for (int i = 0; i < function->upvalueCount; i++)
+    upvalues[i] = NULL;
+
+  ObjClosure *closure =
+      (ObjClosure *)allocateObject(sizeof(ObjClosure), OBJ_CLOSURE);
+  closure->function = function;
+  closure->upvalues = upvalues;
+  closure->upvalueCount = function->upvalueCount;
+  return closure;
+}
+
+ObjUpvalue *newUpvalue(Value *slot) {
+  ObjUpvalue *upvalue =
+      (ObjUpvalue *)allocateObject(sizeof(ObjUpvalue), OBJ_UPVALUE);
+  upvalue->location = slot; // open: points into the stack
+  upvalue->closed = NIL_VAL;
+  upvalue->next = NULL;
+  return upvalue;
 }
 
 void printObject(Value value) {
@@ -90,6 +118,20 @@ void printObject(Value value) {
       printf("<fn %s>", fn->name->chars);
     break;
   }
+  case OBJ_CLOSURE: {
+    // A closure prints like the function it wraps — the upvalues are an
+    // implementation detail the user never sees.
+    ObjFunction *fn = AS_CLOSURE(value)->function;
+    if (fn->name == NULL)
+      printf("<script>");
+    else
+      printf("<fn %s>", fn->name->chars);
+    break;
+  }
+  case OBJ_UPVALUE:
+    // Upvalues never appear as first-class values; this is here for completeness.
+    printf("<upvalue>");
+    break;
   }
 }
 
@@ -110,6 +152,18 @@ static void freeObject(Obj *object) {
     free(function);
     break;
   }
+  case OBJ_CLOSURE: {
+    // A closure owns its upvalue POINTER array, but NOT the upvalues themselves
+    // (those are shared, and freed as their own objects on the VM list).
+    ObjClosure *closure = (ObjClosure *)object;
+    free(closure->upvalues);
+    free(closure);
+    break;
+  }
+  case OBJ_UPVALUE:
+    // The upvalue does not own the value it points at; just free the struct.
+    free(object);
+    break;
   }
 }
 

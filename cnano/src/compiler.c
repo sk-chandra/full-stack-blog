@@ -27,7 +27,19 @@ typedef struct {
   ObjString *name; // the local's name (interned, compared by pointer)
   int depth;       // block nesting depth where it was declared; -1 = "declared
                    // but not yet initialised" (see declareLocal/markInitialized)
+  bool isCaptured; // does a nested closure capture this local? If so, when it
+                   // leaves scope we must CLOSE it (move to heap) not just pop it.
 } Local;
+
+// One captured variable, from the compiler's point of view. `isLocal` says
+// whether the capture refers to a LOCAL of the immediately-enclosing function
+// (capture it directly from that frame's slot) or to an UPVALUE of the enclosing
+// function (chain through — the variable is two or more levels up). `index` is
+// the slot or upvalue index in that enclosing function.
+typedef struct {
+  uint8_t index;
+  bool isLocal;
+} Upvalue;
 
 // Whether we are compiling a real function or the implicit top-level script.
 // The distinction matters for `return` (illegal at top level) and for what the
@@ -44,6 +56,7 @@ typedef struct CompilerState {
 
   Local locals[MAX_LOCALS]; // a compile-time mirror of THIS function's slots
   int localCount;           // how many locals are currently in scope
+  Upvalue upvalues[MAX_LOCALS]; // the variables THIS function captures
   int scopeDepth;           // current block nesting within this function
 } CompilerState;
 
@@ -80,6 +93,7 @@ static void initCompilerState(CompilerState *state, FunctionType type) {
   Local *local = &current->locals[current->localCount++];
   local->depth = 0;
   local->name = NULL;
+  local->isCaptured = false;
 }
 
 // --- scope management ------------------------------------------------------
@@ -93,16 +107,73 @@ static void beginScope(void) { current->scopeDepth++; }
 // therefore a global). We search from the INNERMOST local outward so that an
 // inner declaration SHADOWS an outer one with the same name — the first match
 // walking backwards is the one in the nearest enclosing scope.
-static int resolveLocal(ObjString *name, int line) {
-  for (int i = current->localCount - 1; i >= 0; i--) {
-    Local *local = &current->locals[i];
+// Resolve in a SPECIFIC compiler's locals (not necessarily the current one), so
+// upvalue resolution can look into enclosing functions. Returns the slot or -1.
+static int resolveLocalIn(CompilerState *compiler, ObjString *name, int line) {
+  for (int i = compiler->localCount - 1; i >= 0; i--) {
+    Local *local = &compiler->locals[i];
     if (local->name == name) { // interned: pointer equality is enough
       if (local->depth == -1)
         compileError(line, "cannot read local variable in its own initialiser");
       return i;
     }
   }
-  return -1; // not found among locals -> treat as a global
+  return -1; // not found among this function's locals
+}
+
+static int resolveLocal(ObjString *name, int line) {
+  return resolveLocalIn(current, name, line);
+}
+
+// Record that `compiler`'s function captures an upvalue described by
+// (index, isLocal), returning its index in that function's upvalue array. We
+// DEDUPE: if the same upvalue was already captured, reuse it, so each captured
+// variable has exactly one upvalue per closure (essential for shared mutation).
+static int addUpvalue(CompilerState *compiler, uint8_t index, bool isLocal,
+                      int line) {
+  int count = compiler->function->upvalueCount;
+  for (int i = 0; i < count; i++) {
+    Upvalue *uv = &compiler->upvalues[i];
+    if (uv->index == index && uv->isLocal == isLocal)
+      return i; // already captured — reuse
+  }
+  if (count == MAX_LOCALS) {
+    compileError(line, "too many captured variables (upvalues) in function");
+    return 0;
+  }
+  compiler->upvalues[count].isLocal = isLocal;
+  compiler->upvalues[count].index = index;
+  return compiler->function->upvalueCount++;
+}
+
+// THE recursive heart of closures. Try to resolve `name` as an upvalue of
+// `compiler` (i.e. a variable owned by some ENCLOSING function). Returns an
+// upvalue index, or -1 if the name is not found in any enclosing function (so it
+// must be a global).
+//
+// The recursion has two cases:
+//   1. The name is a LOCAL of the immediately-enclosing function: mark that
+//      local as captured and add an upvalue that points straight at its slot.
+//   2. Otherwise, recurse: ask the enclosing function to resolve it as one of
+//      ITS upvalues. If that succeeds, add an upvalue that chains to the
+//      enclosing upvalue. This "chaining" is what lets a closure capture a
+//      variable from two or more levels up — each intervening function passes it
+//      along, hop by hop.
+static int resolveUpvalue(CompilerState *compiler, ObjString *name, int line) {
+  if (compiler->enclosing == NULL)
+    return -1; // reached the top level: not an upvalue, must be a global
+
+  int local = resolveLocalIn(compiler->enclosing, name, line);
+  if (local != -1) {
+    compiler->enclosing->locals[local].isCaptured = true; // mark for closing
+    return addUpvalue(compiler, (uint8_t)local, /*isLocal=*/true, line);
+  }
+
+  int upvalue = resolveUpvalue(compiler->enclosing, name, line);
+  if (upvalue != -1)
+    return addUpvalue(compiler, (uint8_t)upvalue, /*isLocal=*/false, line);
+
+  return -1;
 }
 
 static void emitByte(uint8_t byte, int line) {
@@ -173,15 +244,20 @@ static void emitLoop(int loopStart, int line) {
 }
 
 // Leave a block scope. Every local declared inside it must be REMOVED from the
-// runtime stack, because those slots are about to go out of scope. We emit one
-// OP_POP per local and shrink our compile-time model to match. This is the
-// runtime cost of a block: proportional to the locals it declared. (Real VMs add
-// an OP_POPN that pops several at once; we keep it explicit for clarity.)
+// runtime stack, because those slots are about to go out of scope. For a normal
+// local we emit OP_POP. But if a local was CAPTURED by a closure, popping it
+// would lose a variable the closure still needs — so instead we emit
+// OP_CLOSE_UPVALUE, which lifts the value off the stack onto the heap before
+// discarding the slot. That is the moment a captured variable's lifetime is
+// extended beyond its frame: the essence of a closure.
 static void endScope(int line) {
   current->scopeDepth--;
   while (current->localCount > 0 &&
          current->locals[current->localCount - 1].depth > current->scopeDepth) {
-    emitByte(OP_POP, line);
+    if (current->locals[current->localCount - 1].isCaptured)
+      emitByte(OP_CLOSE_UPVALUE, line);
+    else
+      emitByte(OP_POP, line);
     current->localCount--;
   }
 }
@@ -197,6 +273,7 @@ static void addLocal(ObjString *name, int line) {
   Local *local = &current->locals[current->localCount++];
   local->name = name;
   local->depth = -1;
+  local->isCaptured = false; // becomes true if a nested closure captures it
 }
 
 // Declare a local for `let` inside a scope. Besides adding it, we forbid
@@ -256,14 +333,17 @@ static void emitExpr(Node *node) {
     break;
 
   case NODE_VAR_GET: {
-    // Resolve the name to a local slot first. If it is a local, emit a fast
-    // slot-indexed GET_LOCAL; otherwise fall back to a by-name GET_GLOBAL. This
-    // single decision — made here, at compile time — is what separates the two
-    // kinds of variable.
-    int slot = resolveLocal(node->as.name, node->line);
-    if (slot != -1) {
+    // Three-way resolution, in order of nearness: a LOCAL of this function, an
+    // UPVALUE captured from an enclosing function, or a GLOBAL by name. The
+    // compiler decides which once, here — the VM never searches by name except
+    // for true globals.
+    int arg = resolveLocal(node->as.name, node->line);
+    if (arg != -1) {
       emitByte(OP_GET_LOCAL, node->line);
-      emitByte((uint8_t)slot, node->line);
+      emitByte((uint8_t)arg, node->line);
+    } else if ((arg = resolveUpvalue(current, node->as.name, node->line)) != -1) {
+      emitByte(OP_GET_UPVALUE, node->line);
+      emitByte((uint8_t)arg, node->line);
     } else {
       int nameIdx = addConstant(currentChunk(), OBJ_VAL(node->as.name));
       emitByte(OP_GET_GLOBAL, node->line);
@@ -273,14 +353,18 @@ static void emitExpr(Node *node) {
   }
 
   case NODE_ASSIGN: {
-    // Evaluate the value first (it must be on the stack), then store it. As with
-    // reads, a local resolves to a slot; otherwise it's a global by name. Neither
-    // store pops, so assignment stays an expression: `print x = 5;` prints 5.
+    // Evaluate the value first (it must be on the stack), then store it. Same
+    // three-way resolution as reads. None of the stores pop, so assignment stays
+    // an expression: `print x = 5;` prints 5.
     emitExpr(node->as.var.value);
-    int slot = resolveLocal(node->as.var.name, node->line);
-    if (slot != -1) {
+    int arg = resolveLocal(node->as.var.name, node->line);
+    if (arg != -1) {
       emitByte(OP_SET_LOCAL, node->line);
-      emitByte((uint8_t)slot, node->line);
+      emitByte((uint8_t)arg, node->line);
+    } else if ((arg = resolveUpvalue(current, node->as.var.name, node->line)) !=
+               -1) {
+      emitByte(OP_SET_UPVALUE, node->line);
+      emitByte((uint8_t)arg, node->line);
     } else {
       int nameIdx = addConstant(currentChunk(), OBJ_VAL(node->as.var.name));
       emitByte(OP_SET_GLOBAL, node->line);
@@ -493,16 +577,10 @@ static void emitStatement(Node *node) {
   }
 
   case NODE_FUN: {
-    // Compile a function declaration. The resulting ObjFunction is stored as a
-    // CONSTANT and pushed with OP_CONSTANT, then bound to its name exactly like a
-    // variable (global at top level, local inside a block). Binding the name
-    // BEFORE compiling the body would also allow self-recursion for locals; for
-    // globals it doesn't matter because globals are looked up by name at runtime,
-    // so a function can always call itself and peers.
-    ObjFunction *function = compileFunction(node);
-    if (function == NULL)
-      break; // a compile error occurred inside the body; keep going
-    emitConstant(OBJ_VAL(function), node->line);
+    // Compile the function, which emits OP_CLOSURE leaving the new closure on the
+    // stack. Then bind it to its name exactly like a variable — global at top
+    // level, local inside a block.
+    compileFunction(node);
 
     ObjString *name = node->as.fun.name;
     if (current->scopeDepth > 0) {
@@ -572,8 +650,27 @@ static ObjFunction *compileFunction(Node *node) {
   emitByte(OP_RETURN, node->line);
 
   ObjFunction *function = current->function;
+  // Snapshot the upvalue table BEFORE popping this compiler — we need it to emit
+  // the OP_CLOSURE operands into the ENCLOSING function's chunk.
+  Upvalue upvalues[MAX_LOCALS];
+  int upvalueCount = function->upvalueCount;
+  for (int i = 0; i < upvalueCount; i++)
+    upvalues[i] = current->upvalues[i];
+
   // Pop this compiler off the stack, restoring the enclosing one.
   current = current->enclosing;
+
+  // Emit OP_CLOSURE in the enclosing chunk: the function constant, then two
+  // bytes per upvalue (isLocal, index) telling the VM how to capture each one at
+  // closure-creation time. A plain function simply has zero upvalue operands.
+  int constIdx = addConstant(currentChunk(), OBJ_VAL(function));
+  emitByte(OP_CLOSURE, node->line);
+  emitByte((uint8_t)constIdx, node->line);
+  for (int i = 0; i < upvalueCount; i++) {
+    emitByte(upvalues[i].isLocal ? 1 : 0, node->line);
+    emitByte(upvalues[i].index, node->line);
+  }
+
   return function;
 }
 

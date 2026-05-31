@@ -730,14 +730,93 @@ function automatically frees all its locals.
   (a controlled "stack overflow" at `FRAMES_MAX`), and `return` at top level are
   all clean errors — never a host crash.
 
-> **Note on closures.** cnano's functions can read globals but do *not* yet
-> capture enclosing *locals* (true closures need "upvalues"). That is a natural
-> and well-known next step; the single-compiler-per-function structure here is
-> exactly the foundation it builds on.
+> **Note on closures.** Step 6 deliberately stopped before capturing enclosing
+> *locals*. §15 builds exactly that on top of the per-function compiler set up
+> here.
 
 ---
 
-## 15. Roadmap: where to go next
+## 15. Case study: closures and upvalues
+
+The natural completion of functions — and one of the most elegant mechanisms in
+language implementation. A nested function can use a variable from an enclosing
+function; the difficulty is that the variable lives on the stack and may
+**outlive** the frame that created it (return a counter, and its `count` must
+survive `makeCounter` returning). The solution is **upvalues** that migrate a
+captured variable from the stack to the heap at exactly the right moment.
+
+### 15.1 The problem, concretely
+
+```
+fn makeCounter() {
+  let count = 0;             // a LOCAL — lives in makeCounter's stack frame
+  fn increment() { count = count + 1; return count; }
+  return increment;          // makeCounter's frame is torn down here ...
+}
+let c = makeCounter();
+c(); c();                    // ... but `count` must still exist. Where?
+```
+
+Once `makeCounter` returns, its stack slot for `count` is gone. Yet `increment`
+must keep reading and writing the *same* `count`. So the variable has to leave
+the stack and move somewhere durable — the heap.
+
+### 15.2 Two new objects: closures and upvalues
+
+- An **`ObjClosure`** is a function plus the array of variables it captured. The
+  VM now calls closures, never bare functions (a plain function is just a closure
+  with zero upvalues), which keeps the call path uniform.
+- An **`ObjUpvalue`** is the captured variable's "box," with one level of
+  indirection (`location`). While the variable is still on the stack the upvalue
+  is **open**: `location` points at the stack slot, so the closure and the
+  original code share it live. When the slot is about to vanish, the upvalue is
+  **closed**: the value is copied into the upvalue's own `closed` field and
+  `location` is repointed there. Same pointer dereference works before and
+  after — the indirection hides the move.
+
+### 15.3 The compiler: resolving captures (`resolveUpvalue`)
+
+Variable resolution becomes three-way: **local → upvalue → global**.
+`resolveUpvalue` is recursive and is the clever core:
+
+1. Is the name a local of the *immediately enclosing* function? Mark that local
+   as **captured** and add an upvalue pointing at its slot (`isLocal = true`).
+2. Otherwise, ask the enclosing function to resolve it as one of *its* upvalues,
+   and chain to that (`isLocal = false`).
+
+That recursion is what lets a closure reach a variable two or more levels up:
+each intervening function captures it and passes it along, hop by hop. Upvalues
+are **de-duplicated** per function so a shared variable maps to one upvalue —
+essential so sibling closures see each other's writes.
+
+### 15.4 The runtime: capturing and closing
+
+- **`OP_CLOSURE`** (our only variable-length instruction) builds the closure and,
+  for each upvalue, either captures a current-frame slot (`captureUpvalue`) or
+  copies an upvalue from the enclosing closure — exactly mirroring the compiler's
+  local/upvalue decision.
+- **`captureUpvalue`** keeps a list of open upvalues sorted by slot and reuses an
+  existing one for a slot, so all closures over the same variable share one box.
+- **`closeUpvalues`** runs when captured locals leave scope (`OP_CLOSE_UPVALUE`)
+  and on every `OP_RETURN`: it copies the affected values off the stack into
+  their boxes and repoints them. This is the precise moment a variable's lifetime
+  is extended beyond its frame.
+
+### 15.5 Why the design is worth studying
+
+The open/closed upvalue with shared boxes makes all the tricky cases fall out:
+independent counters (separate captures), shared mutable state between sibling
+closures (one shared box), captured parameters, and multi-level capture (chained
+upvalues) — all verified in the tests and `examples/closures.cn`. It is also the
+standard technique used by real VMs (Lua, and clox in *Crafting Interpreters*).
+
+> With closures, cnano has the full core of a small dynamic language: data types,
+> variables and scope, control flow, and first-class functions that close over
+> their environment.
+
+---
+
+## 16. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -761,7 +840,8 @@ ordered so each builds on the last.
 6. ~~**Functions and a call stack.**~~ **✅ DONE** — see §14 above. `fn`,
    parameters, `return`, a per-call frame stack and calling convention,
    recursion / mutual recursion, first-class functions, and stack traces.
-   (True closures over locals are the natural follow-on.)
+6b. ~~**Closures.**~~ **✅ DONE** — see §15 above. Upvalues (open→closed),
+   three-way local/upvalue/global resolution, chained and shared captures.
 7. **A type checker.** A separate pass over the AST that assigns and verifies
    types *before* running — your first taste of static analysis and the
    static-vs-dynamic trade-off.

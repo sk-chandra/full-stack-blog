@@ -1,0 +1,44 @@
+// Closures: a nested function that captures variables from its enclosing
+// function — and keeps them alive even after that function has returned.
+
+// The canonical example: a counter. `count` lives inside makeCounter, but the
+// returned `increment` closure keeps using it across calls.
+fn makeCounter() {
+  let count = 0;
+  fn increment() {
+    count = count + 1;
+    return count;
+  }
+  return increment;
+}
+
+let c = makeCounter();
+print c();          // 1
+print c();          // 2
+print c();          // 3
+
+// Each call to makeCounter creates an INDEPENDENT captured variable.
+let a = makeCounter();
+let b = makeCounter();
+print a();          // 1
+print a();          // 2
+print b();          // 1  (b has its own count)
+
+// Closures can capture parameters too — here we build specialised adders.
+fn adder(x) {
+  fn add(y) { return x + y; }
+  return add;
+}
+let add5 = adder(5);
+let add100 = adder(100);
+print add5(3);      // 8
+print add100(1);    // 101
+
+// Two closures can SHARE one captured variable and see each other's writes.
+fn makeAccount(balance) {
+  fn deposit(amount) { balance = balance + amount; return balance; }
+  return deposit;
+}
+let account = makeAccount(50);
+print account(25);  // 75
+print account(100); // 175

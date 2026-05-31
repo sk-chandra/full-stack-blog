@@ -29,7 +29,7 @@
 //     is how the same bytecode runs at a different stack location every call,
 //     which is exactly what makes recursion work.
 typedef struct {
-  ObjFunction *function;
+  ObjClosure *closure; // the closure being run (its function holds the chunk)
   uint8_t *ip;
   Value *slots;
 } CallFrame;
@@ -42,6 +42,7 @@ typedef struct {
   Value *stackTop;     // points just PAST the last pushed value
   Table globals;       // global variable store: name (ObjString*) -> Value
   Table strings;       // string intern pool, used as a set of all live strings
+  ObjUpvalue *openUpvalues; // open upvalues, sorted by stack slot (highest first)
   Obj *objects;        // head of the intrusive list of every heap object
 } VM;
 

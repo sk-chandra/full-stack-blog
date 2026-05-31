@@ -23,6 +23,8 @@
 typedef enum {
   OBJ_STRING,
   OBJ_FUNCTION,
+  OBJ_UPVALUE,
+  OBJ_CLOSURE,
 } ObjType;
 
 // The common header shared by every heap object. Because it is the first field
@@ -51,14 +53,44 @@ typedef struct ObjString ObjString;
 // and simple. `arity` is the declared parameter count; `name` is for error
 // messages and disassembly (NULL for the top-level script).
 typedef struct {
-  Obj obj;       // MUST be first
-  int arity;     // number of parameters
-  Chunk chunk;   // the function's own compiled bytecode
+  Obj obj;          // MUST be first
+  int arity;        // number of parameters
+  int upvalueCount; // how many enclosing variables this function captures
+  Chunk chunk;      // the function's own compiled bytecode
   ObjString *name;
 } ObjFunction;
 
+// An "upvalue": the runtime representation of a variable captured by a closure
+// from an enclosing function. The whole problem closures solve is that a captured
+// local lives on the stack but may OUTLIVE the frame that created it. An upvalue
+// solves this with one level of indirection:
+//   - while the variable is still on the stack, `location` points AT that stack
+//     slot, so reads/writes go straight through ("open" upvalue);
+//   - when the slot is about to disappear, we COPY the value into `closed` and
+//     repoint `location` at it, moving the variable to the heap ("closed").
+// `next` threads open upvalues onto a VM list so they can be shared and closed.
+typedef struct ObjUpvalue {
+  Obj obj;
+  Value *location;        // points at the live variable (stack slot or &closed)
+  Value closed;           // the value's heap home once closed
+  struct ObjUpvalue *next; // intrusive list of OPEN upvalues, sorted by slot
+} ObjUpvalue;
+
+// A "closure": a function paired with the array of upvalues it captured. At
+// runtime we never call a bare ObjFunction — we call a closure. A plain function
+// with no captures still gets a closure (with zero upvalues), keeping the VM's
+// call path uniform.
+typedef struct {
+  Obj obj;
+  ObjFunction *function;
+  ObjUpvalue **upvalues; // captured variables, indexed as the compiler assigned
+  int upvalueCount;
+} ObjClosure;
+
 #define IS_FUNCTION(value) isObjType(value, OBJ_FUNCTION)
 #define AS_FUNCTION(value) ((ObjFunction *)AS_OBJ(value))
+#define IS_CLOSURE(value) isObjType(value, OBJ_CLOSURE)
+#define AS_CLOSURE(value) ((ObjClosure *)AS_OBJ(value))
 
 // Convenience predicate + accessors, mirroring the Value macros.
 #define IS_STRING(value) isObjType(value, OBJ_STRING)
@@ -79,6 +111,13 @@ ObjString *copyString(const char *chars, int length);
 // Allocate a fresh, empty function (arity 0, empty chunk, no name). The compiler
 // fills in the chunk and arity as it compiles the body.
 ObjFunction *newFunction(void);
+
+// Wrap a function in a closure, allocating (but not yet filling) its upvalue
+// array. The VM fills the upvalues in immediately after, via OP_CLOSURE.
+ObjClosure *newClosure(ObjFunction *function);
+
+// Allocate a fresh open upvalue pointing at the stack `slot`.
+ObjUpvalue *newUpvalue(Value *slot);
 
 // Print an object value (dispatched from printValue).
 void printObject(Value value);

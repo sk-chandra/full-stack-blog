@@ -15,12 +15,12 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (132 cases)
+make test       # run the end-to-end test suite (138 cases)
 make run        # start the REPL
 
 # run a file
+./build/cnano examples/closures.cn            #  counters, adders, an account
 ./build/cnano examples/functions.cn           #  recursion, fib, first-class fns
-./build/cnano examples/control_flow.cn        #  FizzBuzz + a factorial
 
 # see the bytecode AND a step-by-step VM trace (the best way to learn)
 ./build/cnano --dump examples/variables.cn
@@ -52,6 +52,10 @@ make run        # start the REPL
   variables), support **recursion** and **mutual recursion**, with arity
   checking, a controlled **stack-overflow** error, and multi-frame **stack
   traces** on runtime errors
+- **Closures**: nested functions **capture variables** from enclosing functions
+  via upvalues, and those variables outlive the frame that created them (so a
+  returned counter keeps counting). Captured variables can be shared and mutated
+  between sibling closures
 - **Strings**: `"double-quoted"` literals, `+` concatenates them, and they are
   **interned** so equal strings compare in O(1) by pointer
 - **Line comments** with `//` (stripped by the lexer; `/` is still division)
@@ -82,11 +86,11 @@ make run        # start the REPL
 | `src/ast.{h,c}` | the tree + `Program` | ASTs, tagged unions, expr vs. statement |
 | `src/parser.{h,c}` | tokens → AST | recursive descent, precedence, l-values, recovery |
 | `src/value.{h,c}` | values + constant pool | tagged-union dynamic values |
-| `src/object.{h,c}` | heap objects: strings, functions | struct-embedding "inheritance", interning |
+| `src/object.{h,c}` | heap objects: strings, functions, closures, upvalues | object model, interning |
 | `src/table.{h,c}` | hash table | open addressing, linear probing, tombstones |
 | `src/chunk.{h,c}` | bytecode container | designing an instruction set (ISA) |
-| `src/compiler.{h,c}` | AST → per-function bytecode | scopes, local slots, jumps, functions |
-| `src/vm.{h,c}` | executes bytecode | fetch-decode-execute; call frames; type checks |
+| `src/compiler.{h,c}` | AST → per-function bytecode | scopes, slots, jumps, upvalue resolution |
+| `src/vm.{h,c}` | executes bytecode | call frames; upvalue capture/closing; type checks |
 | `src/debug.{h,c}` | disassembler | seeing what your compiler produced |
 | `src/main.c` | CLI / REPL | wiring it together |
 

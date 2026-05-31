@@ -266,6 +266,32 @@ check_prog_err "return-top-level" 'return 5;'
 check_prog_err "fn-no-name"       'fn (){}'
 check_prog_err "fn-no-body"       'fn f()'
 
+# --- closures (step 6b) ---
+# The canonical closure: counter keeps state after its maker returned.
+check_prog "closure-counter" \
+  'fn mk(){let n=0; fn inc(){n=n+1; return n;} return inc;} let c=mk(); print c(); print c(); print c();' \
+  "$(printf '1\n2\n3')"
+# Independent closures have independent captured state.
+check_prog "closure-independent" \
+  'fn mk(){let n=0; fn inc(){n=n+1; return n;} return inc;} let a=mk(); let b=mk(); print a(); print a(); print b();' \
+  "$(printf '1\n2\n1')"
+# Capture a parameter.
+check_prog "closure-param" \
+  'fn adder(x){fn add(y){return x+y;} return add;} let a=adder(5); print a(3); print a(10);' \
+  "$(printf '8\n15')"
+# Capture across two levels (chained upvalues).
+check_prog "closure-chain" \
+  'fn o(){let x=7; fn m(){fn i(){return x;} return i();} return m();} print o();' \
+  "7"
+# Two closures sharing one variable see each other's writes.
+check_prog "closure-shared" \
+  'fn mk(){let v=100; fn get(){return v;} fn bump(){v=v+1; return get();} return bump;} let f=mk(); print f(); print f();' \
+  "$(printf '101\n102')"
+# A closure reading a captured value without mutating it.
+check_prog "closure-readonly" \
+  'fn mk(msg){fn f(){return msg;} return f;} let g=mk("hi"); print g(); print g();' \
+  "$(printf 'hi\nhi')"
+
 rm -f "$tmp"
 echo "-----------------------------------------"
 echo "passed: $pass   failed: $fail"

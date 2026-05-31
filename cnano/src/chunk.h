@@ -48,6 +48,11 @@ typedef enum {
   // direct array access. That speed difference is the whole point of step 4.
   OP_GET_LOCAL,     // [opcode][slot]    : push stack[slot]
   OP_SET_LOCAL,     // [opcode][slot]    : stack[slot] = peek(0)  (no pop)
+  // Upvalues: variables a closure captured from an enclosing function. Like
+  // locals these are slot-indexed (into the closure's upvalue array), but they
+  // reach a variable that may now live on the heap. See compiler.c / vm.c.
+  OP_GET_UPVALUE,   // [opcode][idx]     : push *closure->upvalues[idx]->location
+  OP_SET_UPVALUE,   // [opcode][idx]     : *upvalues[idx]->location = peek(0)
   // Control flow. These change the instruction pointer instead of (or as well
   // as) touching the stack — they are how `if`, `while`, `for`, and `and`/`or`
   // are built. Their operand is a TWO-byte big-endian offset, so a single jump
@@ -67,6 +72,14 @@ typedef enum {
   // are already on the stack below the current top. OP_RETURN now returns from
   // the current function (popping its call frame), with the return value on top.
   OP_CALL,     // [opcode][argc]  : call the function sitting under `argc` args
+  // Create a closure from the function constant at [idx], then read 2 bytes per
+  // upvalue describing where each capture comes from: [isLocal][index]. This is
+  // our only VARIABLE-LENGTH instruction — its size depends on the function's
+  // upvalue count. See the disassembler and VM for the decode.
+  OP_CLOSURE,  // [opcode][idx] ( [isLocal][index] )* : push a new closure
+  // Move the top-of-stack local off the stack onto the heap (close its upvalue),
+  // then pop it. Emitted when a captured local goes out of scope.
+  OP_CLOSE_UPVALUE, // [opcode]   : close the upvalue for the top stack slot, pop
   OP_RETURN,   // [opcode]        : return top-of-stack from the current function
 } OpCode;
 
