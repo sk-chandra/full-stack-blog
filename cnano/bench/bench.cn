@@ -1,0 +1,48 @@
+// bench.cn — a tiny self-timing benchmark suite for the cnano VM.
+//
+//   cnano bench/bench.cn        (or: make bench)
+//
+// Each workload runs a fixed amount of work and prints the wall-clock time it
+// took (via the clock() builtin, in milliseconds). These are deliberately simple
+// and dependency-free — the point is a stable baseline to measure VM changes
+// (a new opcode, an optimisation pass) against, not a scientific benchmark.
+
+fn bench(name: str, ms: int) {
+  print "${name}: ${ms} ms";
+}
+
+// --- recursive function calls (call-frame churn) -------------------------
+fn fib(n: int): int {
+  if (n < 2) { return n; }
+  return fib(n - 1) + fib(n - 2);
+}
+let t0 = clock();
+let f = fib(30);                          // ~1.3M calls
+bench("fib(30)=${f}", clock() - t0);
+
+// --- a hot integer loop (dispatch + arithmetic) --------------------------
+t0 = clock();
+let sum = 0;
+for (let i in 0..3000000) { sum += i; }
+bench("loop sum 3e6 = ${sum}", clock() - t0);
+
+// --- array building + higher-order methods (allocation + GC + callbacks) -
+t0 = clock();
+let xs = [];
+for (let i in 0..100000) { xs.push(i); }
+let total = xs.map(fn(x) => x * 2).filter(fn(x) => x % 3 == 0).reduce(fn(a, b) => a + b, 0);
+bench("array map/filter/reduce 1e5 = ${total}", clock() - t0);
+
+// --- string building (concatenation + interning) -------------------------
+t0 = clock();
+let s = "";
+for (let i in 0..20000) { s = s + "x"; }
+bench("string build 2e4 len=${s.len()}", clock() - t0);
+
+// --- map insertion + lookup (hash table) ---------------------------------
+t0 = clock();
+let m = {};
+for (let i in 0..200000) { m[i] = i * i; }
+let acc = 0;
+for (let i in 0..200000) { acc += m[i]; }
+bench("map put/get 2e5 = ${acc}", clock() - t0);

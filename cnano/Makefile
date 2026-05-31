@@ -19,7 +19,7 @@ BUILD   := build
 SOURCES := $(wildcard $(SRC_DIR)/*.c)
 TARGET  := $(BUILD)/cnano
 
-.PHONY: all run test debug gcstress clean
+.PHONY: all run test bench debug gcstress clean
 
 all: $(TARGET)
 
@@ -39,6 +39,10 @@ debug: | $(BUILD)
 
 test: all
 	./tests/run_tests.sh ./$(TARGET)
+
+# Run the self-timing benchmark suite (a stable baseline for VM/optimiser work).
+bench: all
+	./$(TARGET) bench/bench.cn
 
 # GC STRESS build: collect on EVERY allocation, with sanitizers. Running the full
 # suite through this is the real test of the collector — if any root is missed,

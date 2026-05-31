@@ -1633,7 +1633,16 @@ programs define their own types, and makes failure recoverable.
     preserving int-vs-float, int→float promotion in `.sum` mirroring `+`). All
     additive in builtins.c. With `.split` (step 41) and lambdas (step 43) these
     compose into real one-liners: `"10,20,30".split(",").map(fn(s)=>parseInt(s)).sum()`.
-50. **Performance** (inline caching/peephole), generics, native closures, and a
+50. ~~**A benchmark + more constant folding.**~~ **✅ DONE** (step 46) — a
+    self-timing `bench/bench.cn` (`make bench`) covering recursion, a hot integer
+    loop, array map/filter/reduce, string building, and map put/get — a stable
+    baseline for VM/optimiser changes (it immediately exposes the O(n²) cost of
+    repeated string `+`, a candidate for a future rope/builder). The folder now
+    also collapses **constant-condition** `?:` and `and`/`or` to the branch that
+    runs, and folds inside lambda bodies. These collapses exactly match
+    short-circuit/conditional semantics, so they never change which side effects
+    run (verified by tests like `true or (x = 99)` leaving `x == 0`).
+51. **Performance** (inline caching/peephole), generics, native closures, and a
     per-module namespace for `import` — larger, still open.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom

@@ -519,6 +519,19 @@ check_prog "fold-shortcct"  'let x = 0; false and (x = 1 + 1); print x;'  "0"
 # Folding inside control flow and functions still produces correct behaviour.
 check_prog "fold-in-if"     'if (1 + 1 == 2) print "y"; else print "n";'  "y"
 check_prog "fold-in-fn"     'fn f(){ return 6 * 7; } print f();'          "42"
+# Constant-condition conditionals/logicals collapse, but to the SAME result and
+# with the SAME side effects as the unfolded program (step 46).
+check_prog "fold-cond-true"  'print true ? "a" : "b";'                    "a"
+check_prog "fold-cond-false" 'print false ? "a" : "b";'                   "b"
+check_prog "fold-cond-side"  'let x=0; false ? (x=1) : (x=2); print x;'   "2"
+check_prog "fold-and-true"   'print true and 7;'                          "7"
+check_prog "fold-and-false"  'print false and 7;'                         "false"
+check_prog "fold-or-true"    'print true or 7;'                           "true"
+check_prog "fold-or-false"   'print false or 7;'                          "7"
+check_prog "fold-or-side"    'let x=0; true or (x=99); print x;'          "0"
+check_prog "fold-and-side"   'let x=0; false and (x=99); print x;'        "0"
+check_prog "fold-in-lambda"  'let g = fn() => 2 + 3 * 4; print g();'      "14"
+check_prog "fold-cond-nested" 'let n=5; print n>0 ? "pos" : "neg";'       "pos"
 # A heavily-reused name is fine (constant dedup keeps it to one slot).
 check_prog "dedup-reuse"    'let c = 0; c = c + 1; c = c + 1; c = c + 1; print c;' "3"
 

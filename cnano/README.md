@@ -15,8 +15,9 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (567 cases, incl. native + GC)
+make test       # run the end-to-end test suite (578 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
+make bench      # run the self-timing benchmark suite
 make run        # start the REPL
 
 # run a file
@@ -148,9 +149,12 @@ make run        # start the REPL
   by a pass that splices every file into one program *before* type-checking, so a
   type error anywhere — across file boundaries — is still caught up front
 - **Optimisation**: an AST **constant-folding** pass evaluates constant
-  subexpressions at compile time (`2 + 3 * 4` → `14`, `"a" + "b"` → `"ab"`),
-  constant **deduplication**, and an `OP_CONSTANT_LONG` form so chunks aren't
-  capped at 256 constants
+  subexpressions at compile time (`2 + 3 * 4` → `14`, `"a" + "b"` → `"ab"`) and
+  collapses **constant-condition** `?:`/`and`/`or` to the branch that would run
+  (side-effect-safe — the skipped branch never ran anyway), plus constant
+  **deduplication** and an `OP_CONSTANT_LONG` form so chunks aren't capped at 256
+  constants. `make bench` runs a self-timing benchmark suite (a baseline for
+  VM/optimiser work)
 - **Native compilation** (ahead-of-time): `cnano --native file.cn -o prog`
   compiles the **statically-typed, first-order subset** to C and invokes the
   system `cc`, producing a standalone native executable with no interpreter.

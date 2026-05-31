@@ -18,6 +18,14 @@ static double numLit(Node *n) {
 }
 
 static Node *foldExpr(Node *node);
+static void foldProgram(Program *program); // fold a whole statement list
+
+// A folded node that is a constant bool literal: report its value via *out and
+// return true. Used to collapse conditionals whose test is statically known.
+static bool constBool(Node *n, bool *out) {
+  if (isBoolLit(n)) { *out = n->as.boolValue; return true; }
+  return false;
+}
 
 // Try to fold a binary node whose children have already been folded. Returns a
 // new literal node if it could, or NULL to leave the binary node as-is.
@@ -139,11 +147,47 @@ static Node *foldExpr(Node *node) {
     if (folded != NULL) { freeNode(node); foldCount++; return folded; }
     return node;
   }
-  case NODE_LOGICAL:
-    // We do NOT fold and/or: they short-circuit, so folding could change which
-    // side runs (and elide side effects). Just recurse into the operands.
+  case NODE_LOGICAL: {
     node->as.logical.left = foldExpr(node->as.logical.left);
     node->as.logical.right = foldExpr(node->as.logical.right);
+    // With a constant-bool LEFT we can collapse, and this MATCHES short-circuit
+    // semantics exactly (so it never changes which side effects run): `a and b`
+    // is `b` when a is true and `a` (=false) when a is false; `a or b` is `a`
+    // (=true) when a is true and `b` when a is false.
+    bool lv;
+    if (constBool(node->as.logical.left, &lv)) {
+      bool takeRight = node->as.logical.isAnd ? lv : !lv;
+      Node *keep = takeRight ? node->as.logical.right : node->as.logical.left;
+      // Detach the kept child so freeing the logical node doesn't free it.
+      if (takeRight) node->as.logical.right = NULL;
+      else node->as.logical.left = NULL;
+      freeNode(node);
+      foldCount++;
+      return keep;
+    }
+    return node;
+  }
+  case NODE_COND: {
+    // `c ? a : b` — fold the parts, then collapse if the test is a known bool.
+    // Only the taken branch would ever have run, so dropping the other is safe.
+    node->as.ifStmt.condition = foldExpr(node->as.ifStmt.condition);
+    node->as.ifStmt.then = foldExpr(node->as.ifStmt.then);
+    node->as.ifStmt.otherwise = foldExpr(node->as.ifStmt.otherwise);
+    bool cv;
+    if (constBool(node->as.ifStmt.condition, &cv)) {
+      Node *keep = cv ? node->as.ifStmt.then : node->as.ifStmt.otherwise;
+      if (cv) node->as.ifStmt.then = NULL;
+      else node->as.ifStmt.otherwise = NULL;
+      freeNode(node);
+      foldCount++;
+      return keep;
+    }
+    return node;
+  }
+  case NODE_FUN:
+    // A lambda expression: fold constants inside its body (named functions get
+    // this via foldStatement; lambdas reach here as expressions).
+    foldProgram(node->as.fun.body);
     return node;
   case NODE_ASSIGN:
     node->as.var.value = foldExpr(node->as.var.value);
