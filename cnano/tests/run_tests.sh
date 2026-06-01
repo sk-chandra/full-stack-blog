@@ -581,6 +581,14 @@ check_diag "diag-token"  'let y = 1 + + 2;'    'Error at'
 # A lexer error (unterminated string) still shows the line (no caret needed).
 check_diag "diag-lexline" 'print "oops;'        'print "oops;'
 
+# --- "did you mean …?" suggestions (step 51) ---
+check_diag "sug-field"   'struct P { x: int, y: int } let p = P(1,2); print p.xx;' "did you mean 'x'?"
+check_diag "sug-global"  'let count = 5; print conut;' "did you mean 'count'?"
+check_diag "sug-type"    'enum Color { Red } let c: Colr = Color.Red; print c;' "did you mean 'Color'?"
+check_diag "sug-member"  'enum Dir { North, South } print Dir.Norht;' "did you mean 'North'?"
+# A name with no near match gets no (misleading) suggestion.
+check_diag "sug-none"    'print zzzzqqq;' "undefined variable 'zzzzqqq'"
+
 # --- garbage collector (step 10) ---
 # Churn: 5000 short-lived closures (+ their upvalues) are allocated and become
 # garbage. Correct output here means the GC reclaims them without corrupting the

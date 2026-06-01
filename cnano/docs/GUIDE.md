@@ -1390,6 +1390,26 @@ handle the "no span" cases honestly. (The same span info, threaded into AST node
 is what would later let the *type checker* and *runtime* print carets too — the
 natural next iteration.)
 
+### 25.4 "Did you mean …?" — turning a wrong name into a hint
+
+A misspelt name is the most common mistake, so step 51 guesses the intended one.
+`suggest.c` is a tiny, shared utility: **Levenshtein edit distance** (a two-row
+dynamic program — insert/delete/substitute), plus `closestName`, which returns
+the nearest candidate *only if* it's within a **length-scaled threshold** (a
+3-letter name tolerates one edit, a 12-letter one up to three). That threshold is
+the whole trick: without it you'd "helpfully" suggest a completely different word
+for every typo. The checker feeds it the declared struct/enum/primitive names
+(unknown type), a struct's field names, or an enum's members; the VM feeds it the
+defined globals (skipping internal `$`-names) for an undefined variable:
+
+```
+Type error: Point has no field 'xx' (did you mean 'x'?)
+Runtime error: undefined variable 'conut' (did you mean 'count'?)
+```
+
+The lesson: a suggestion engine is one classic algorithm (edit distance) plus one
+piece of judgement (when *not* to suggest).
+
 ---
 
 ## 26. Roadmap: where to go next
@@ -1714,8 +1734,10 @@ programs define their own types, and makes failure recoverable.
 These are grouped by the concept each teaches, to keep cnano a *complete map* of
 how a language works rather than a pile of features.
 
-- **Diagnostics (in progress):** ~~caret underlines~~ ✓; next, "did you mean…?"
-  name/type suggestions (edit distance) and per-file positions through `import`.
+- **Diagnostics (in progress):** ~~caret underlines~~ ✓; ~~"did you mean…?"
+  name/type suggestions~~ ✓ (step 51 — a shared `suggest.c`: Levenshtein edit
+  distance + a length-scaled threshold, used for unknown types, struct fields,
+  enum members, and undefined globals); next, per-file positions through `import`.
 - **Optimising middle-end:** a `--stats` opcode/allocation profiler (measure
   first), a real bytecode peephole pass (with jump-target remapping), and
   inline caching for global access (the canonical fast-dispatch lesson).

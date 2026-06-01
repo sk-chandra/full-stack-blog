@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "suggest.h" // "did you mean …?" name suggestions
 #include "typecheck.h"
 
 // Type CONSTRUCTION lives in type.c now: primitives are shared singletons
@@ -212,8 +213,23 @@ static Type *resolve(Type *t, int line) {
   // A `: Name` annotation can also name an enum (the parser can't tell them apart).
   if (findEnum(t->strct.name) >= 0)
     return typeEnum(t->strct.name);
-  char msg[96];
-  snprintf(msg, sizeof(msg), "unknown type '%s'", t->strct.name->chars);
+  // Unknown type — suggest the closest declared struct/enum or primitive name.
+  const char *cands[MAX_STRUCTS + MAX_ENUMS + 6];
+  int nc = 0;
+  for (int i = 0; i < structCount; i++)
+    cands[nc++] = structRegistry[i].name->chars;
+  for (int i = 0; i < enumCount; i++)
+    cands[nc++] = enumRegistry[i].name->chars;
+  static const char *prims[] = {"int", "float", "bool", "str", "nil", "any"};
+  for (int i = 0; i < 6; i++)
+    cands[nc++] = prims[i];
+  const char *guess = closestName(t->strct.name->chars, cands, nc);
+  char msg[128];
+  if (guess != NULL)
+    snprintf(msg, sizeof(msg), "unknown type '%s' (did you mean '%s'?)",
+             t->strct.name->chars, guess);
+  else
+    snprintf(msg, sizeof(msg), "unknown type '%s'", t->strct.name->chars);
   typeError(line, msg);
   return typeAny(); // treat the unknown type as dynamic so checking continues
 }
@@ -339,6 +355,21 @@ static Type *checkCall(Node *node) {
     }
   }
   return calleeType->fn.returnType;
+}
+
+// Fill `msg` with "<Struct> has no field '<field>'", appending a "(did you mean
+// '<f>'?)" hint when a near-match field name exists. Shared by field get and set.
+static void noFieldMessage(Type *obj, ObjString *field, char *msg, size_t size) {
+  const char *cands[256];
+  int nc = obj->strct.fieldCount < 256 ? obj->strct.fieldCount : 256;
+  for (int i = 0; i < nc; i++)
+    cands[i] = obj->strct.fieldNames[i]->chars;
+  const char *guess = closestName(field->chars, cands, nc);
+  if (guess != NULL)
+    snprintf(msg, size, "%s has no field '%s' (did you mean '%s'?)", typeName(obj),
+             field->chars, guess);
+  else
+    snprintf(msg, size, "%s has no field '%s'", typeName(obj), field->chars);
 }
 
 // Compute the type of an expression node, reporting any errors along the way.
@@ -534,9 +565,18 @@ static Type *checkExpr(Node *node) {
         for (int i = 0; i < enumRegistry[ei].memberCount; i++)
           if (enumRegistry[ei].memberNames[i] == member)
             return typeEnum(enumRegistry[ei].name);
-        char msg[96];
-        snprintf(msg, sizeof(msg), "enum %s has no member '%s'",
-                 enumRegistry[ei].name->chars, member->chars);
+        const char *cands[256];
+        int nc = enumRegistry[ei].memberCount < 256 ? enumRegistry[ei].memberCount : 256;
+        for (int i = 0; i < nc; i++)
+          cands[i] = enumRegistry[ei].memberNames[i]->chars;
+        const char *guess = closestName(member->chars, cands, nc);
+        char msg[128];
+        if (guess != NULL)
+          snprintf(msg, sizeof(msg), "enum %s has no member '%s' (did you mean '%s'?)",
+                   enumRegistry[ei].name->chars, member->chars, guess);
+        else
+          snprintf(msg, sizeof(msg), "enum %s has no member '%s'",
+                   enumRegistry[ei].name->chars, member->chars);
         typeError(node->line, msg);
         return typeAny();
       }
@@ -546,9 +586,8 @@ static Type *checkExpr(Node *node) {
       for (int i = 0; i < obj->strct.fieldCount; i++)
         if (obj->strct.fieldNames[i] == node->as.field.field)
           return resolve(obj->strct.fieldTypes[i], node->line);
-      char msg[96];
-      snprintf(msg, sizeof(msg), "%s has no field '%s'", typeName(obj),
-               node->as.field.field->chars);
+      char msg[128];
+      noFieldMessage(obj, node->as.field.field, msg, sizeof(msg));
       typeError(node->line, msg);
       return typeAny();
     }
@@ -574,9 +613,8 @@ static Type *checkExpr(Node *node) {
           }
           return val;
         }
-      char msg[96];
-      snprintf(msg, sizeof(msg), "%s has no field '%s'", typeName(obj),
-               node->as.field.field->chars);
+      char msg[128];
+      noFieldMessage(obj, node->as.field.field, msg, sizeof(msg));
       typeError(node->line, msg);
     } else if (obj->kind != TY_ANY) {
       char msg[96];

@@ -12,6 +12,7 @@
 #include "object.h"
 #include "optimize.h"
 #include "parser.h"
+#include "suggest.h" // "did you mean …?" for undefined globals
 #include "type.h"
 #include "typecheck.h"
 #include "vm.h"
@@ -267,6 +268,21 @@ static void closeUpvalues(Value *last) {
   }
 }
 
+// The defined global name closest to `name`, for a "did you mean …?" hint on an
+// undefined-variable error, or NULL if nothing is close. Internal "$"-prefixed
+// names (like the for-in iterator) are skipped — they are never what the user
+// meant to type.
+static const char *suggestGlobal(const char *name) {
+  const char *cands[256];
+  int nc = 0;
+  for (int i = 0; i < vm.globals.capacity && nc < 256; i++) {
+    ObjString *key = vm.globals.entries[i].key;
+    if (key != NULL && key->chars[0] != '$')
+      cands[nc++] = key->chars;
+  }
+  return closestName(name, cands, nc);
+}
+
 // The fetch-decode-execute loop — the core of the whole project. `stopFrame` is
 // the call depth at which to hand control back to the caller: 0 for the top-level
 // interpret() (run until the script frame returns), or the depth captured by a
@@ -507,8 +523,14 @@ static InterpretResult run(bool trace, int stopFrame) {
       Value value;
       if (!tableGet(&vm.globals, name, &value)) {
         // Reading a name that was never defined is a runtime error — the safety
-        // guarantee that makes variables usable. (A typo'd name fails loudly.)
-        runtimeError("undefined variable '%s'", name->chars);
+        // guarantee that makes variables usable. (A typo'd name fails loudly,
+        // with a "did you mean …?" hint when a close global name exists.)
+        const char *guess = suggestGlobal(name->chars);
+        if (guess != NULL)
+          runtimeError("undefined variable '%s' (did you mean '%s'?)",
+                       name->chars, guess);
+        else
+          runtimeError("undefined variable '%s'", name->chars);
         return INTERPRET_RUNTIME_ERROR;
       }
       push(value);

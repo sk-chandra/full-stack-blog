@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (613 cases, incl. native + GC)
+make test       # run the end-to-end test suite (618 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -168,6 +168,9 @@ make run        # start the REPL
        1 | let x = 1 +;
          |            ^
   ```
+  and a misspelt name gets a **"did you mean …?"** hint (edit-distance based) for
+  unknown types, struct fields, enum members, and undefined globals — e.g.
+  `undefined variable 'conut' (did you mean 'count'?)`
 - **Native compilation** (ahead-of-time): `cnano --native file.cn -o prog`
   compiles the **statically-typed, first-order subset** to C and invokes the
   system `cc`, producing a standalone native executable with no interpreter.
@@ -221,6 +224,7 @@ make run        # start the REPL
 | `src/ast.{h,c}` | the tree + `Program` | ASTs, tagged unions, expr vs. statement |
 | `src/parser.{h,c}` | tokens → AST | recursive descent, precedence, l-values, recovery |
 | `src/module.{h,c}` | import resolution | splice multi-file programs into one (once-only) |
+| `src/suggest.{h,c}` | "did you mean …?" | Levenshtein distance + a length-scaled threshold |
 | `src/type.{h,c}` | the type system | gradual + structured types (`[T]`, `{K:V}`); arena-owned |
 | `src/typecheck.{h,c}` | static analysis pass | tree-walking checker, two-pass for fns |
 | `src/optimize.{h,c}` | AST optimisation pass | constant folding (bottom-up rewrite) |
