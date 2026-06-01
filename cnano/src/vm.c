@@ -42,6 +42,7 @@ void initVM(void) {
   vm.grayStack = NULL;
   vm.grayCount = 0;
   vm.grayCapacity = 0;
+  vm.globalsGen = 1; // 1, so a freshly calloc'd cache slot (gen 0) never matches
 
   initTable(&vm.globals);
   initTable(&vm.strings);
@@ -581,12 +582,34 @@ static InterpretResult run(bool trace, int stopFrame) {
       ObjString *name = READ_STRING();
       tableSet(&vm.globals, name, peek(0));
       pop();
+      // A new global may have rebuilt the table, moving entry indices — bump the
+      // generation so every cached global lookup re-resolves. (Over-approximate:
+      // also bumps on a plain overwrite, but defines are rare next to reads.)
+      vm.globalsGen++;
       break;
     }
     case OP_GET_GLOBAL: {
-      ObjString *name = READ_STRING();
-      Value value;
-      if (!tableGet(&vm.globals, name, &value)) {
+      // Global inline cache: the name's constant index keys a per-chunk cache of
+      // (generation, table-entry-index). On a hit we skip the hash probe and read
+      // the entry directly; the generation guards against the table being rebuilt.
+      uint8_t ci = READ_BYTE();
+      Chunk *chunk = &frame->closure->function->chunk;
+      if (chunk->globalCache == NULL) {
+        chunk->globalCache =
+            calloc(chunk->constants.count, sizeof(GlobalCacheSlot));
+      }
+      GlobalCacheSlot *slot = chunk->globalCache ? &chunk->globalCache[ci] : NULL;
+      if (slot != NULL && slot->gen == vm.globalsGen) {
+        push(vm.globals.entries[slot->index].value); // cache hit: no probe
+        break;
+      }
+      ObjString *name = AS_STRING(chunk->constants.values[ci]);
+      int idx = tableFindIndex(&vm.globals, name);
+      if (idx >= 0 && slot != NULL) { // remember it for next time
+        slot->gen = vm.globalsGen;
+        slot->index = idx;
+      }
+      if (idx < 0) {
         // Reading a name that was never defined is a runtime error — the safety
         // guarantee that makes variables usable. (A typo'd name fails loudly,
         // with a "did you mean …?" hint when a close global name exists.)
@@ -598,7 +621,7 @@ static InterpretResult run(bool trace, int stopFrame) {
           runtimeError("undefined variable '%s'", name->chars);
         return INTERPRET_RUNTIME_ERROR;
       }
-      push(value);
+      push(vm.globals.entries[idx].value);
       break;
     }
     case OP_SET_GLOBAL: {

@@ -71,6 +71,15 @@ bool tableGet(Table *table, ObjString *key, Value *value) {
   return true;
 }
 
+int tableFindIndex(Table *table, ObjString *key) {
+  if (table->count == 0)
+    return -1;
+  Entry *entry = findEntry(table->entries, table->capacity, key);
+  if (entry->key == NULL)
+    return -1;
+  return (int)(entry - table->entries); // position within the bucket array
+}
+
 // Allocate a bigger bucket array and RE-INSERT every live entry. We cannot just
 // realloc-and-copy: an entry's home bucket depends on `capacity`, so every key
 // must be re-hashed into the new array. Re-inserting also drops tombstones,

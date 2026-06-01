@@ -36,6 +36,11 @@ void freeTable(Table *table);
 // Look up `key`. If found, copy its value into *value and return true.
 bool tableGet(Table *table, ObjString *key, Value *value);
 
+// The bucket index where `key` lives, or -1 if absent. Used by the VM's global
+// inline cache: an index (unlike a pointer) survives unchanged until the table is
+// rebuilt, and a generation token (bumped on every new global) guards that.
+int tableFindIndex(Table *table, ObjString *key);
+
 // Insert or overwrite `key` -> `value`. Returns true if a NEW key was added
 // (false if it overwrote an existing key) — the compiler/VM use this to tell
 // "define" from "assign".

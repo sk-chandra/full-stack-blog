@@ -9,11 +9,13 @@ void initChunk(Chunk *chunk) {
   chunk->code = NULL;
   chunk->lines = NULL;
   initValueArray(&chunk->constants);
+  chunk->globalCache = NULL; // allocated lazily on the first global read
 }
 
 void freeChunk(Chunk *chunk) {
   free(chunk->code);
   free(chunk->lines);
+  free(chunk->globalCache); // plain malloc'd, not GC-managed
   freeValueArray(&chunk->constants);
   initChunk(chunk);
 }

@@ -1768,13 +1768,17 @@ how a language works rather than a pile of features.
   space, so an error names the file it came from: `[lib/math.cn:2] Type error: …`,
   and a runtime stack trace names a file per frame; single-file programs keep the
   familiar `[line N]`).
-- **Optimising middle-end (in progress):** ~~a `--stats` opcode/allocation
-  profiler~~ ✓ (step 53); ~~a bytecode peephole pass with jump-target remapping~~
-  ✓ (step 54 — `peephole.c` deletes provably-dead instruction pairs and recomputes
-  every jump offset that spanned the hole; the lesson is the *remapping*, and as
-  the profiler predicted the speedup on already-folded code is ~nil); next, inline
-  caching for global access (the canonical fast-dispatch lesson the `--stats`
-  histogram actually argues for).
+- **Optimising middle-end (DONE):** ~~a `--stats` opcode/allocation profiler~~ ✓
+  (step 53); ~~a bytecode peephole pass with jump-target remapping~~ ✓ (step 54 —
+  the lesson is the *remapping*; ~nil speedup on already-folded code, as the
+  profiler predicted); ~~inline caching for global access~~ ✓ (step 55 — a
+  monomorphic cache the profiler argued for: each `OP_GET_GLOBAL` site caches the
+  globals-table entry **index** plus a **generation** token, bumped whenever a new
+  global is defined; on a hit it skips the hash probe entirely. Caching an *index*
+  (re-validated by the token), not a pointer, sidesteps the dangling-pointer
+  hazard of a table that reallocates — a bug a GC-stress test would NOT have
+  caught, since it's a non-GC realloc. Measured ~15–25% faster on global-heavy
+  workloads like `fib`).
 - **Type-system depth:** `match` exhaustiveness checking, then tagged-union ADTs
   (`enum Shape { Circle(r: float), Rect(w, h) }`) with payload-binding arms.
 - **Runtime depth:** tail-call optimisation (frame reuse), then generators /

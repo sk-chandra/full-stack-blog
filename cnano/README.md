@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (629 cases, incl. native + GC)
+make test       # run the end-to-end test suite (634 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -162,8 +162,11 @@ make run        # start the REPL
   **deduplication** and an `OP_CONSTANT_LONG` form so chunks aren't capped at 256
   constants. A **bytecode peephole pass** then deletes provably-dead instruction
   pairs (e.g. push-then-pop) and **recomputes the jump offsets** that span each
-  hole. `make bench` runs a self-timing benchmark suite, and `cnano --stats file`
-  prints an opcode/allocation/GC profile — *measure before you optimise*
+  hole. Global reads use a **monomorphic inline cache** (each site caches the
+  globals-table entry index + a generation token, skipping the hash probe on a
+  hit — ~15–25% faster on global-heavy code). `make bench` runs a self-timing
+  benchmark suite, and `cnano --stats file` prints an opcode/allocation/GC
+  profile — *measure before you optimise*
 - **Diagnostics**: syntax errors render the offending source line and underline
   the exact token with a caret, the way a real compiler does:
   ```

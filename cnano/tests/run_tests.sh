@@ -600,6 +600,18 @@ check_prog "peep-in-fn"     'fn f(n){ 7; if (n<2){ 0; return n; } return f(n-1)+
 check_prog "peep-dbl-not"   'let b = true; print !!b;'                    "true"
 check_prog "peep-while"     'let i=0; let n=0; while (i<100) { 0; i+=1; n+=1; } print n;' "100"
 check_native "nat-peep"     'fn f(): int { 1; 2; return 42; } print f();' "42"
+
+# --- global inline cache (step 55): must stay correct under every pattern ---
+# A mutated global is seen on the next (cached) read.
+check_prog "gic-mutate"     'let g=10; fn use(){ return g; } print use(); g=99; print use();' "$(printf '10\n99')"
+# A global defined AFTER the function that reads it (resolved at call time).
+check_prog "gic-forward"    'fn use(){ return g; } let g=5; print use();' "5"
+# Defining MORE globals (which may rebuild the table) must invalidate the cache.
+check_prog "gic-after-def"  'let a=1; fn get(){ return a; } print get(); let b=2; let c=3; let d=4; let e=5; let f=6; let h=7; let i=8; let j=9; print get();' "$(printf '1\n1')"
+# Redefining a global over an existing name, then reading.
+check_prog "gic-redef"      'let x=1; fn r(){ return x; } print r(); let x=2; print r();' "$(printf '1\n2')"
+# A hot function called many times reuses its cache (correctness under reuse).
+check_prog "gic-hot"        'let base=100; fn add(n){ return base+n; } let s=0; for (let k in 0..5) { s += add(k); } print s;' "510"
 # A heavily-reused name is fine (constant dedup keeps it to one slot).
 check_prog "dedup-reuse"    'let c = 0; c = c + 1; c = c + 1; c = c + 1; print c;' "3"
 

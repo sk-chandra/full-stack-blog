@@ -55,6 +55,10 @@ typedef struct {
   Table globals;       // global variable store: name (ObjString*) -> Value
   Table strings;       // string intern pool, used as a set of all live strings
   ObjString *initString; // the interned name "init" (the constructor method)
+  // Bumped whenever a NEW global is defined (which may rebuild the globals
+  // table). The per-chunk global inline cache stores this token alongside a
+  // cached entry index, and re-resolves whenever the token has moved on.
+  uint32_t globalsGen;
   ObjUpvalue *openUpvalues; // open upvalues, sorted by stack slot (highest first)
   Obj *objects;        // head of the intrusive list of every heap object
 

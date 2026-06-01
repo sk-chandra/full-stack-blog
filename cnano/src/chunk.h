@@ -143,12 +143,24 @@ enum {
   IS_TAG_MAP,
 };
 
+// One slot of the global inline cache: a constant index (a global's name lives in
+// the constant pool) resolves to a globals-table entry index, valid as long as
+// `gen` matches the VM's current globals generation.
+typedef struct {
+  uint32_t gen;  // 0 = never resolved; else the globalsGen it was resolved at
+  int index;     // the globals-table bucket index for this name
+} GlobalCacheSlot;
+
 typedef struct {
   int count;          // number of bytes used
   int capacity;       // number of bytes allocated
   uint8_t *code;      // the instruction bytes
   int *lines;         // lines[i] = source line that produced code[i]
   ValueArray constants; // the constant pool for this chunk
+  // Lazily-allocated global inline cache, one slot per constant (a name read by
+  // OP_GET_GLOBAL). NULL until the first global read in this chunk. Plain malloc,
+  // not GC-managed; freed by freeChunk.
+  GlobalCacheSlot *globalCache;
 } Chunk;
 
 void initChunk(Chunk *chunk);
