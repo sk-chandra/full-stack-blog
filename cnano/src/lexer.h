@@ -121,6 +121,8 @@ void lexerRestore(LexerState state);
 // The start of the source buffer currently being lexed, for rendering the line
 // an error occurred on. NUL-terminated; valid while parsing that source.
 const char *lexerSource(void);
+// Begin numbering at `line` (used to band each file's lines for diagnostics).
+void lexerSetLine(int line);
 // Produce the next token. Called repeatedly by the parser until TOKEN_EOF.
 Token scanToken(void);
 

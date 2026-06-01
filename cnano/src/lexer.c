@@ -24,6 +24,11 @@ void initLexer(const char *source) {
 
 const char *lexerSource(void) { return lexer.source; }
 
+// Start line numbering at `line` instead of 1. The module loader uses this to put
+// each file's tokens in its own line-number band (see module.c), so an error can
+// later be attributed back to the right file.
+void lexerSetLine(int line) { lexer.line = line; }
+
 LexerState lexerSave(void) {
   LexerState s = {lexer.source, lexer.start, lexer.current, lexer.line};
   return s;

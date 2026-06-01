@@ -1410,6 +1410,32 @@ Runtime error: undefined variable 'conut' (did you mean 'count'?)
 The lesson: a suggestion engine is one classic algorithm (edit distance) plus one
 piece of judgement (when *not* to suggest).
 
+### 25.5 Which file did this come from? — positions through `import`
+
+Once several files are spliced into one program (§24), `[line 5]` is ambiguous —
+*whose* line 5? The fix is a small piece of bookkeeping: give each file its own
+**band** of the line-number space. As the loader registers file *k*, it tells the
+lexer to start numbering at `k * 1_000_000`, so every token (and therefore every
+AST node and every chunk line-table entry) carries a *banded* line — the file
+index in the high digits, the local line in the low ones. No AST walk, no extra
+field: the line number a node already stored now also encodes its file.
+
+Decoding is the inverse: `index = line / SPAN`, `local = line % SPAN`. A shared
+`moduleFormatLine` turns a banded line into `name.cn:local` — but only when more
+than one file is in play, so single-file programs (and the REPL) keep the exact
+`[line N]` they always had. Every printer routes through it: the parser's caret
+header, the type checker, and each frame of the runtime stack trace:
+
+```
+Runtime error: division by zero
+[lib/helper.cn:2] in boom()
+[rt.cn:2] in script
+```
+
+The lesson: position info doesn't have to be a heavyweight side-table — choosing
+a representation (a banded integer) that *rides the data you already pass around*
+keeps a cross-cutting feature from touching every stage.
+
 ---
 
 ## 26. Roadmap: where to go next
@@ -1734,10 +1760,14 @@ programs define their own types, and makes failure recoverable.
 These are grouped by the concept each teaches, to keep cnano a *complete map* of
 how a language works rather than a pile of features.
 
-- **Diagnostics (in progress):** ~~caret underlines~~ ✓; ~~"did you mean…?"
+- **Diagnostics (DONE):** ~~caret underlines~~ ✓ (step 50); ~~"did you mean…?"
   name/type suggestions~~ ✓ (step 51 — a shared `suggest.c`: Levenshtein edit
   distance + a length-scaled threshold, used for unknown types, struct fields,
-  enum members, and undefined globals); next, per-file positions through `import`.
+  enum members, and undefined globals); ~~per-file positions through `import`~~ ✓
+  (step 52 — each spliced file's lines occupy their own band of the line-number
+  space, so an error names the file it came from: `[lib/math.cn:2] Type error: …`,
+  and a runtime stack trace names a file per frame; single-file programs keep the
+  familiar `[line N]`).
 - **Optimising middle-end:** a `--stats` opcode/allocation profiler (measure
   first), a real bytecode peephole pass (with jump-target remapping), and
   inline caching for global access (the canonical fast-dispatch lesson).

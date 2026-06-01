@@ -4,6 +4,7 @@
 
 #include "ast.h"
 #include "lexer.h"
+#include "module.h" // moduleFormatLine / moduleLocalLine — name the file in errors
 #include "object.h" // copyString — interns identifier and string-literal text
 #include "parser.h"
 
@@ -93,16 +94,18 @@ static void showSource(Token *token) {
   const char *src = lexerSource();
   if (src == NULL)
     return;
-  // Walk to the first character of the token's line.
+  // token->line is banded (file index * SPAN + local line); walk the current
+  // file's buffer to the LOCAL line.
+  int local = moduleLocalLine(token->line);
   const char *lineStart = src;
-  for (int ln = 1; ln < token->line && *lineStart != '\0'; lineStart++)
+  for (int ln = 1; ln < local && *lineStart != '\0'; lineStart++)
     if (*lineStart == '\n')
       ln++;
   const char *lineEnd = lineStart;
   while (*lineEnd != '\0' && *lineEnd != '\n')
     lineEnd++;
   int lineLen = (int)(lineEnd - lineStart);
-  fprintf(stderr, "  %4d | %.*s\n", token->line, lineLen, lineStart);
+  fprintf(stderr, "  %4d | %.*s\n", local, lineLen, lineStart);
 
   // Underline the token only when its text is an actual slice of THIS line.
   if (token->type == TOKEN_ERROR || token->type == TOKEN_EOF ||
@@ -129,7 +132,9 @@ static void errorAt(Token *token, const char *message) {
     return;
   parser.panicMode = true;
   parser.hadError = true;
-  fprintf(stderr, "[line %d] Error", token->line);
+  char loc[128];
+  moduleFormatLine(token->line, loc, sizeof(loc));
+  fprintf(stderr, "[%s] Error", loc);
   if (token->type == TOKEN_EOF) {
     fprintf(stderr, " at end");
   } else if (token->type == TOKEN_ERROR) {
@@ -1531,8 +1536,9 @@ static Node *declaration(void) {
   return statement();
 }
 
-bool parse(const char *source, Program *out) {
+bool parse(const char *source, Program *out, int lineBase) {
   initLexer(source);
+  lexerSetLine(lineBase + 1); // this file's lines occupy [lineBase+1, lineBase+SPAN)
   initProgram(out);
   parser.hadError = false;
   parser.panicMode = false;

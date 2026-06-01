@@ -187,6 +187,25 @@ check_module_err() {
   fi
 }
 
+# check_module_diag NAME ENTRY SUBSTRING FILE1 BODY1 [...] — like check_module but
+# asserts the program's stderr (diagnostics) contains SUBSTRING. Used to check
+# that a multi-file error names the file it came from.
+check_module_diag() {
+  local name="$1" entry="$2" needle="$3"; shift 3
+  local dir; dir="$(mktemp -d)"
+  while [ "$#" -ge 2 ]; do
+    local rel="$1" body="$2"; shift 2
+    mkdir -p "$dir/$(dirname "$rel")"
+    printf '%s' "$body" > "$dir/$rel"
+  done
+  local err; err="$(cd "$dir" && "$CNANO" "$entry" 2>&1 >/dev/null)"
+  rm -rf "$dir"
+  case "$err" in
+    *"$needle"*) printf '  ok   %-22s diagnostic ok\n' "$name"; pass=$((pass + 1)) ;;
+    *) printf '  FAIL %-22s missing [%s] in:\n%s\n' "$name" "$needle" "$err"; fail=$((fail + 1)) ;;
+  esac
+}
+
 echo "Running cnano tests with: $CNANO"
 
 # --- arithmetic (from the first slice) ---
@@ -934,6 +953,16 @@ check_module_err "mod-nested" "main.cn" \
 check_module_err "mod-typeerr" "main.cn" \
   "main.cn" 'import "bad.cn"; print 1;' \
   "bad.cn" 'fn f(): int { return "not an int"; }'
+# Per-file positions (step 52): an error names which imported file it came from.
+check_module_diag "mod-pos-type" "main.cn" "bad.cn:1" \
+  "main.cn" 'import "bad.cn"; print 1;' \
+  "bad.cn" 'fn f(): int { return "no"; }'
+check_module_diag "mod-pos-runtime" "main.cn" "boom.cn:1" \
+  "main.cn" 'import "boom.cn"; print boom();' \
+  "boom.cn" 'fn boom(): int { return 1 / 0; }'
+check_module_diag "mod-pos-root" "main.cn" "main.cn:1" \
+  "main.cn" 'import "x.cn"; let z: int = "no";' \
+  "x.cn" 'fn unused(): int { return 0; }'
 
 # --- string escape sequences (step 34) ---
 check_prog "esc-newline"   'print "a\nb";' "$(printf 'a\nb')"

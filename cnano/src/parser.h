@@ -12,7 +12,8 @@
 // Parse `source` into a Program (a list of statements). Returns true on
 // success, filling *out; returns false on a syntax error (after printing a
 // message). On either result the caller owns *out and must freeProgram() it —
-// even on failure it may hold partially-built statements.
-bool parse(const char *source, Program *out);
+// even on failure it may hold partially-built statements. `lineBase` offsets the
+// line numbers (the module loader gives each file its own band; pass 0 normally).
+bool parse(const char *source, Program *out, int lineBase);
 
 #endif // CNANO_PARSER_H

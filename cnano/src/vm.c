@@ -104,7 +104,9 @@ void runtimeError(const char *format, ...) {
     // frame->ip points at the NEXT instruction, so -1 gets the current one.
     size_t instruction = frame->ip - function->chunk.code - 1;
     int line = function->chunk.lines[instruction];
-    fprintf(stderr, "[line %d] in ", line);
+    char loc[128];
+    moduleFormatLine(line, loc, sizeof(loc)); // "line 5" or "name.cn:5"
+    fprintf(stderr, "[%s] in ", loc);
     if (function->name == NULL)
       fprintf(stderr, "script\n");
     else

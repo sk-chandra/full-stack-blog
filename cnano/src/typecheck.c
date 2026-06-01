@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 
+#include "module.h"  // moduleFormatLine — name the file in type errors
 #include "suggest.h" // "did you mean …?" name suggestions
 #include "typecheck.h"
 
@@ -99,7 +100,9 @@ typedef struct {
 static Checker checker;
 
 static void typeError(int line, const char *message) {
-  fprintf(stderr, "[line %d] Type error: %s\n", line, message);
+  char loc[128];
+  moduleFormatLine(line, loc, sizeof(loc)); // "line 5" or "name.cn:5"
+  fprintf(stderr, "[%s] Type error: %s\n", loc, message);
   checker.hadError = true;
 }
 

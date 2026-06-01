@@ -98,14 +98,52 @@ static void dirOf(const char *path, char *out, size_t cap) {
   out[len] = '\0';
 }
 
+// --- the file registry (for multi-file source positions) -------------------
+#define MAX_FILES 1024
+static char *fileNames[MAX_FILES]; // display names, indexed by load order
+static int fileCount;
+
+static void resetFiles(void) {
+  for (int i = 0; i < fileCount; i++)
+    free(fileNames[i]);
+  fileCount = 0;
+}
+
+int moduleRegisterFile(const char *displayName) {
+  int idx = fileCount < MAX_FILES ? fileCount : MAX_FILES - 1;
+  if (fileCount < MAX_FILES) {
+    char *copy = malloc(strlen(displayName) + 1);
+    if (copy != NULL)
+      strcpy(copy, displayName);
+    fileNames[fileCount++] = copy;
+  }
+  return idx * CNANO_FILE_SPAN;
+}
+
+int moduleLocalLine(int line) { return line % CNANO_FILE_SPAN; }
+
+void moduleFormatLine(int line, char *buf, int size) {
+  int idx = line / CNANO_FILE_SPAN;
+  int local = line % CNANO_FILE_SPAN;
+  // Name the file only when several are in play; otherwise keep the familiar
+  // "line 5" so single-file programs read exactly as before.
+  if (fileCount > 1 && idx >= 0 && idx < fileCount && fileNames[idx] != NULL)
+    snprintf(buf, size, "%s:%d", fileNames[idx], local);
+  else
+    snprintf(buf, size, "line %d", local);
+}
+
 static bool resolveInto(Program *src, const char *baseDir, Program *out);
 
-// Parse the file at canonical path `real` (read via `openPath`) and splice its
-// resolved statements into `out`. The caller has already deduped/marked `real`.
-static bool loadAndSplice(const char *openPath, const char *real, Program *out) {
+// Parse the file at canonical path `real` (read via `openPath`, shown as
+// `displayName` in errors) and splice its resolved statements into `out`. The
+// caller has already deduped/marked `real`.
+static bool loadAndSplice(const char *openPath, const char *real,
+                          const char *displayName, Program *out) {
+  int base = moduleRegisterFile(displayName); // its own line band
   char *source = readFileOrExit(openPath);
   Program child;
-  if (!parse(source, &child)) {
+  if (!parse(source, &child, base)) {
     free(source);
     freeProgram(&child); // may hold partially-built statements
     return false;
@@ -155,7 +193,7 @@ static bool resolveInto(Program *src, const char *baseDir, Program *out) {
     if (alreadyLoaded(real))
       continue; // diamond/cycle: include this file only once
     markLoaded(real);
-    if (!loadAndSplice(candidate, real, out))
+    if (!loadAndSplice(candidate, real, rel, out)) // show the import path in errors
       ok = false;
   }
   return ok;
@@ -182,9 +220,11 @@ static bool finishResolve(Program *parsed, const char *baseDir,
 }
 
 bool loadModuleFile(const char *path, Program *out) {
+  resetFiles();
+  int lineBase = moduleRegisterFile(path); // the root is file 0 (line band 0)
   char *source = readFileOrExit(path);
   Program parsed;
-  if (!parse(source, &parsed)) {
+  if (!parse(source, &parsed, lineBase)) {
     free(source);
     freeProgram(&parsed);
     return false;
@@ -199,8 +239,10 @@ bool loadModuleFile(const char *path, Program *out) {
 }
 
 bool loadModuleSource(const char *source, Program *out) {
+  resetFiles();
+  int lineBase = moduleRegisterFile("<input>"); // root has no file name
   Program parsed;
-  if (!parse(source, &parsed)) {
+  if (!parse(source, &parsed, lineBase)) {
     freeProgram(&parsed);
     return false;
   }
