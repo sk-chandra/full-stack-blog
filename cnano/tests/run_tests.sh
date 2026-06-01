@@ -589,6 +589,17 @@ check_prog "fold-or-side"    'let x=0; true or (x=99); print x;'          "0"
 check_prog "fold-and-side"   'let x=0; false and (x=99); print x;'        "0"
 check_prog "fold-in-lambda"  'let g = fn() => 2 + 3 * 4; print g();'      "14"
 check_prog "fold-cond-nested" 'let n=5; print n>0 ? "pos" : "neg";'       "pos"
+
+# --- bytecode peephole optimiser (step 54) ---
+# Behaviour must be IDENTICAL with the pass on; the key risk is jump remapping,
+# so these place deletable dead pushes around loops, ifs, and recursion.
+check_prog "peep-deadpush"  '1; 2; 3; print 9;'                          "9"
+check_prog "peep-in-loop"   'let s=0; for (let i in 0..5) { 99; s += i; } print s;' "10"
+check_prog "peep-in-if"     'let x=7; if (x>0) { 0; print "y"; } else { 1; print "n"; }' "y"
+check_prog "peep-in-fn"     'fn f(n){ 7; if (n<2){ 0; return n; } return f(n-1)+f(n-2); } print f(15);' "610"
+check_prog "peep-dbl-not"   'let b = true; print !!b;'                    "true"
+check_prog "peep-while"     'let i=0; let n=0; while (i<100) { 0; i+=1; n+=1; } print n;' "100"
+check_native "nat-peep"     'fn f(): int { 1; 2; return 42; } print f();' "42"
 # A heavily-reused name is fine (constant dedup keeps it to one slot).
 check_prog "dedup-reuse"    'let c = 0; c = c + 1; c = c + 1; c = c + 1; print c;' "3"
 

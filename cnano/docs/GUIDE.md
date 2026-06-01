@@ -1769,11 +1769,12 @@ how a language works rather than a pile of features.
   and a runtime stack trace names a file per frame; single-file programs keep the
   familiar `[line N]`).
 - **Optimising middle-end (in progress):** ~~a `--stats` opcode/allocation
-  profiler~~ ✓ (step 53 — `cnano --stats file` tallies instructions per opcode,
-  heap allocations + bytes, and GC cycles, then prints a histogram; the lesson is
-  *measure first*, and it immediately shows `GET_GLOBAL` is a hot opcode worth
-  caching); next, a real bytecode peephole pass (with jump-target remapping) and
-  inline caching for global access (the canonical fast-dispatch lesson).
+  profiler~~ ✓ (step 53); ~~a bytecode peephole pass with jump-target remapping~~
+  ✓ (step 54 — `peephole.c` deletes provably-dead instruction pairs and recomputes
+  every jump offset that spanned the hole; the lesson is the *remapping*, and as
+  the profiler predicted the speedup on already-folded code is ~nil); next, inline
+  caching for global access (the canonical fast-dispatch lesson the `--stats`
+  histogram actually argues for).
 - **Type-system depth:** `match` exhaustiveness checking, then tagged-union ADTs
   (`enum Shape { Circle(r: float), Rect(w, h) }`) with payload-binding arms.
 - **Runtime depth:** tail-call optimisation (frame reuse), then generators /

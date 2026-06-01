@@ -4,6 +4,7 @@
 
 #include "compiler.h"
 #include "object.h"
+#include "peephole.h" // post-compile bytecode peephole pass
 
 // --- compile-time scope tracking -------------------------------------------
 //
@@ -1077,5 +1078,10 @@ ObjFunction *compile(Program *program) {
 
   ObjFunction *function = current->function;
   current = NULL;
-  return hadCompileError ? NULL : function;
+  if (hadCompileError)
+    return NULL;
+  // Post-compilation: a peephole pass over the script and every nested function
+  // (jumps are recomputed as bytes are removed). Only on a clean compile.
+  peepholeFunction(function);
+  return function;
 }
