@@ -1237,7 +1237,10 @@ static Node *matchStatement(void) {
   }
   for (int i = 0; i < count; i++) {
     Node *p = patterns[i];
-    if (p != NULL && p->type == NODE_BOOL) {
+    if (types[i] != NULL) {
+      arms[i].kind = MATCH_ARM_TYPE; // an `is T` arm — for union exhaustiveness
+      arms[i].type = types[i];
+    } else if (p != NULL && p->type == NODE_BOOL) {
       arms[i].kind = MATCH_ARM_BOOL;
       arms[i].boolVal = p->as.boolValue;
     } else if (p != NULL && p->type == NODE_FIELD_GET &&
@@ -1246,7 +1249,7 @@ static Node *matchStatement(void) {
       arms[i].enumName = p->as.field.object->as.name;
       arms[i].member = p->as.field.field;
     } else {
-      arms[i].kind = MATCH_ARM_OTHER; // a value/type arm we can't reason about
+      arms[i].kind = MATCH_ARM_OTHER; // a value arm we can't reason about
     }
   }
   // Exhaustiveness is only attempted when the subject is a plain variable (so we

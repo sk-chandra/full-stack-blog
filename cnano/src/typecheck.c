@@ -765,6 +765,18 @@ static int findNarrowing(Node *cond, Type **thenT, Type **elseT) {
   return slot;
 }
 
+// Do two types name the same case? Nominal types (struct/enum, the "variants" of
+// a union ADT) compare by their interned name regardless of which tag; everything
+// else by kind. We deliberately do NOT resolve() here — that already happened when
+// the arm body was checked, and re-resolving would double-report any error.
+static bool typesSame(Type *a, Type *b) {
+  bool aNom = a->kind == TY_STRUCT || a->kind == TY_ENUM;
+  bool bNom = b->kind == TY_STRUCT || b->kind == TY_ENUM;
+  if (aNom && bNom)
+    return a->strct.name == b->strct.name;
+  return a->kind == b->kind;
+}
+
 // Exhaustiveness check for a `match` whose subject is a plain variable. Over a
 // CLOSED domain (an enum or bool) a match with no `_` must cover every case;
 // conversely, an already-exhaustive match whose `_` can never run gets a
@@ -811,6 +823,39 @@ static void checkMatchExhaustive(Node *node) {
     } else if (hasDefault && mc > 0 && coveredCount == mc) {
       typeWarn(node->line,
                "all enum members are covered; the '_' arm is unreachable");
+    }
+  } else if (t->kind == TY_UNION) {
+    // A union is a SUM type: cnano's tagged-union ADT is `struct`s combined with
+    // `|`, matched by `is`. Every member must be covered by an `is T` arm (or `_`).
+    int mc = t->uni.count;
+    bool covered[64] = {false};
+    int coveredCount = 0;
+    for (int a = 0; a < n; a++) {
+      if (arms[a].kind != MATCH_ARM_TYPE)
+        continue;
+      for (int m = 0; m < mc && m < 64; m++)
+        if (!covered[m] && typesSame(t->uni.members[m], arms[a].type)) {
+          covered[m] = true;
+          coveredCount++;
+        }
+    }
+    if (!hasDefault && coveredCount < mc) {
+      char msg[192];
+      int o = snprintf(msg, sizeof(msg), "non-exhaustive match on %s: missing ",
+                       typeName(t));
+      int shown = 0;
+      for (int m = 0; m < mc && o < (int)sizeof(msg); m++) {
+        if (covered[m])
+          continue;
+        if (shown == 3) { o += snprintf(msg + o, sizeof(msg) - o, ", …"); break; }
+        o += snprintf(msg + o, sizeof(msg) - o, "%s%s", shown ? ", " : "",
+                      typeName(t->uni.members[m]));
+        shown++;
+      }
+      typeError(node->line, msg);
+    } else if (hasDefault && mc > 0 && coveredCount == mc) {
+      typeWarn(node->line,
+               "all union members are covered; the '_' arm is unreachable");
     }
   } else if (t->kind == TY_BOOL) {
     bool sawTrue = false, sawFalse = false;

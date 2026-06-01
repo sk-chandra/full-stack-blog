@@ -935,6 +935,14 @@ check_prog "exh-redundant-runs" 'enum C { A, B } let c = C.A; match (c) { C.A =>
 check_diag "exh-redundant-warn" 'enum C { A, B } let c = C.A; match (c) { C.A => print 1; C.B => print 2; _ => print 0; }' "unreachable"
 check_diag "exh-missing-names"  'enum C { Red, Green, Blue } let c = C.Red; match (c) { C.Red => print 1; }' "missing C.Green, C.Blue"
 
+# --- tagged-union ADTs: struct variants + union + exhaustive `is`-match (step 57) ---
+check_prog "adt-area"       'struct Circle { r: int } struct Rect { w: int, h: int } fn area(s: Circle|Rect): int { match (s) { is Circle => return s.r*s.r; is Rect => return s.w*s.h; } } print area(Circle(3)); print area(Rect(2,4));' "$(printf '9\n8')"
+check_prog "adt-three"      'struct A{} struct B{} struct C{} fn tag(x: A|B|C): str { match (x) { is A => return "a"; is B => return "b"; is C => return "c"; } } print tag(B());' "b"
+check_prog_err "adt-missing" 'struct Circle { r: int } struct Rect { w: int, h: int } fn area(s: Circle|Rect): int { match (s) { is Circle => return s.r; } } print area(Circle(1));'
+check_prog "adt-default"    'struct A{v:int} struct B{v:int} fn f(x: A|B): int { match (x) { is A => return 1; _ => return 0; } } print f(B(9));' "0"
+check_diag "adt-missing-name" 'struct Circle { r: int } struct Rect { w: int, h: int } fn a(s: Circle|Rect): int { match (s) { is Circle => return s.r; } } print a(Circle(1));' "missing Rect"
+check_diag "adt-redundant"  'struct A{v:int} struct B{v:int} fn f(x: A|B): int { match (x) { is A => return 1; is B => return 2; _ => return 0; } } print f(A(1));' "unreachable"
+
 # --- methods on structs (step 21) ---
 check_prog "method-self"    'struct P { x: int, y: int fn sum(): int { return self.x + self.y; } } print P(3,4).sum();' "7"
 check_prog "method-mutate"  'struct C { n: int fn inc(by: int) { self.n += by; } } let c = C(0); c.inc(5); c.inc(3); print c.n;' "8"

@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (644 cases, incl. native + GC)
+make test       # run the end-to-end test suite (650 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -27,6 +27,7 @@ make run        # start the REPL
 ./build/cnano examples/maps.cn                #  maps: any-key dictionaries, methods
 ./build/cnano examples/structs.cn             #  structs: records, fields, methods
 ./build/cnano examples/enums.cn               #  enums: named constants + match
+./build/cnano examples/adt.cn                 #  tagged-union ADTs (struct+union+match)
 ./build/cnano examples/errors.cn              #  try / catch / throw
 ./build/cnano examples/showcase.cn            #  floats, unions, match, methods, ...
 
@@ -75,10 +76,15 @@ make run        # start the REPL
   or `match (v) { is int => …; is str => …; _ => … }` — desugars to an
   evaluate-once if/else-if chain (over `==` for value arms, `is` for type arms),
   with `_` as the default. A type arm **narrows** the matched variable inside its
-  body, so `is int => return v * 2` typechecks `v` as `int`. Matching an **enum**
-  or **bool** variable is checked for **exhaustiveness**: omit a case without `_`
-  and it's a compile error (`non-exhaustive match on Color: missing Color.Blue`);
-  a redundant `_` on an already-total match warns
+  body, so `is int => return v * 2` typechecks `v` as `int`. Matching an **enum**,
+  **bool**, or **union** variable is checked for **exhaustiveness**: omit a case
+  without `_` and it's a compile error (`non-exhaustive match on Color: missing
+  Color.Blue`); a redundant `_` on an already-total match warns
+- **Tagged-union ADTs** by composition: a variant is a `struct` (product type),
+  the sum is a `union` (`Circle | Rect | Dot`), and you take them apart with an
+  **exhaustive** `match` over `is` arms (whose narrowing exposes each variant's
+  fields). No bespoke syntax — `examples/adt.cn` builds shapes and a recursive
+  expression tree this way
 - **Short-circuiting** `and` / `or` that return the deciding operand (so
   `nil or "default"` yields `"default"` and the skipped side never runs)
 - **Conditional expression** `cond ? a : b` — a value-producing `if`, compiled

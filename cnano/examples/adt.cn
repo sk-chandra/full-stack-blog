@@ -1,0 +1,40 @@
+// adt.cn — tagged-union ADTs, cnano-style.
+//
+//   cnano examples/adt.cn
+//
+// cnano has no bespoke "enum with payloads" construct. Instead an algebraic data
+// type is composed from features that already exist: each VARIANT is a `struct`
+// (a product type), the SUM is a `union` (`A | B | C`), and you take them apart
+// with a `match` over `is` arms — which the checker requires to be EXHAUSTIVE.
+
+struct Circle { r: float }
+struct Rect   { w: float, h: float }
+struct Dot    {}                 // a variant with no payload
+
+// `Shape` is the sum of its three variants.
+fn area(s: Circle | Rect | Dot): float {
+  match (s) {
+    is Circle => return 3.14159 * s.r * s.r; // s is narrowed to Circle here
+    is Rect   => return s.w * s.h;            // ...and to Rect here
+    is Dot    => return 0.0;
+    // Drop any arm and the compiler reports a non-exhaustive match.
+  }
+}
+
+print "circle area = ${area(Circle(2.0))}";   // 12.566...
+print "rect area   = ${area(Rect(3.0, 4.0))}";// 12.0
+print "dot area    = ${area(Dot())}";         // 0.0
+
+// A recursive ADT: an expression tree. Evaluate it by matching on the variant.
+struct Num { value: float }
+struct Add { left: any, right: any }   // `any` children keep this small/dynamic
+
+fn eval(e: Num | Add): float {
+  match (e) {
+    is Num => return e.value;
+    is Add => return eval(e.left) + eval(e.right);
+  }
+}
+// (2 + 3) + 4
+let tree = Add(Add(Num(2.0), Num(3.0)), Num(4.0));
+print "tree = ${eval(tree)}";                 // 9.0

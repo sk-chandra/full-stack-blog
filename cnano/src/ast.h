@@ -107,12 +107,13 @@ typedef enum {
 // either it names an enum member (`Color.Red`), a bool literal, or "something
 // else" we can't reason about for coverage. (Type arms and the body live in the
 // lowered chain; this is only the metadata the checker needs.)
-typedef enum { MATCH_ARM_ENUM, MATCH_ARM_BOOL, MATCH_ARM_OTHER } MatchArmKind;
+typedef enum { MATCH_ARM_ENUM, MATCH_ARM_BOOL, MATCH_ARM_TYPE, MATCH_ARM_OTHER } MatchArmKind;
 typedef struct {
   MatchArmKind kind;
   struct ObjString *enumName; // MATCH_ARM_ENUM: the `Color` in `Color.Red`
   struct ObjString *member;   // MATCH_ARM_ENUM: the `Red`
   bool boolVal;               // MATCH_ARM_BOOL: which literal
+  struct Type *type;          // MATCH_ARM_TYPE: the `T` in an `is T` arm
 } MatchArm;
 
 // Forward declaration: a Node can contain a Program (a block's body), but
