@@ -298,6 +298,17 @@ Node *newReturn(Node *value, int line) {
   return node;
 }
 
+Node *newMatch(Node *body, ObjString *subjectName, MatchArm *arms, int armCount,
+               bool hasDefault, int line) {
+  Node *node = allocNode(NODE_MATCH, line);
+  node->as.matchStmt.body = body;
+  node->as.matchStmt.subjectName = subjectName;
+  node->as.matchStmt.arms = arms;
+  node->as.matchStmt.armCount = armCount;
+  node->as.matchStmt.hasDefault = hasDefault;
+  return node;
+}
+
 Node *newImport(ObjString *path, int line) {
   Node *node = allocNode(NODE_IMPORT, line);
   node->as.stringValue = path; // VM-owned interned string (like NODE_STRING)
@@ -319,6 +330,10 @@ void freeNode(Node *node) {
   case NODE_VAR_GET: // ditto for the variable name
   case NODE_IMPORT:  // ditto for the import path string
     break;           // leaf nodes, no child Nodes
+  case NODE_MATCH:
+    freeNode(node->as.matchStmt.body); // owns the lowered chain
+    free(node->as.matchStmt.arms);     // enum/member names are VM-owned
+    break;
   case NODE_UNARY:
     freeNode(node->as.unary.operand);
     break;

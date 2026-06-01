@@ -106,6 +106,15 @@ static void typeError(int line, const char *message) {
   checker.hadError = true;
 }
 
+// A non-fatal diagnostic: surfaced to the programmer but does NOT fail the
+// compile (used for things that are legal but pointless, like an unreachable
+// `_` arm in an already-exhaustive match).
+static void typeWarn(int line, const char *message) {
+  char loc[128];
+  moduleFormatLine(line, loc, sizeof(loc));
+  fprintf(stderr, "[%s] Warning: %s\n", loc, message);
+}
+
 static void beginScope(void) { checker.scopeDepth++; }
 
 static void endScope(void) {
@@ -756,6 +765,69 @@ static int findNarrowing(Node *cond, Type **thenT, Type **elseT) {
   return slot;
 }
 
+// Exhaustiveness check for a `match` whose subject is a plain variable. Over a
+// CLOSED domain (an enum or bool) a match with no `_` must cover every case;
+// conversely, an already-exhaustive match whose `_` can never run gets a
+// (non-fatal) unreachable-arm warning. Open domains (int/str/any) are skipped.
+static void checkMatchExhaustive(Node *node) {
+  ObjString *name = node->as.matchStmt.subjectName;
+  if (name == NULL)
+    return; // non-variable subject: we can't pin its type, so don't check
+  Type *t = lookupSymbol(name);
+  MatchArm *arms = node->as.matchStmt.arms;
+  int n = node->as.matchStmt.armCount;
+  bool hasDefault = node->as.matchStmt.hasDefault;
+
+  if (t->kind == TY_ENUM) {
+    int ei = findEnum(t->strct.name);
+    if (ei < 0)
+      return;
+    int mc = enumRegistry[ei].memberCount;
+    bool covered[256] = {false};
+    int coveredCount = 0;
+    for (int a = 0; a < n; a++) {
+      if (arms[a].kind != MATCH_ARM_ENUM || arms[a].enumName != t->strct.name)
+        continue;
+      for (int m = 0; m < mc && m < 256; m++)
+        if (enumRegistry[ei].memberNames[m] == arms[a].member && !covered[m]) {
+          covered[m] = true;
+          coveredCount++;
+        }
+    }
+    if (!hasDefault && coveredCount < mc) {
+      char msg[192];
+      int o = snprintf(msg, sizeof(msg), "non-exhaustive match on %s: missing ",
+                       t->strct.name->chars);
+      int shown = 0;
+      for (int m = 0; m < mc && o < (int)sizeof(msg); m++) {
+        if (covered[m])
+          continue;
+        if (shown == 3) { o += snprintf(msg + o, sizeof(msg) - o, ", …"); break; }
+        o += snprintf(msg + o, sizeof(msg) - o, "%s%s.%s", shown ? ", " : "",
+                      t->strct.name->chars, enumRegistry[ei].memberNames[m]->chars);
+        shown++;
+      }
+      typeError(node->line, msg);
+    } else if (hasDefault && mc > 0 && coveredCount == mc) {
+      typeWarn(node->line,
+               "all enum members are covered; the '_' arm is unreachable");
+    }
+  } else if (t->kind == TY_BOOL) {
+    bool sawTrue = false, sawFalse = false;
+    for (int a = 0; a < n; a++)
+      if (arms[a].kind == MATCH_ARM_BOOL) {
+        if (arms[a].boolVal) sawTrue = true;
+        else sawFalse = true;
+      }
+    if (!hasDefault && !(sawTrue && sawFalse))
+      typeError(node->line,
+                "non-exhaustive match on bool: cover both true and false, or add '_'");
+    else if (hasDefault && sawTrue && sawFalse)
+      typeWarn(node->line,
+               "both bool cases are covered; the '_' arm is unreachable");
+  }
+}
+
 static void checkStatement(Node *node) {
   switch (node->type) {
   case NODE_PRINT:
@@ -857,6 +929,10 @@ static void checkStatement(Node *node) {
     // Any NODE_IMPORT reaching the checker is therefore misplaced (nested in a
     // block or function body), which is not allowed.
     typeError(node->line, "'import' is only allowed at the top level of a file");
+    break;
+  case NODE_MATCH:
+    checkStatement(node->as.matchStmt.body); // checks subject, arms + narrowing
+    checkMatchExhaustive(node);
     break;
   default:
     break;

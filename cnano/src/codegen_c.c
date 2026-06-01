@@ -623,6 +623,10 @@ static void emitStmt(Node *node, int ind, bool fileScope) {
     indent(ind);
     fprintf(out, "}\n");
     break;
+  case NODE_MATCH:
+    // Emit the lowered if-chain (the exhaustiveness metadata is checker-only).
+    emitStmt(node->as.matchStmt.body, ind, fileScope);
+    break;
   case NODE_IF:
     indent(ind);
     fprintf(out, "if (");

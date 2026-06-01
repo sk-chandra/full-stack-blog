@@ -919,6 +919,22 @@ check_prog_err "enum-empty"       'enum C { } print 1;'
 check_prog_err "enum-as-int"      'enum C { A } let n: int = C.A; print n;'
 check_native_err "nat-rej-enum"   'enum C { A, B } fn f(): int { return 1; } print f();'
 
+# --- match exhaustiveness (step 56) ---
+# A match over an enum/bool variable must cover every case (or have `_`).
+check_prog "exh-enum-full"  'enum C { Red, Green, Blue } let c = C.Green; match (c) { C.Red => print 1; C.Green => print 2; C.Blue => print 3; }' "2"
+check_prog_err "exh-enum-missing" 'enum C { Red, Green, Blue } let c = C.Red; match (c) { C.Red => print 1; C.Green => print 2; }'
+check_prog "exh-enum-default" 'enum C { Red, Green, Blue } let c = C.Blue; match (c) { C.Red => print 1; _ => print 0; }' "0"
+check_prog "exh-bool-full"  'let b = false; match (b) { true => print 1; false => print 0; }' "0"
+check_prog_err "exh-bool-missing" 'let b = true; match (b) { true => print 1; }'
+# An open type (int) is not closed, so no `_` is required.
+check_prog "exh-int-open"   'let n = 2; match (n) { 1 => print 1; 2 => print 2; }' "2"
+# A non-variable subject is not analysed (we can't pin its type).
+check_prog "exh-nonvar"     'enum C { A, B } fn pick(): C { return C.A; } match (pick()) { C.A => print 1; }' "1"
+# The redundant-'_'-arm warning is non-fatal: the program still runs.
+check_prog "exh-redundant-runs" 'enum C { A, B } let c = C.A; match (c) { C.A => print 1; C.B => print 2; _ => print 0; }' "1"
+check_diag "exh-redundant-warn" 'enum C { A, B } let c = C.A; match (c) { C.A => print 1; C.B => print 2; _ => print 0; }' "unreachable"
+check_diag "exh-missing-names"  'enum C { Red, Green, Blue } let c = C.Red; match (c) { C.Red => print 1; }' "missing C.Green, C.Blue"
+
 # --- methods on structs (step 21) ---
 check_prog "method-self"    'struct P { x: int, y: int fn sum(): int { return self.x + self.y; } } print P(3,4).sum();' "7"
 check_prog "method-mutate"  'struct C { n: int fn inc(by: int) { self.n += by; } } let c = C(0); c.inc(5); c.inc(3); print c.n;' "8"

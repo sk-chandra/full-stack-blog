@@ -281,6 +281,9 @@ static void foldStatement(Node *node) {
     foldStatement(node->as.tryStmt.body);
     foldStatement(node->as.tryStmt.handler);
     break;
+  case NODE_MATCH:
+    foldStatement(node->as.matchStmt.body); // fold the lowered chain
+    break;
   default:
     break;
   }

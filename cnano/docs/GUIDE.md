@@ -1779,8 +1779,15 @@ how a language works rather than a pile of features.
   hazard of a table that reallocates — a bug a GC-stress test would NOT have
   caught, since it's a non-GC realloc. Measured ~15–25% faster on global-heavy
   workloads like `fib`).
-- **Type-system depth:** `match` exhaustiveness checking, then tagged-union ADTs
-  (`enum Shape { Circle(r: float), Rect(w, h) }`) with payload-binding arms.
+- **Type-system depth (in progress):** ~~`match` exhaustiveness checking~~ ✓
+  (step 56 — over a *closed* domain, an enum or bool variable, a match with no
+  `_` must cover every case or it's a compile error; an already-exhaustive match
+  whose `_` can never run gets a non-fatal unreachable warning. The parser keeps
+  desugaring `match` to its if-chain, but now wraps it in a `NODE_MATCH` carrying
+  arm descriptors — enough metadata for the checker to prove totality without
+  changing how it compiles. The lesson: connecting types to control flow); next,
+  tagged-union ADTs (`enum Shape { Circle(r: float), Rect(w, h) }`) with
+  payload-binding arms.
 - **Runtime depth:** tail-call optimisation (frame reuse), then generators /
   `yield` compiled to a resumable state machine.
 - **GC variants (stretch):** a copying/semispace collector beside the mark-sweep

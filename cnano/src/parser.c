@@ -1214,19 +1214,45 @@ static Node *matchStatement(void) {
     chain = newIf(cond, bodies[i], chain, line);
   }
 
-  // Subject is a variable: emit the if-chain directly so `is` arms narrow it.
-  // We only borrowed the subject's name, so the subject node itself is now
-  // orphaned — free it rather than leaking it (the name is VM-owned).
+  // Build the lowered body the backends will compile (unchanged from before).
+  Node *body;
   if (subjectIsVar) {
+    // We only borrowed the subject's name; free the now-orphaned subject node.
     freeNode(subject);
-    return chain != NULL ? chain : newBlock(makeProgram(), line);
+    body = chain != NULL ? chain : newBlock(makeProgram(), line);
+  } else {
+    Program *outer = makeProgram();
+    writeProgram(outer, newVarDecl(subjName, subject, typeAny(), line));
+    if (chain != NULL)
+      writeProgram(outer, chain);
+    body = newBlock(outer, line);
   }
 
-  Program *outer = makeProgram();
-  writeProgram(outer, newVarDecl(subjName, subject, typeAny(), line));
-  if (chain != NULL)
-    writeProgram(outer, chain);
-  return newBlock(outer, line);
+  // Describe each VALUE arm for the exhaustiveness check (purely syntactic — the
+  // checker confirms `enumName` is really an enum and which members exist).
+  MatchArm *arms = count > 0 ? malloc(sizeof(MatchArm) * count) : NULL;
+  if (count > 0 && arms == NULL) {
+    fprintf(stderr, "cnano: out of memory describing match arms\n");
+    exit(70);
+  }
+  for (int i = 0; i < count; i++) {
+    Node *p = patterns[i];
+    if (p != NULL && p->type == NODE_BOOL) {
+      arms[i].kind = MATCH_ARM_BOOL;
+      arms[i].boolVal = p->as.boolValue;
+    } else if (p != NULL && p->type == NODE_FIELD_GET &&
+               p->as.field.object->type == NODE_VAR_GET) {
+      arms[i].kind = MATCH_ARM_ENUM; // looks like `Enum.Member`
+      arms[i].enumName = p->as.field.object->as.name;
+      arms[i].member = p->as.field.field;
+    } else {
+      arms[i].kind = MATCH_ARM_OTHER; // a value/type arm we can't reason about
+    }
+  }
+  // Exhaustiveness is only attempted when the subject is a plain variable (so we
+  // can look up its type); otherwise subjectName stays NULL.
+  return newMatch(body, subjectIsVar ? subjName : NULL, arms, count,
+                  defaultBody != NULL, line);
 }
 
 static Node *statement(void) {

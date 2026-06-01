@@ -71,6 +71,8 @@ typedef enum {
   NODE_FUN,        // `fn name(params) { body }` — a function declaration
   NODE_RETURN,     // `return [EXPR];` — return from the enclosing function
   NODE_IMPORT,     // `import "path";` — splice another file's top-level decls
+  NODE_MATCH,      // `match (s) { ... }` — wraps its lowered if-chain plus arm
+                   // descriptors, so the checker can test for exhaustiveness
 } NodeType;
 
 // The operator carried by unary/binary nodes. Keeping this separate from the
@@ -100,6 +102,18 @@ typedef enum {
   OP_NODE_LESS,    // <
   OP_NODE_GREATER, // >
 } NodeOp;
+
+// One `match` value-arm, described just enough for the exhaustiveness check:
+// either it names an enum member (`Color.Red`), a bool literal, or "something
+// else" we can't reason about for coverage. (Type arms and the body live in the
+// lowered chain; this is only the metadata the checker needs.)
+typedef enum { MATCH_ARM_ENUM, MATCH_ARM_BOOL, MATCH_ARM_OTHER } MatchArmKind;
+typedef struct {
+  MatchArmKind kind;
+  struct ObjString *enumName; // MATCH_ARM_ENUM: the `Color` in `Color.Red`
+  struct ObjString *member;   // MATCH_ARM_ENUM: the `Red`
+  bool boolVal;               // MATCH_ARM_BOOL: which literal
+} MatchArm;
 
 // Forward declaration: a Node can contain a Program (a block's body), but
 // Program is defined further down in terms of Node. Naming it here breaks the
@@ -254,6 +268,16 @@ typedef struct Node {
     struct {
       struct Node *value;
     } ret;
+    // NODE_MATCH: the lowered if-chain (`body`, what the backends compile) plus
+    // metadata for the exhaustiveness check — the subject variable (NULL unless
+    // it is a plain variable) and one descriptor per value arm.
+    struct {
+      struct Node *body;
+      struct ObjString *subjectName; // NULL => don't check exhaustiveness
+      MatchArm *arms;                // heap array, owned by the node
+      int armCount;
+      bool hasDefault;
+    } matchStmt;
     // NODE_TRY: a guarded block, a catch variable name, and the catch block.
     struct {
       struct Node *body;     // a NODE_BLOCK
@@ -346,6 +370,10 @@ Node *cloneExpr(Node *node);
 Node *newFun(ObjString *name, ObjString **params, Type **paramTypes,
              int paramCount, Type *returnType, Program *body, int line);
 Node *newReturn(Node *value, int line); // value may be NULL
+// `match` wrapper. Takes ownership of `body` and the `arms` array. `subjectName`
+// (VM-owned, may be NULL) and arm enum/member names are borrowed, not freed.
+Node *newMatch(Node *body, ObjString *subjectName, MatchArm *arms, int armCount,
+               bool hasDefault, int line);
 // `import "path";` — the path is an interned ObjString (VM-owned, not freed here).
 Node *newImport(ObjString *path, int line);
 void freeNode(Node *node);

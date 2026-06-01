@@ -674,6 +674,7 @@ static void emitExpr(Node *node) {
   case NODE_BREAK:
   case NODE_CONTINUE:
   case NODE_IMPORT:
+  case NODE_MATCH:
     // Statement nodes are not expressions and must never be compiled as one.
     // This case exists only to keep the switch exhaustive (so -Wall warns if a
     // future node type is forgotten).
@@ -732,6 +733,12 @@ static void emitStatement(Node *node) {
     endScope(node->line);
     break;
   }
+
+  case NODE_MATCH:
+    // The exhaustiveness metadata is a checker concern; compilation just emits
+    // the lowered if-chain the parser built.
+    emitStatement(node->as.matchStmt.body);
+    break;
 
   case NODE_IF: {
     // Layout we emit:

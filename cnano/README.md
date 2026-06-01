@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (634 cases, incl. native + GC)
+make test       # run the end-to-end test suite (644 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -75,7 +75,10 @@ make run        # start the REPL
   or `match (v) { is int => …; is str => …; _ => … }` — desugars to an
   evaluate-once if/else-if chain (over `==` for value arms, `is` for type arms),
   with `_` as the default. A type arm **narrows** the matched variable inside its
-  body, so `is int => return v * 2` typechecks `v` as `int`
+  body, so `is int => return v * 2` typechecks `v` as `int`. Matching an **enum**
+  or **bool** variable is checked for **exhaustiveness**: omit a case without `_`
+  and it's a compile error (`non-exhaustive match on Color: missing Color.Blue`);
+  a redundant `_` on an already-total match warns
 - **Short-circuiting** `and` / `or` that return the deciding operand (so
   `nil or "default"` yields `"default"` and the skipped side never runs)
 - **Conditional expression** `cond ? a : b` — a value-producing `if`, compiled
