@@ -84,6 +84,11 @@ typedef enum {
   // are already on the stack below the current top. OP_RETURN now returns from
   // the current function (popping its call frame), with the return value on top.
   OP_CALL,     // [opcode][argc]  : call the function sitting under `argc` args
+  // A call in TAIL position (`return f(args)`): if the callee is a closure, the
+  // VM REUSES the current frame instead of pushing a new one, so deep tail
+  // recursion runs in constant stack. The compiler emits an OP_RETURN right
+  // after as a fallback for non-closure callees (natives/constructors).
+  OP_TAIL_CALL, // [opcode][argc] : tail-call the function under `argc` args
   // Method call: `receiver.name(args)`. The receiver sits `argc` slots below the
   // top with its arguments above it. [nameIdx] is the method-name string in the
   // constant pool; the VM dispatches on the RECEIVER's type to a builtin method.

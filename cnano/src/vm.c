@@ -306,6 +306,7 @@ static const char *OP_NAMES[256] = {
     [OP_JUMP] = "JUMP",               [OP_JUMP_IF_FALSE] = "JUMP_IF_FALSE",
     [OP_LOOP] = "LOOP",               [OP_PRINT] = "PRINT",
     [OP_POP] = "POP",                 [OP_CALL] = "CALL",
+    [OP_TAIL_CALL] = "TAIL_CALL",
     [OP_INVOKE] = "INVOKE",           [OP_BUILD_ARRAY] = "BUILD_ARRAY",
     [OP_BUILD_MAP] = "BUILD_MAP",     [OP_INDEX_GET] = "INDEX_GET",
     [OP_INDEX_SET] = "INDEX_SET",     [OP_GET_FIELD] = "GET_FIELD",
@@ -696,6 +697,44 @@ static InterpretResult run(bool trace, int stopFrame) {
       // one and the loop continues executing the callee's bytecode.
       int argCount = READ_BYTE();
       Value callee = peek(argCount);
+      if (!callValue(callee, argCount))
+        return INTERPRET_RUNTIME_ERROR;
+      frame = &vm.frames[vm.frameCount - 1];
+      break;
+    }
+    case OP_TAIL_CALL: {
+      // `return f(args)`. For a CLOSURE callee, reuse the current frame instead
+      // of pushing a new one — so a tail-recursive loop runs in O(1) stack.
+      int argCount = READ_BYTE();
+      Value callee = peek(argCount);
+      if (IS_CLOSURE(callee)) {
+        ObjClosure *closure = AS_CLOSURE(callee);
+        if (argCount != closure->function->arity) {
+          runtimeError("%s() expects %d arguments but got %d",
+                       closure->function->name ? closure->function->name->chars : "fn",
+                       closure->function->arity, argCount);
+          return INTERPRET_RUNTIME_ERROR;
+        }
+        // We are abandoning the current frame: close its captured upvalues and
+        // drop any try handlers it registered (none, since TCO is disabled inside
+        // a try — but stay honest).
+        closeUpvalues(frame->slots);
+        while (vm.handlerCount > 0 &&
+               vm.handlers[vm.handlerCount - 1].frameCount >= vm.frameCount)
+          vm.handlerCount--;
+        // Slide [callee, args...] down over the current frame's window, then
+        // re-point this same frame at the callee. frameCount is unchanged.
+        Value *dest = frame->slots;
+        Value *src = vm.stackTop - argCount - 1;
+        memmove(dest, src, sizeof(Value) * (argCount + 1));
+        vm.stackTop = dest + argCount + 1;
+        frame->closure = closure;
+        frame->ip = closure->function->chunk.code;
+        frame->slots = dest;
+        break; // continue executing the callee in the reused frame
+      }
+      // Non-closure (native / constructor): behave like a normal call; the
+      // OP_RETURN the compiler emitted next returns the result the usual way.
       if (!callValue(callee, argCount))
         return INTERPRET_RUNTIME_ERROR;
       frame = &vm.frames[vm.frameCount - 1];

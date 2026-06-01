@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (650 cases, incl. native + GC)
+make test       # run the end-to-end test suite (655 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -99,7 +99,10 @@ make run        # start the REPL
   call-frame stack and calling convention. First-class (assignable to
   variables), support **recursion** and **mutual recursion**, with arity
   checking, a controlled **stack-overflow** error, and multi-frame **stack
-  traces** on runtime errors
+  traces** on runtime errors. **Tail calls are optimised**: a `return f(args)`
+  reuses the current frame (for closure callees), so deep/mutual tail recursion
+  runs in O(1) stack — `count(1_000_000, 0)` returns instead of overflowing
+  (suppressed inside a `try`, so a `catch` still sees the callee's throws)
 - **Closures**: nested functions **capture variables** from enclosing functions
   via upvalues, and those variables outlive the frame that created them (so a
   returned counter keeps counting). Captured variables can be shared and mutated

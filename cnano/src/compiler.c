@@ -61,6 +61,9 @@ typedef struct CompilerState {
   int localCount;           // how many locals are currently in scope
   Upvalue upvalues[MAX_LOCALS]; // the variables THIS function captures
   int scopeDepth;           // current block nesting within this function
+  int tryDepth;             // nesting of `try` blocks — tail calls are disabled
+                            // inside one, since a tail call abandons the frame
+                            // (and thus the catch) before the callee can throw
 } CompilerState;
 
 static CompilerState *current;
@@ -101,6 +104,7 @@ static void initCompilerState(CompilerState *state, FunctionType type) {
   state->type = type;
   state->localCount = 0;
   state->scopeDepth = 0;
+  state->tryDepth = 0;
   state->function = newFunction(); // allocate the function being compiled
   current = state;
 
@@ -959,8 +963,22 @@ static void emitStatement(Node *node) {
       emitByte(OP_RETURN, node->line);
       break;
     }
-    if (node->as.ret.value != NULL) {
-      emitExpr(node->as.ret.value); // value on top ...
+    Node *ret = node->as.ret.value;
+    // Tail call: `return f(args);` (a plain function call, not a method invoke or
+    // anything inside a try). Emit the call as OP_TAIL_CALL so the VM can reuse
+    // this frame for a closure callee. The trailing OP_RETURN is the fallback the
+    // VM falls through to when the callee turns out to be a native/constructor.
+    if (ret != NULL && ret->type == NODE_CALL && current->tryDepth == 0) {
+      emitExpr(ret->as.call.callee);
+      for (int i = 0; i < ret->as.call.argCount; i++)
+        emitExpr(ret->as.call.args[i]);
+      emitByte(OP_TAIL_CALL, node->line);
+      emitByte((uint8_t)ret->as.call.argCount, node->line);
+      emitByte(OP_RETURN, node->line);
+      break;
+    }
+    if (ret != NULL) {
+      emitExpr(ret); // value on top ...
     } else {
       emitByte(OP_NIL, node->line); // bare `return;` returns nil
     }
@@ -978,6 +996,10 @@ static void emitStatement(Node *node) {
     // path OP_END_TRY pops it and we JUMP over the catch. A throw inside the body
     // unwinds to the catch, where the thrown value is on top — bound as the catch
     // variable (a local at exactly the stack depth the handler restored to).
+    // Disable tail-call optimisation anywhere inside this try/catch: a tail call
+    // discards the current frame (and its handlers) before the callee runs, which
+    // would wrongly skip a `catch` that should see the callee's throw.
+    current->tryDepth++;
     int handler = emitJump(OP_BEGIN_TRY, node->line);
     emitStatement(node->as.tryStmt.body); // a block (its own scope)
     emitByte(OP_END_TRY, node->line);
@@ -990,6 +1012,7 @@ static void emitStatement(Node *node) {
     emitStatement(node->as.tryStmt.handler);
     endScope(node->line); // pops the catch variable
     patchJump(over);
+    current->tryDepth--;
     break;
   }
 

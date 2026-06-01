@@ -27,6 +27,7 @@ static int instrLen(Chunk *c, int off) {
   case OP_GET_UPVALUE:
   case OP_SET_UPVALUE:
   case OP_CALL:
+  case OP_TAIL_CALL:
   case OP_BUILD_ARRAY:
   case OP_BUILD_MAP:
   case OP_GET_FIELD:

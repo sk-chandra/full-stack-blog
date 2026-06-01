@@ -472,6 +472,18 @@ check_prog "fn-locals"    'fn poly(x){let s=x*x; return s+x+1;} print poly(5);' 
 check_prog "fn-recursion" 'fn fact(n){if(n<=1)return 1; return n*fact(n-1);} print fact(5);' "120"
 check_prog "fn-fib"       'fn fib(n){if(n<2)return n; return fib(n-1)+fib(n-2);} print fib(10);' "55"
 check_prog "fn-mutual"    'fn ev(n){if(n==0)return true; return od(n-1);} fn od(n){if(n==0)return false; return ev(n-1);} print ev(8);' "true"
+
+# --- tail-call optimisation (step 58) ---
+# Deep tail recursion runs in O(1) stack (the frame cap is only 64), so these
+# would overflow WITHOUT tco; with it they return normally.
+check_prog "tco-deep"     'fn c(n, acc) { if (n == 0) { return acc; } return c(n-1, acc+1); } print c(100000, 0);' "100000"
+check_prog "tco-mutual"   'fn ev(n){ if(n==0){return true;} return od(n-1); } fn od(n){ if(n==0){return false;} return ev(n-1); } print ev(100000);' "true"
+check_prog "tco-value"    'fn id(x){ return x; } fn w(x){ return id(x); } print w(42);' "42"
+# A tail call inside a `try` must NOT be optimised away — the catch must still see
+# a throw from the callee.
+check_prog "tco-try-catch" 'fn boom(){ throw "x"; } fn f(){ try { return boom(); } catch (e) { return "c:"+e; } } print f();' "c:x"
+# Non-tail recursion is unaffected: it still overflows safely (controlled error).
+check_prog_err "tco-nontail-of" 'fn f(n) { return n * f(n-1); } print f(1000000);'
 check_prog "fn-nested"    'fn outer(){fn inner(x){return x*2;} return inner(21);} print outer();' "42"
 check_prog "fn-as-value"  'fn sq(x){return x*x;} let f = sq; print f(9);'      "81"
 check_prog "fn-early-ret" 'fn f(x){if(x>0)return "pos"; return "nonpos";} print f(5); print f(-1);' "$(printf 'pos\nnonpos')"

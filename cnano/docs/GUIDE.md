@@ -1793,8 +1793,15 @@ how a language works rather than a pile of features.
   compile error (`non-exhaustive match on Circle | Rect: missing Rect`). The
   lesson: a sum-of-products type and exhaustive matching are *orthogonal features
   composed*, not a special case).
-- **Runtime depth:** tail-call optimisation (frame reuse), then generators /
-  `yield` compiled to a resumable state machine.
+- **Runtime depth (in progress):** ~~tail-call optimisation~~ ✓ (step 58 — when a
+  function's last act is `return f(args)` the compiler emits `OP_TAIL_CALL`, and
+  for a closure callee the VM REUSES the current frame instead of pushing one, so
+  deep/mutual tail recursion runs in O(1) stack — `count(1_000_000)` no longer
+  overflows the 64-frame cap. The compiler suppresses it inside a `try` (a tail
+  call abandons the frame, and thus the `catch`, before the callee can throw), and
+  a non-closure callee falls through to the trailing `OP_RETURN`. The lesson:
+  activation-record reuse, and why functional languages depend on it); next,
+  generators / `yield` compiled to a resumable state machine.
 - **GC variants (stretch):** a copying/semispace collector beside the mark-sweep
   one, compared through the same gcstress suite.
 
