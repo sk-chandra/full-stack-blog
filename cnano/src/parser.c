@@ -80,6 +80,46 @@ static Parser parser;
 
 // --- error reporting -------------------------------------------------------
 
+// Render the source line `token` sits on, with a caret underline beneath the
+// token — the kind of diagnostic real compilers print:
+//
+//   [line 12] Error at 'fn': Expect a type after ':'.
+//       12 | fn apply(stack: [float], op: fn): float {
+//          |                              ^^
+//
+// Degrades gracefully: a lexer ERROR token (whose text is a message, not a
+// source slice) or EOF gets the line but no caret.
+static void showSource(Token *token) {
+  const char *src = lexerSource();
+  if (src == NULL)
+    return;
+  // Walk to the first character of the token's line.
+  const char *lineStart = src;
+  for (int ln = 1; ln < token->line && *lineStart != '\0'; lineStart++)
+    if (*lineStart == '\n')
+      ln++;
+  const char *lineEnd = lineStart;
+  while (*lineEnd != '\0' && *lineEnd != '\n')
+    lineEnd++;
+  int lineLen = (int)(lineEnd - lineStart);
+  fprintf(stderr, "  %4d | %.*s\n", token->line, lineLen, lineStart);
+
+  // Underline the token only when its text is an actual slice of THIS line.
+  if (token->type == TOKEN_ERROR || token->type == TOKEN_EOF ||
+      token->start < lineStart || token->start > lineEnd)
+    return;
+  int col = (int)(token->start - lineStart);
+  int caretLen = token->length > 0 ? token->length : 1;
+  if (col + caretLen > lineLen)
+    caretLen = lineLen - col;
+  if (caretLen < 1)
+    caretLen = 1;
+  fprintf(stderr, "       | %*s", col, "");
+  for (int i = 0; i < caretLen; i++)
+    fputc('^', stderr);
+  fputc('\n', stderr);
+}
+
 static void errorAt(Token *token, const char *message) {
   // panicMode suppresses the cascade of bogus errors that follows a real one,
   // until we resynchronise at a statement boundary (see synchronize()). Without
@@ -98,6 +138,7 @@ static void errorAt(Token *token, const char *message) {
     fprintf(stderr, " at '%.*s'", token->length, token->start);
   }
   fprintf(stderr, ": %s\n", message);
+  showSource(token);
 }
 
 // --- token cursor ----------------------------------------------------------

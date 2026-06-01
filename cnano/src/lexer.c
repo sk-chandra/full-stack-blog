@@ -7,6 +7,7 @@
 // than passing a context pointer everywhere) keeps the example readable. The
 // cost is that the lexer is not reentrant — fine for a single-threaded CLI.
 typedef struct {
+  const char *source;  // the start of the whole buffer (for error rendering)
   const char *start;   // start of the token currently being scanned
   const char *current; // the character we are about to look at
   int line;            // current line number
@@ -15,16 +16,20 @@ typedef struct {
 static Lexer lexer;
 
 void initLexer(const char *source) {
+  lexer.source = source;
   lexer.start = source;
   lexer.current = source;
   lexer.line = 1;
 }
 
+const char *lexerSource(void) { return lexer.source; }
+
 LexerState lexerSave(void) {
-  LexerState s = {lexer.start, lexer.current, lexer.line};
+  LexerState s = {lexer.source, lexer.start, lexer.current, lexer.line};
   return s;
 }
 void lexerRestore(LexerState s) {
+  lexer.source = s.source;
   lexer.start = s.start;
   lexer.current = s.current;
   lexer.line = s.line;

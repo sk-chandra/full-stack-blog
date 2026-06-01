@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (609 cases, incl. native + GC)
+make test       # run the end-to-end test suite (613 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -161,6 +161,13 @@ make run        # start the REPL
   **deduplication** and an `OP_CONSTANT_LONG` form so chunks aren't capped at 256
   constants. `make bench` runs a self-timing benchmark suite (a baseline for
   VM/optimiser work)
+- **Diagnostics**: syntax errors render the offending source line and underline
+  the exact token with a caret, the way a real compiler does:
+  ```
+  [line 1] Error at ';': Expect a value or '('.
+       1 | let x = 1 +;
+         |            ^
+  ```
 - **Native compilation** (ahead-of-time): `cnano --native file.cn -o prog`
   compiles the **statically-typed, first-order subset** to C and invokes the
   system `cc`, producing a standalone native executable with no interpreter.

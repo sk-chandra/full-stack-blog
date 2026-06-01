@@ -1350,7 +1350,49 @@ complexity budget on.
 
 ---
 
-## 25. Roadmap: where to go next
+## 25. Case study: diagnostics that point at the problem
+
+A compiler is a conversation with a programmer who got something wrong, so the
+*quality of its error messages* is a real feature — arguably the one users feel
+most. cnano started with line-only errors (`[line 12] Error ...`); this step adds
+the caret diagnostic every good compiler prints:
+
+```
+[line 12] Error at 'fn': Expect a type after ':'.
+    12 | fn apply(stack: [float], op: fn): float {
+       |                              ^^
+```
+
+### 25.1 Spans cost almost nothing — you already have them
+
+The key realization: a token *already is* a span. cnano's `Token` carries
+`start` (a pointer into the source) and `length`. So the error renderer needs
+just one more thing — the start of the whole buffer — to (a) find the token's
+line by walking newlines, and (b) compute the caret column as
+`token->start - lineStart`. We store that buffer origin in the lexer
+(`lexerSource()`), threading it through the save/restore used for string
+interpolation so an embedded `${ ... }` doesn't leave a dangling origin.
+
+### 25.2 Degrade gracefully, never crash
+
+Two cases don't have a real source span: **EOF** (the token is past the text)
+and a **lexer ERROR token** (its `start`/`length` point at a message string, not
+into the source). The renderer detects "is this token's pointer actually inside
+this line?" and, if not, prints the line without a caret rather than underlining
+random memory. Robustness in the error path matters more than elsewhere —
+the error path runs precisely when something is already wrong.
+
+### 25.3 What it demonstrates
+
+That good diagnostics are mostly *bookkeeping discipline*, not cleverness: keep
+the span you already computed, keep the source alive long enough to quote it, and
+handle the "no span" cases honestly. (The same span info, threaded into AST nodes,
+is what would later let the *type checker* and *runtime* print carets too — the
+natural next iteration.)
+
+---
+
+## 26. Roadmap: where to go next
 
 Each step below is a self-contained project that teaches a new concept. They are
 ordered so each builds on the last.
@@ -1661,8 +1703,28 @@ programs define their own types, and makes failure recoverable.
     after the shift), and the parser maps each to its NodeOp in the existing
     `a OP= b` → `a = a OP b` desugar — so no new opcodes, and they work on index
     targets (`a[i] &= m`) and respect `const`, exactly like `+=`.
-54. **Performance** (inline caching/peephole), generics, native closures, and a
-    per-module namespace for `import` — larger, still open.
+54. ~~**Caret diagnostics** (source spans + underline).~~ **✅ DONE** (step 50) —
+    syntax errors now render the offending line and underline the token (see the
+    §25 case study). A token already carries a source pointer + length, so the
+    renderer just needs the buffer origin (`lexerSource()`) to find the line and
+    column; EOF and lexer-error tokens degrade to a line without a caret.
+
+### The educational arcs ahead
+
+These are grouped by the concept each teaches, to keep cnano a *complete map* of
+how a language works rather than a pile of features.
+
+- **Diagnostics (in progress):** ~~caret underlines~~ ✓; next, "did you mean…?"
+  name/type suggestions (edit distance) and per-file positions through `import`.
+- **Optimising middle-end:** a `--stats` opcode/allocation profiler (measure
+  first), a real bytecode peephole pass (with jump-target remapping), and
+  inline caching for global access (the canonical fast-dispatch lesson).
+- **Type-system depth:** `match` exhaustiveness checking, then tagged-union ADTs
+  (`enum Shape { Circle(r: float), Rect(w, h) }`) with payload-binding arms.
+- **Runtime depth:** tail-call optimisation (frame reuse), then generators /
+  `yield` compiled to a resumable state machine.
+- **GC variants (stretch):** a copying/semispace collector beside the mark-sweep
+  one, compared through the same gcstress suite.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
 (free online). cnano's bytecode/VM design intentionally follows the same lineage

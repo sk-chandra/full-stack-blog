@@ -69,6 +69,22 @@ check_err() {
   fi
 }
 
+# check_diag NAME PROGRAM SUBSTRING — run PROGRAM (expecting failure) and assert
+# its stderr (diagnostics) CONTAINS the given substring. Used to pin the shape of
+# error messages, e.g. a caret-underline line.
+check_diag() {
+  local name="$1" prog="$2" needle="$3"
+  printf '%s' "$prog" > "$tmp"
+  local err; err="$("$CNANO" "$tmp" 2>&1 >/dev/null)"
+  case "$err" in
+    *"$needle"*)
+      printf '  ok   %-22s diagnostic ok\n' "$name"; pass=$((pass + 1)) ;;
+    *)
+      printf '  FAIL %-22s diagnostic missing [%s] in:\n%s\n' "$name" "$needle" "$err"
+      fail=$((fail + 1)) ;;
+  esac
+}
+
 # check_prog_err NAME PROGRAM — run full PROGRAM source, expect a non-zero exit
 # (used for statement-level syntax errors like a missing semicolon).
 check_prog_err() {
@@ -556,6 +572,14 @@ check_prog "fold-in-lambda"  'let g = fn() => 2 + 3 * 4; print g();'      "14"
 check_prog "fold-cond-nested" 'let n=5; print n>0 ? "pos" : "neg";'       "pos"
 # A heavily-reused name is fine (constant dedup keeps it to one slot).
 check_prog "dedup-reuse"    'let c = 0; c = c + 1; c = c + 1; c = c + 1; print c;' "3"
+
+# --- caret diagnostics (step 50) ---
+# A syntax error renders the offending source line and underlines the token.
+check_diag "diag-line"   'let x = 1 +;'        '1 | let x = 1 +;'
+check_diag "diag-caret"  'let x = 1 +;'        '^'
+check_diag "diag-token"  'let y = 1 + + 2;'    'Error at'
+# A lexer error (unterminated string) still shows the line (no caret needed).
+check_diag "diag-lexline" 'print "oops;'        'print "oops;'
 
 # --- garbage collector (step 10) ---
 # Churn: 5000 short-lived closures (+ their upvalues) are allocated and become
