@@ -285,6 +285,65 @@ static const char *suggestGlobal(const char *name) {
   return closestName(name, cands, nc);
 }
 
+// Opcode names for the --stats histogram. Designated initialisers key by the enum
+// value, so this stays correct even if the opcode order changes.
+static const char *OP_NAMES[256] = {
+    [OP_CONSTANT] = "CONSTANT",       [OP_CONSTANT_LONG] = "CONSTANT_LONG",
+    [OP_NIL] = "NIL",                 [OP_TRUE] = "TRUE",
+    [OP_FALSE] = "FALSE",             [OP_NEGATE] = "NEGATE",
+    [OP_NOT] = "NOT",                 [OP_ADD] = "ADD",
+    [OP_SUB] = "SUB",                 [OP_MUL] = "MUL",
+    [OP_DIV] = "DIV",                 [OP_MOD] = "MOD",
+    [OP_BITAND] = "BITAND",           [OP_BITOR] = "BITOR",
+    [OP_BITXOR] = "BITXOR",           [OP_SHL] = "SHL",
+    [OP_SHR] = "SHR",                 [OP_BITNOT] = "BITNOT",
+    [OP_EQUAL] = "EQUAL",             [OP_LESS] = "LESS",
+    [OP_GREATER] = "GREATER",         [OP_DEFINE_GLOBAL] = "DEFINE_GLOBAL",
+    [OP_GET_GLOBAL] = "GET_GLOBAL",   [OP_SET_GLOBAL] = "SET_GLOBAL",
+    [OP_GET_LOCAL] = "GET_LOCAL",     [OP_SET_LOCAL] = "SET_LOCAL",
+    [OP_GET_UPVALUE] = "GET_UPVALUE", [OP_SET_UPVALUE] = "SET_UPVALUE",
+    [OP_JUMP] = "JUMP",               [OP_JUMP_IF_FALSE] = "JUMP_IF_FALSE",
+    [OP_LOOP] = "LOOP",               [OP_PRINT] = "PRINT",
+    [OP_POP] = "POP",                 [OP_CALL] = "CALL",
+    [OP_INVOKE] = "INVOKE",           [OP_BUILD_ARRAY] = "BUILD_ARRAY",
+    [OP_BUILD_MAP] = "BUILD_MAP",     [OP_INDEX_GET] = "INDEX_GET",
+    [OP_INDEX_SET] = "INDEX_SET",     [OP_GET_FIELD] = "GET_FIELD",
+    [OP_SET_FIELD] = "SET_FIELD",     [OP_METHOD] = "METHOD",
+    [OP_BEGIN_TRY] = "BEGIN_TRY",     [OP_END_TRY] = "END_TRY",
+    [OP_THROW] = "THROW",             [OP_IS_KIND] = "IS_KIND",
+    [OP_IS_STRUCT] = "IS_STRUCT",     [OP_CLOSURE] = "CLOSURE",
+    [OP_CLOSE_UPVALUE] = "CLOSE_UPVALUE", [OP_RETURN] = "RETURN",
+};
+
+void printVmStats(void) {
+  fflush(stdout); // let the program's own output land before the summary
+  fprintf(stderr, "\n=== cnano --stats ===\n");
+  fprintf(stderr, "instructions executed : %zu\n", vm.instrCount);
+  fprintf(stderr, "heap allocations      : %zu (%zu bytes)\n", vm.allocCount,
+          vm.allocBytes);
+  fprintf(stderr, "GC cycles             : %zu\n", vm.gcCount);
+
+  // Opcode histogram, most-executed first (a simple selection sort over the 256
+  // slots — we only print the non-zero ones).
+  fprintf(stderr, "\nopcode histogram (executed, %% of total):\n");
+  bool printed[256] = {false};
+  for (int rank = 0; rank < 256; rank++) {
+    int best = -1;
+    size_t bestCount = 0;
+    for (int i = 0; i < 256; i++)
+      if (!printed[i] && vm.opCounts[i] > bestCount) {
+        bestCount = vm.opCounts[i];
+        best = i;
+      }
+    if (best < 0)
+      break; // no more non-zero opcodes
+    printed[best] = true;
+    double pct = vm.instrCount ? 100.0 * (double)bestCount / (double)vm.instrCount : 0;
+    const char *name = OP_NAMES[best] ? OP_NAMES[best] : "?";
+    fprintf(stderr, "  %-15s %12zu  %5.1f%%\n", name, bestCount, pct);
+  }
+}
+
 // The fetch-decode-execute loop — the core of the whole project. `stopFrame` is
 // the call depth at which to hand control back to the caller: 0 for the top-level
 // interpret() (run until the script frame returns), or the depth captured by a
@@ -368,6 +427,10 @@ static InterpretResult run(bool trace, int stopFrame) {
     }
 
     uint8_t instruction = READ_BYTE();
+    if (vm.collectStats) { // a single predictable branch; off in the common case
+      vm.opCounts[instruction]++;
+      vm.instrCount++;
+    }
     switch (instruction) {
     case OP_CONSTANT: {
       Value constant = READ_CONSTANT();

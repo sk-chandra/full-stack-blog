@@ -20,6 +20,11 @@
 void *reallocate(void *pointer, size_t oldSize, size_t newSize) {
   // Keep the running tally first, so the trigger below sees up-to-date numbers.
   vm.bytesAllocated += newSize - oldSize;
+  if (vm.collectStats && newSize > oldSize) { // count growth as allocation
+    vm.allocBytes += newSize - oldSize;
+    if (oldSize == 0)
+      vm.allocCount++; // a brand-new block (vs. growing an existing one)
+  }
 
   // Only consider collecting when we are GROWING the heap, and only once the VM
   // is actually executing (see the design note in memory.h). Shrinking/freeing
@@ -221,6 +226,8 @@ static void sweep(void) {
 }
 
 void collectGarbage(void) {
+  if (vm.collectStats)
+    vm.gcCount++;
 #ifdef DEBUG_LOG_GC
   printf("-- gc begin\n");
   size_t before = vm.bytesAllocated;

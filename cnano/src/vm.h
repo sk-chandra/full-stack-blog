@@ -65,7 +65,20 @@ typedef struct {
   Obj **grayStack;       // the mark phase's grey worklist (managed outside the GC)
   int grayCount;
   int grayCapacity;
+
+  // --- optional profiling (`--stats`) ---
+  // When enabled, the VM tallies instructions (per opcode), heap allocations and
+  // GC cycles, then prints a summary — so you MEASURE before you optimise.
+  bool collectStats;
+  size_t opCounts[256]; // executions per opcode
+  size_t instrCount;    // total instructions executed
+  size_t allocCount;    // distinct heap allocations
+  size_t allocBytes;    // total bytes handed out by the allocator
+  size_t gcCount;       // garbage-collection cycles
 } VM;
+
+// Print the profiling summary gathered during a `collectStats` run.
+void printVmStats(void);
 
 // The VM is a single global instance. object.c reaches in to register new
 // objects (vm.objects) and intern strings (vm.strings), so the struct is exposed

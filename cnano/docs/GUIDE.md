@@ -1768,8 +1768,11 @@ how a language works rather than a pile of features.
   space, so an error names the file it came from: `[lib/math.cn:2] Type error: …`,
   and a runtime stack trace names a file per frame; single-file programs keep the
   familiar `[line N]`).
-- **Optimising middle-end:** a `--stats` opcode/allocation profiler (measure
-  first), a real bytecode peephole pass (with jump-target remapping), and
+- **Optimising middle-end (in progress):** ~~a `--stats` opcode/allocation
+  profiler~~ ✓ (step 53 — `cnano --stats file` tallies instructions per opcode,
+  heap allocations + bytes, and GC cycles, then prints a histogram; the lesson is
+  *measure first*, and it immediately shows `GET_GLOBAL` is a hot opcode worth
+  caching); next, a real bytecode peephole pass (with jump-target remapping) and
   inline caching for global access (the canonical fast-dispatch lesson).
 - **Type-system depth:** `match` exhaustiveness checking, then tagged-union ADTs
   (`enum Shape { Circle(r: float), Rect(w, h) }`) with payload-binding arms.

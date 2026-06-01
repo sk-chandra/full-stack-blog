@@ -600,6 +600,18 @@ check_diag "diag-token"  'let y = 1 + + 2;'    'Error at'
 # A lexer error (unterminated string) still shows the line (no caret needed).
 check_diag "diag-lexline" 'print "oops;'        'print "oops;'
 
+# --- --stats profiling (step 53) ---
+# Running under --stats prints an instruction count and an opcode histogram.
+printf 'fn f(n){ if(n<2){return n;} return f(n-1)+f(n-2); } print f(10);' > "$tmp"
+stats_out="$("$CNANO" --stats "$tmp" 2>&1)"
+case "$stats_out" in
+  *"instructions executed"*"opcode histogram"*"CALL"*)
+    printf '  ok   %-22s --stats summary ok\n' "stats-summary"; pass=$((pass + 1)) ;;
+  *)
+    printf '  FAIL %-22s --stats output unexpected:\n%s\n' "stats-summary" "$stats_out"
+    fail=$((fail + 1)) ;;
+esac
+
 # --- "did you mean …?" suggestions (step 51) ---
 check_diag "sug-field"   'struct P { x: int, y: int } let p = P(1,2); print p.xx;' "did you mean 'x'?"
 check_diag "sug-global"  'let count = 5; print conut;' "did you mean 'count'?"
