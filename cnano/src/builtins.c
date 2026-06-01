@@ -132,6 +132,11 @@ static bool typeNative(int argCount, Value *args, Value *result) {
     *result = OBJ_VAL(AS_ENUM_MEMBER(v)->parent->name);
     return true;
   }
+  if (IS_GENERATOR(v)) {
+    const char *g = "generator";
+    *result = OBJ_VAL(copyString(g, (int)strlen(g)));
+    return true;
+  }
   const char *name = IS_INT(v)      ? "int"
                      : IS_FLOAT(v)  ? "float"
                      : IS_BOOL(v)   ? "bool"
@@ -907,6 +912,26 @@ static Method mapMethods[] = {
     {NULL, 0, NULL},
 };
 
+// gen.next() -> the next yielded value (nil once the generator has finished);
+// gen.done() -> bool, whether it has finished. Together these drive a loop:
+//   while (!g.done()) { use(g.next()); }
+static bool genNext(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount; (void)args;
+  bool finished; // resumeGenerator also reports completion, which next() ignores
+  return resumeGenerator(AS_GENERATOR(receiver), result, &finished);
+}
+static bool genDone(Value receiver, int argCount, Value *args, Value *result) {
+  (void)argCount; (void)args;
+  *result = BOOL_VAL(AS_GENERATOR(receiver)->done);
+  return true;
+}
+
+static Method generatorMethods[] = {
+    {"next", 0, genNext},
+    {"done", 0, genDone},
+    {NULL, 0, NULL},
+};
+
 // Find the method table for a receiver's type, plus a human-readable type name
 // for error messages. Returns NULL if the type has no methods.
 static Method *methodsFor(Value receiver, const char **typeName) {
@@ -921,6 +946,10 @@ static Method *methodsFor(Value receiver, const char **typeName) {
   if (IS_MAP(receiver)) {
     *typeName = "map";
     return mapMethods;
+  }
+  if (IS_GENERATOR(receiver)) {
+    *typeName = "generator";
+    return generatorMethods;
   }
   *typeName = NULL;
   return NULL;

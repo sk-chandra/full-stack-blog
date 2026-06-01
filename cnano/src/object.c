@@ -69,9 +69,22 @@ ObjFunction *newFunction(void) {
       (ObjFunction *)allocateObject(sizeof(ObjFunction), OBJ_FUNCTION);
   function->arity = 0;
   function->upvalueCount = 0;
+  function->isGenerator = false;
   function->name = NULL;
   initChunk(&function->chunk); // each function owns a fresh, empty chunk
   return function;
+}
+
+ObjGenerator *newGenerator(ObjClosure *closure) {
+  ObjGenerator *gen =
+      (ObjGenerator *)allocateObject(sizeof(ObjGenerator), OBJ_GENERATOR);
+  gen->closure = closure;
+  gen->ip = NULL;
+  gen->saved = NULL;
+  gen->savedCount = 0;
+  gen->started = false;
+  gen->done = false;
+  return gen;
 }
 
 ObjClosure *newClosure(ObjFunction *function) {
@@ -321,6 +334,11 @@ void printObject(Value value) {
   case OBJ_NATIVE:
     printf("<native fn %s>", AS_NATIVE(value)->name);
     break;
+  case OBJ_GENERATOR: {
+    ObjFunction *fn = AS_GENERATOR(value)->closure->function;
+    printf("<generator %s>", fn->name ? fn->name->chars : "fn");
+    break;
+  }
   case OBJ_ARRAY: {
     // Print like the literal that built it: [e0, e1, ...].
     ObjArray *array = AS_ARRAY(value);
@@ -405,6 +423,14 @@ void freeObject(Obj *object) {
     ObjFunction *function = (ObjFunction *)object;
     freeChunk(&function->chunk);
     reallocate(function, sizeof(ObjFunction), 0);
+    break;
+  }
+  case OBJ_GENERATOR: {
+    // The saved stack window is ours; the closure + saved values are separate
+    // GC objects.
+    ObjGenerator *gen = (ObjGenerator *)object;
+    free(gen->saved);
+    reallocate(gen, sizeof(ObjGenerator), 0);
     break;
   }
   case OBJ_CLOSURE: {

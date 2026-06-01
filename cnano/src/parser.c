@@ -75,6 +75,7 @@ typedef struct {
   Token previous; // the most recently consumed token
   bool hadError;  // did ANY error occur during the whole parse?
   bool panicMode; // are we currently recovering from an error?
+  bool fnSawYield; // did the function currently being parsed contain a `yield`?
 } Parser;
 
 static Parser parser;
@@ -1275,6 +1276,13 @@ static Node *statement(void) {
     return returnStatement();
   if (match(TOKEN_THROW))
     return throwStatement();
+  if (match(TOKEN_YIELD)) {
+    int line = parser.previous.line;
+    parser.fnSawYield = true; // marks the enclosing function as a generator
+    Node *value = expression();
+    consume(TOKEN_SEMICOLON, "Expect ';' after a yielded value.");
+    return newYield(value, line);
+  }
   if (match(TOKEN_TRY))
     return tryStatement();
   if (match(TOKEN_BREAK)) {
@@ -1412,6 +1420,11 @@ static Node *finishFunction(ObjString *name, int line) {
   // Optional return-type annotation: `fn f(...) : TYPE { ... }`. Default any.
   Type *returnType = match(TOKEN_COLON) ? parseType() : typeAny();
 
+  // Track whether THIS function's body contains a `yield` (save/restore so a
+  // nested function doesn't leak its flag to the enclosing one).
+  bool savedSawYield = parser.fnSawYield;
+  parser.fnSawYield = false;
+
   Program *body;
   if (match(TOKEN_FAT_ARROW)) {
     // `=> expr` shorthand: a single-expression body, desugared to `return expr;`.
@@ -1428,7 +1441,10 @@ static Node *finishFunction(ObjString *name, int line) {
     freeNode(bodyBlock);
   }
 
-  return newFun(name, params, paramTypes, paramCount, returnType, body, line);
+  Node *fn = newFun(name, params, paramTypes, paramCount, returnType, body, line);
+  fn->as.fun.isGenerator = parser.fnSawYield;
+  parser.fnSawYield = savedSawYield;
+  return fn;
 }
 
 static Node *funDeclaration(void) {

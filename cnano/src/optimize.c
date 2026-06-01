@@ -275,6 +275,7 @@ static void foldStatement(Node *node) {
       foldProgram(node->as.structDecl.methods[i]->as.fun.body);
     break;
   case NODE_THROW:
+  case NODE_YIELD:
     node->as.stmt.expr = foldExpr(node->as.stmt.expr);
     break;
   case NODE_TRY:

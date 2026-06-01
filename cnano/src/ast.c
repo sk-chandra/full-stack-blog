@@ -239,6 +239,12 @@ Node *newThrow(Node *value, int line) {
   return node;
 }
 
+Node *newYield(Node *value, int line) {
+  Node *node = allocNode(NODE_YIELD, line);
+  node->as.stmt.expr = value;
+  return node;
+}
+
 Node *newTry(Node *body, ObjString *catchName, Node *handler, int line) {
   Node *node = allocNode(NODE_TRY, line);
   node->as.tryStmt.body = body;
@@ -289,6 +295,7 @@ Node *newFun(ObjString *name, ObjString **params, Type **paramTypes,
   node->as.fun.paramCount = paramCount;
   node->as.fun.returnType = returnType;
   node->as.fun.body = body;
+  node->as.fun.isGenerator = false; // set by the parser if a `yield` is seen
   return node;
 }
 
@@ -418,6 +425,7 @@ void freeNode(Node *node) {
     freeNode(node->as.field.value); // tolerates NULL (the get form)
     break;
   case NODE_THROW:
+  case NODE_YIELD:
     freeNode(node->as.stmt.expr);
     break;
   case NODE_TRY:

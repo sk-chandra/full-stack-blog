@@ -695,6 +695,9 @@ static void emitStmt(Node *node, int ind, bool fileScope) {
   case NODE_FUN:
     unsupported(node->line, "a nested function declaration");
     break;
+  case NODE_YIELD:
+    unsupported(node->line, "a generator (yield)");
+    break;
   default:
     unsupported(node->line, "this statement");
     break;

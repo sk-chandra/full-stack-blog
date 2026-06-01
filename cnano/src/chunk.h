@@ -122,6 +122,7 @@ typedef enum {
   OP_BEGIN_TRY,   // [opcode][hi][lo] : push a handler whose catch is at offset
   OP_END_TRY,     // [opcode]         : pop the current handler (no exception)
   OP_THROW,       // [opcode]         : pop a value and raise it
+  OP_YIELD,       // [opcode]         : suspend the generator, hand top to .next()
   // Runtime type tests for `expr is TYPE`. IS_KIND tests a primitive/collection
   // kind given by a tag byte; IS_STRUCT pops a struct type then a value and tests
   // whether the value is an instance of it.

@@ -87,6 +87,7 @@ typedef enum {
   TOKEN_CONTINUE,  // continue — skip to the innermost loop's next iteration
   TOKEN_MATCH,     // match — value-dispatch over a subject
   TOKEN_IMPORT,    // import — pull in another source file's declarations
+  TOKEN_YIELD,     // yield — suspend a generator, handing a value to the caller
   TOKEN_FAT_ARROW, // => — separates a match pattern from its body
   // Bookkeeping
   TOKEN_ERROR, // lexing failed; `start`/`length` point at a human message

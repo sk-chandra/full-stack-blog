@@ -1793,15 +1793,19 @@ how a language works rather than a pile of features.
   compile error (`non-exhaustive match on Circle | Rect: missing Rect`). The
   lesson: a sum-of-products type and exhaustive matching are *orthogonal features
   composed*, not a special case).
-- **Runtime depth (in progress):** ~~tail-call optimisation~~ ✓ (step 58 — when a
-  function's last act is `return f(args)` the compiler emits `OP_TAIL_CALL`, and
-  for a closure callee the VM REUSES the current frame instead of pushing one, so
-  deep/mutual tail recursion runs in O(1) stack — `count(1_000_000)` no longer
-  overflows the 64-frame cap. The compiler suppresses it inside a `try` (a tail
-  call abandons the frame, and thus the `catch`, before the callee can throw), and
-  a non-closure callee falls through to the trailing `OP_RETURN`. The lesson:
-  activation-record reuse, and why functional languages depend on it); next,
-  generators / `yield` compiled to a resumable state machine.
+- **Runtime depth (DONE):** ~~tail-call optimisation~~ ✓ (step 58 — `return
+  f(args)` emits `OP_TAIL_CALL`; for a closure callee the VM REUSES the current
+  frame, so deep/mutual tail recursion runs in O(1) stack; suppressed inside a
+  `try`); ~~generators / `yield`~~ ✓ (step 59 — a generator is a **coroutine**: a
+  function containing `yield` isn't run when called but returns a Generator frozen
+  at its start. Each `.next()` thaws the generator's saved **stack-window + ip**
+  back onto the VM, runs to the next `yield` (or the final return), then
+  re-freezes. The whole feature is "save and restore a slice of the value stack" —
+  no state-machine rewrite. The saved window's values are GC-marked (verified
+  under gcstress), two generators from one function keep independent state, and
+  infinite generators work because you simply stop pulling. The lesson:
+  continuations/coroutines as a *VM* capability, suspension as saved execution
+  state).
 - **GC variants (stretch):** a copying/semispace collector beside the mark-sweep
   one, compared through the same gcstress suite.
 

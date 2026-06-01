@@ -949,7 +949,8 @@ static void checkStatement(Node *node) {
     break;
   }
   case NODE_THROW:
-    checkExpr(node->as.stmt.expr); // any value may be thrown
+  case NODE_YIELD:
+    checkExpr(node->as.stmt.expr); // walk for inner errors; any value may flow
     break;
   case NODE_TRY:
     checkStatement(node->as.tryStmt.body);

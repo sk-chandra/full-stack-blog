@@ -674,6 +674,7 @@ static void emitExpr(Node *node) {
   case NODE_STRUCT:
   case NODE_ENUM:
   case NODE_THROW:
+  case NODE_YIELD:
   case NODE_TRY:
   case NODE_BREAK:
   case NODE_CONTINUE:
@@ -991,6 +992,15 @@ static void emitStatement(Node *node) {
     emitByte(OP_THROW, node->line);
     break;
 
+  case NODE_YIELD:
+    // `yield` is only meaningful inside a generator function. (The parser marks a
+    // function as a generator when it sees one; the top-level script never is.)
+    if (current->type == TYPE_SCRIPT)
+      compileError(node->line, "'yield' outside a function");
+    emitExpr(node->as.stmt.expr); // the value to hand to .next(), on top
+    emitByte(OP_YIELD, node->line);
+    break;
+
   case NODE_TRY: {
     // OP_BEGIN_TRY registers a handler pointing at the catch code; on the normal
     // path OP_END_TRY pops it and we JUMP over the catch. A throw inside the body
@@ -1035,6 +1045,7 @@ static ObjFunction *compileFunction(Node *node, FunctionType type) {
   currentLoop = NULL;
   current->function->name = node->as.fun.name;
   current->function->arity = node->as.fun.paramCount;
+  current->function->isGenerator = node->as.fun.isGenerator;
 
   beginScope(); // the function body is its own scope
 

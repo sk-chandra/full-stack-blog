@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (655 cases, incl. native + GC)
+make test       # run the end-to-end test suite (664 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -28,6 +28,7 @@ make run        # start the REPL
 ./build/cnano examples/structs.cn             #  structs: records, fields, methods
 ./build/cnano examples/enums.cn               #  enums: named constants + match
 ./build/cnano examples/adt.cn                 #  tagged-union ADTs (struct+union+match)
+./build/cnano examples/generators.cn          #  generators: yield / lazy sequences
 ./build/cnano examples/errors.cn              #  try / catch / throw
 ./build/cnano examples/showcase.cn            #  floats, unions, match, methods, ...
 
@@ -107,6 +108,12 @@ make run        # start the REPL
   via upvalues, and those variables outlive the frame that created them (so a
   returned counter keeps counting). Captured variables can be shared and mutated
   between sibling closures
+- **Generators**: a function containing `yield` returns a **coroutine** — calling
+  it freezes at the start; each `.next()` runs to the next `yield` (handing back
+  its value) and `.done()` reports completion. Implemented by saving/restoring the
+  generator's stack window + instruction pointer, so local state persists across
+  yields, generators can be infinite (`fibs()`), and two from one function keep
+  independent state. `examples/generators.cn`
 - **Anonymous functions (lambdas)**: `fn(x) { … }` or the `fn(x) => expr`
   shorthand in any expression position — `[1,2,3].map(fn(x) => x*x)`. They are
   ordinary closures (capture, share, and outlive their scope just like named

@@ -43,6 +43,8 @@ void initVM(void) {
   vm.grayCount = 0;
   vm.grayCapacity = 0;
   vm.globalsGen = 1; // 1, so a freshly calloc'd cache slot (gen 0) never matches
+  vm.resuming = NULL;
+  vm.didYield = false;
 
   initTable(&vm.globals);
   initTable(&vm.strings);
@@ -169,6 +171,25 @@ static bool call(ObjClosure *closure, int argCount) {
                  function->name ? function->name->chars : "fn",
                  function->arity, argCount);
     return false;
+  }
+  if (function->isGenerator) {
+    // Calling a generator function does NOT run it: capture [callee, args] as the
+    // generator's initial frozen window and leave a generator object in their
+    // place (no frame pushed, like a native). The body runs only on .next().
+    Value *base = vm.stackTop - argCount - 1; // the callee (becomes slot 0)
+    ObjGenerator *gen = newGenerator(closure); // may GC; the window is rooted
+    int count = argCount + 1;
+    gen->saved = malloc(sizeof(Value) * count); // not GC-managed (freed in freeObject)
+    if (gen->saved == NULL) {
+      runtimeError("out of memory");
+      return false;
+    }
+    memcpy(gen->saved, base, sizeof(Value) * count);
+    gen->savedCount = count;
+    gen->ip = function->chunk.code; // first .next() starts at the top
+    vm.stackTop = base;             // pop callee + args ...
+    push(OBJ_VAL(gen));             // ... and hand back the generator
+    return true;                    // no frame pushed
   }
   if (vm.frameCount == FRAMES_MAX) {
     runtimeError("stack overflow (call depth exceeded %d)", FRAMES_MAX);
@@ -312,7 +333,8 @@ static const char *OP_NAMES[256] = {
     [OP_INDEX_SET] = "INDEX_SET",     [OP_GET_FIELD] = "GET_FIELD",
     [OP_SET_FIELD] = "SET_FIELD",     [OP_METHOD] = "METHOD",
     [OP_BEGIN_TRY] = "BEGIN_TRY",     [OP_END_TRY] = "END_TRY",
-    [OP_THROW] = "THROW",             [OP_IS_KIND] = "IS_KIND",
+    [OP_THROW] = "THROW",             [OP_YIELD] = "YIELD",
+    [OP_IS_KIND] = "IS_KIND",
     [OP_IS_STRUCT] = "IS_STRUCT",     [OP_CLOSURE] = "CLOSURE",
     [OP_CLOSE_UPVALUE] = "CLOSE_UPVALUE", [OP_RETURN] = "RETURN",
 };
@@ -707,7 +729,9 @@ static InterpretResult run(bool trace, int stopFrame) {
       // of pushing a new one — so a tail-recursive loop runs in O(1) stack.
       int argCount = READ_BYTE();
       Value callee = peek(argCount);
-      if (IS_CLOSURE(callee)) {
+      // Frame reuse applies to ordinary closures only. A generator closure must
+      // go through the normal path (which builds a generator object, not a call).
+      if (IS_CLOSURE(callee) && !AS_CLOSURE(callee)->function->isGenerator) {
         ObjClosure *closure = AS_CLOSURE(callee);
         if (argCount != closure->function->arity) {
           runtimeError("%s() expects %d arguments but got %d",
@@ -939,6 +963,34 @@ static InterpretResult run(bool trace, int stopFrame) {
       frame->ip = h->handlerIp;
       break;
     }
+    case OP_YIELD: {
+      // Suspend the generator being resumed: freeze its live frame window + ip
+      // back into the generator object, pop the frame, and hand the yielded value
+      // up to resumeGenerator (which is waiting at `stopFrame`).
+      Value yielded = pop();
+      ObjGenerator *gen = vm.resuming;
+      int count = (int)(vm.stackTop - frame->slots);
+      gen->saved = realloc(gen->saved, sizeof(Value) * (count > 0 ? count : 1));
+      if (gen->saved == NULL) {
+        runtimeError("out of memory suspending a generator");
+        return INTERPRET_RUNTIME_ERROR;
+      }
+      memcpy(gen->saved, frame->slots, sizeof(Value) * count);
+      gen->savedCount = count;
+      gen->ip = frame->ip; // resume just past this OP_YIELD
+      gen->started = true;
+      // Tear the frame down (closing upvalues keeps the stack safe; a closure
+      // that captured a generator local across a yield is a documented gap).
+      closeUpvalues(frame->slots);
+      vm.frameCount--;
+      vm.stackTop = frame->slots;
+      push(yielded);       // the value resumeGenerator will pop
+      vm.didYield = true;
+      if (vm.frameCount == stopFrame)
+        return INTERPRET_OK; // back to resumeGenerator
+      frame = &vm.frames[vm.frameCount - 1];
+      break;
+    }
     case OP_GET_FIELD: {
       ObjString *name = READ_STRING();
       Value obj = pop();
@@ -1147,6 +1199,45 @@ bool callFromVM(Value callee, Value *args, int argCount, Value *result) {
   if (run(false, stop) != INTERPRET_OK)
     return false;
   *result = pop();
+  return true;
+}
+
+bool resumeGenerator(ObjGenerator *gen, Value *result, bool *finished) {
+  if (gen->done) { // already exhausted: keep yielding nil
+    *result = NIL_VAL;
+    *finished = true;
+    return true;
+  }
+  if (vm.stackTop - vm.stack + gen->savedCount > STACK_MAX ||
+      vm.frameCount == FRAMES_MAX) {
+    runtimeError("stack overflow resuming a generator");
+    return false;
+  }
+  // Thaw the frozen window onto the top of the stack and rebuild its frame.
+  Value *base = vm.stackTop;
+  memcpy(base, gen->saved, sizeof(Value) * gen->savedCount);
+  vm.stackTop += gen->savedCount;
+  int stop = vm.frameCount;
+  CallFrame *frame = &vm.frames[vm.frameCount++];
+  frame->closure = gen->closure;
+  frame->ip = gen->ip; // code start on the first resume; past the yield after
+  frame->slots = base;
+
+  // Bracket the resume state so nested generator resumes restore cleanly.
+  ObjGenerator *savedResuming = vm.resuming;
+  bool savedDidYield = vm.didYield;
+  vm.resuming = gen;
+  vm.didYield = false;
+  InterpretResult r = run(false, stop);
+  bool yielded = vm.didYield;
+  vm.resuming = savedResuming;
+  vm.didYield = savedDidYield;
+  if (r != INTERPRET_OK)
+    return false;
+  *result = pop();        // the yielded value, or (on return) the return value
+  *finished = !yielded;   // a return (not a yield) means the generator is done
+  if (!yielded)
+    gen->done = true;
   return true;
 }
 

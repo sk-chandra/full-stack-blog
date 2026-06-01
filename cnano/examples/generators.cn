@@ -1,0 +1,55 @@
+// generators.cn — `yield`, and how it works.
+//
+//   cnano examples/generators.cn
+//
+// A function that contains `yield` is a GENERATOR. Calling it does NOT run the
+// body — it returns a generator object frozen at the start. Each `.next()` thaws
+// the saved state, runs to the next `yield` (handing back its value), then
+// re-freezes; `.done()` reports when the body has finally returned. Under the
+// hood a generator is a coroutine: the VM saves and restores a slice of its
+// value stack plus an instruction pointer.
+
+// Local state (here `i`) persists across yields — that's the whole point.
+fn range(n) {
+  let i = 0;
+  while (i < n) {
+    yield i;
+    i += 1;
+  }
+}
+
+let g = range(4);
+print g.next();   // 0
+print g.next();   // 1
+print "done? ${g.done()}";  // false
+
+// The idiomatic drive loop: pull until the generator finishes.
+fn collect(gen): [any] {
+  let out = [];
+  while (!gen.done()) {
+    let v = gen.next();
+    if (gen.done()) { break; } // the final next() ran off the end
+    out.push(v);
+  }
+  return out;
+}
+print collect(range(6)).join(", ");   // 0, 1, 2, 3, 4, 5
+
+// Generators can be INFINITE — you just stop pulling. Here, the Fibonacci stream.
+fn fibs() {
+  let a = 0;
+  let b = 1;
+  while (true) {
+    yield a;
+    let t = a + b; a = b; b = t;
+  }
+}
+let f = fibs();
+let first8 = [];
+for (let k in 0..8) { first8.push(f.next()); }
+print first8.join(", ");               // 0, 1, 1, 2, 3, 5, 8, 13
+
+// Two generators from the same function keep entirely independent state.
+let x = range(3);
+let y = range(3);
+print "${x.next()} ${y.next()} ${x.next()} ${y.next()}"; // 0 0 1 1

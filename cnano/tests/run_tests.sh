@@ -484,6 +484,17 @@ check_prog "tco-value"    'fn id(x){ return x; } fn w(x){ return id(x); } print 
 check_prog "tco-try-catch" 'fn boom(){ throw "x"; } fn f(){ try { return boom(); } catch (e) { return "c:"+e; } } print f();' "c:x"
 # Non-tail recursion is unaffected: it still overflows safely (controlled error).
 check_prog_err "tco-nontail-of" 'fn f(n) { return n * f(n-1); } print f(1000000);'
+
+# --- generators / yield (step 59) ---
+check_prog "gen-basic"    'fn c(n){let i=0; while(i<n){yield i; i+=1;}} let g=c(3); print g.next(); print g.next(); print g.next();' "$(printf '0\n1\n2')"
+check_prog "gen-done"     'fn c(){ yield 1; } let g=c(); print g.done(); g.next(); g.next(); print g.done();' "$(printf 'false\ntrue')"
+check_prog "gen-loop"     'fn c(n){let i=0; while(i<n){yield i*i; i+=1;}} let g=c(5); let s=0; while(!g.done()){ let v=g.next(); if(g.done()){break;} s+=v; } print s;' "30"
+check_prog "gen-state"    'fn fib(){ let a=0; let b=1; while(true){ yield a; let t=a+b; a=b; b=t; } } let g=fib(); let out=[]; let i=0; while(i<8){ out.push(g.next()); i+=1; } print out.join(",");' "0,1,1,2,3,5,8,13"
+check_prog "gen-interleave" 'fn c(n){let i=0; while(i<n){yield i; i+=1;}} let a=c(9); let b=c(9); print a.next(); print b.next(); print a.next(); print b.next();' "$(printf '0\n0\n1\n1')"
+check_prog "gen-type"     'fn c(){ yield 1; } print type(c());' "generator"
+check_prog "gen-heap"     'fn w(n){let i=0; while(i<n){yield "w"+str(i); i+=1;}} let g=w(3); let o=[]; while(!g.done()){ let x=g.next(); if(g.done()){break;} o.push(x); } print o.join(",");' "w0,w1,w2"
+check_prog_err "gen-yield-toplevel" 'yield 5;'
+check_native_err "nat-rej-gen" 'fn g(): int { yield 1; return 0; } print 1;'
 check_prog "fn-nested"    'fn outer(){fn inner(x){return x*2;} return inner(21);} print outer();' "42"
 check_prog "fn-as-value"  'fn sq(x){return x*x;} let f = sq; print f(9);'      "81"
 check_prog "fn-early-ret" 'fn f(x){if(x>0)return "pos"; return "nonpos";} print f(5); print f(-1);' "$(printf 'pos\nnonpos')"

@@ -31,6 +31,7 @@ typedef enum {
   OBJ_INSTANCE, // an instance of a struct (e.g. Point(1, 2))
   OBJ_ENUM,     // an enum TYPE (e.g. Color), a namespace of named members
   OBJ_ENUM_MEMBER, // one member of an enum (e.g. Color.Red), a singleton value
+  OBJ_GENERATOR, // a suspended generator: a function's frozen execution state
   OBJ_UPVALUE,
   OBJ_CLOSURE,
 } ObjType;
@@ -65,6 +66,7 @@ typedef struct {
   Obj obj;          // MUST be first
   int arity;        // number of parameters
   int upvalueCount; // how many enclosing variables this function captures
+  bool isGenerator; // body contains `yield`: calling it returns a Generator
   Chunk chunk;      // the function's own compiled bytecode
   ObjString *name;
 } ObjFunction;
@@ -195,6 +197,22 @@ typedef struct {
   int upvalueCount;
 } ObjClosure;
 
+// A GENERATOR: a generator function's suspended execution state. Calling a
+// generator function doesn't run it — it returns one of these, frozen at its
+// start. Each `.next()` thaws the saved stack window + instruction pointer back
+// onto the VM, runs to the next `yield` (or the final return), then re-freezes.
+// This is a coroutine: the whole feature is "save and restore a slice of the
+// value stack plus an ip".
+typedef struct {
+  Obj obj; // MUST be first
+  ObjClosure *closure; // the generator function (also holds its upvalues)
+  uint8_t *ip;         // where to resume (valid once `started`)
+  Value *saved;        // the frozen stack window (slot 0 .. top), heap-allocated
+  int savedCount;      // live values in `saved`
+  bool started;        // false until the first .next()
+  bool done;           // true once the generator has returned
+} ObjGenerator;
+
 #define IS_FUNCTION(value) isObjType(value, OBJ_FUNCTION)
 #define AS_FUNCTION(value) ((ObjFunction *)AS_OBJ(value))
 #define IS_NATIVE(value) isObjType(value, OBJ_NATIVE)
@@ -211,6 +229,8 @@ typedef struct {
 #define AS_ENUM(value) ((ObjEnum *)AS_OBJ(value))
 #define IS_ENUM_MEMBER(value) isObjType(value, OBJ_ENUM_MEMBER)
 #define AS_ENUM_MEMBER(value) ((ObjEnumMember *)AS_OBJ(value))
+#define IS_GENERATOR(value) isObjType(value, OBJ_GENERATOR)
+#define AS_GENERATOR(value) ((ObjGenerator *)AS_OBJ(value))
 #define IS_CLOSURE(value) isObjType(value, OBJ_CLOSURE)
 #define AS_CLOSURE(value) ((ObjClosure *)AS_OBJ(value))
 
@@ -237,6 +257,9 @@ ObjFunction *newFunction(void);
 // Wrap a function in a closure, allocating (but not yet filling) its upvalue
 // array. The VM fills the upvalues in immediately after, via OP_CLOSURE.
 ObjClosure *newClosure(ObjFunction *function);
+// A fresh, not-yet-started generator wrapping `closure`. `saved`/`savedCount`
+// are filled by the VM with the initial call window (callee + args).
+ObjGenerator *newGenerator(ObjClosure *closure);
 
 // Allocate a native-function object wrapping the C function `fn`. `name` must be
 // a string literal / static string (it is borrowed, not copied or freed).

@@ -59,6 +59,13 @@ typedef struct {
   // table). The per-chunk global inline cache stores this token alongside a
   // cached entry index, and re-resolves whenever the token has moved on.
   uint32_t globalsGen;
+
+  // --- generator suspend/resume bookkeeping ---
+  // While a generator is being resumed, `resuming` points at it so OP_YIELD can
+  // freeze the frame back into it; `didYield` distinguishes a suspend (yield)
+  // from a completed return when run() hands control back to resumeGenerator.
+  ObjGenerator *resuming;
+  bool didYield;
   ObjUpvalue *openUpvalues; // open upvalues, sorted by stack slot (highest first)
   Obj *objects;        // head of the intrusive list of every heap object
 
@@ -115,6 +122,12 @@ Value pop(void);
 // the call raised a runtime error. This is the VM being re-entered from within a
 // native — the mechanism that lets C and cnano code call each other freely.
 bool callFromVM(Value callee, Value *args, int argCount, Value *result);
+
+// Resume a suspended generator: thaw its saved frame, run to the next `yield`
+// (or its final return), then re-freeze. Sets *result to the yielded/returned
+// value and *finished to whether the generator has now completed. Returns false
+// on a runtime error. Used by the `.next()` builtin method.
+bool resumeGenerator(ObjGenerator *gen, Value *result, bool *finished);
 
 // Compile + run `source` (a sequence of statements). If `trace` is true, dump
 // every function's chunk and print the stack at each step — the best way to learn

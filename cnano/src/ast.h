@@ -59,6 +59,7 @@ typedef enum {
   NODE_STRUCT,    // `struct Name { field: T, ... }` — a struct declaration
   NODE_ENUM,      // `enum Name { A, B, C }` — a set of named constant members
   NODE_THROW,     // `throw EXPR;` — raise a value
+  NODE_YIELD,     // `yield EXPR;` — suspend a generator, handing EXPR to .next()
   NODE_TRY,       // `try { ... } catch (e) { ... }` — guard a block
   NODE_BREAK,     // `break;` — exit the innermost loop
   NODE_CONTINUE,  // `continue;` — next iteration of the innermost loop
@@ -264,6 +265,7 @@ typedef struct Node {
       int paramCount;
       Type *returnType;
       struct Program *body;
+      bool isGenerator; // body contains `yield` — calling it yields a Generator
     } fun;
     // NODE_RETURN: the optional return value (NULL for a bare `return;`).
     struct {
@@ -356,6 +358,8 @@ Node *newEnumDecl(ObjString *name, ObjString **memberNames, int memberCount,
 
 // `throw EXPR;` and `try { body } catch (name) { handler }`.
 Node *newThrow(Node *value, int line);
+// `yield EXPR;` — suspends the enclosing generator (stored in `as.stmt.expr`).
+Node *newYield(Node *value, int line);
 Node *newTry(Node *body, ObjString *catchName, Node *handler, int line);
 
 // `break;` and `continue;` — loop control (no children).

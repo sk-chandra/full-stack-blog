@@ -166,6 +166,8 @@ int disassembleInstruction(Chunk *chunk, int offset) {
     return simpleInstruction("OP_END_TRY", offset);
   case OP_THROW:
     return simpleInstruction("OP_THROW", offset);
+  case OP_YIELD:
+    return simpleInstruction("OP_YIELD", offset);
   case OP_IS_KIND:
     return byteInstruction("OP_IS_KIND", chunk, offset);
   case OP_IS_STRUCT:

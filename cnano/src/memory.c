@@ -159,6 +159,15 @@ static void blackenObject(Obj *object) {
       markObject((Obj *)closure->upvalues[i]);
     break;
   }
+  case OBJ_GENERATOR: {
+    // A suspended generator keeps its closure and every value frozen in its
+    // saved stack window alive (those are unreachable any other way).
+    ObjGenerator *gen = (ObjGenerator *)object;
+    markObject((Obj *)gen->closure);
+    for (int i = 0; i < gen->savedCount; i++)
+      markValue(gen->saved[i]);
+    break;
+  }
   }
 }
 
