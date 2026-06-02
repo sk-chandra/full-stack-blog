@@ -1,0 +1,229 @@
+// iropt.c — constant propagation + folding on the three-address IR (step 64b).
+//
+// This is the payoff of having an IR. On stack bytecode these analyses fought
+// the operand stack (see the GUIDE's middle-end chapter); here every value has a
+// name (`t0, t1, …`) and every variable's current value is just the last thing
+// stored to it (the code is straight-line, so the most recent store dominates
+// every later load). That makes the two classic passes almost trivial:
+//
+//   - CONSTANT PROPAGATION: replace `load x` with the constant last stored to x,
+//     and feed the constant onward through the temporaries that use it.
+//   - CONSTANT FOLDING: when both operands of an op are known constants, compute
+//     the result at compile time and replace the op with a `const`.
+//
+// The golden rule is SOUNDNESS: fold ONLY when the result is exactly what the VM
+// would compute at runtime. So we mirror vm.c's arithmetic precisely (int/float
+// promotion, the truthiness rule, value equality) and REFUSE to fold anything
+// the VM would turn into a runtime error — division/modulo by zero, an
+// out-of-range shift, a type mismatch — leaving that instruction intact so the
+// error still happens, at runtime, exactly as before.
+#include <stdint.h>
+#include <stdlib.h>
+
+#include "ir.h"
+#include "object.h" // ObjString, valuesEqual, printValue
+
+// cnano's truthiness rule, copied from vm.c so `!` folds the same way the VM
+// evaluates it: only nil and false are falsey (every integer, including 0, is
+// truthy).
+static bool irFalsey(Value v) {
+  return IS_NIL(v) || (IS_BOOL(v) && !AS_BOOL(v));
+}
+
+// Fold a unary op over a known-constant operand. Returns false (don't fold) when
+// the operand's type is wrong for the op — the VM would raise at runtime.
+static bool foldUnary(NodeOp op, Value a, Value *out) {
+  switch (op) {
+  case OP_NODE_NEGATE:
+    if (IS_INT(a)) { *out = INT_VAL(-AS_INT(a)); return true; }
+    if (IS_FLOAT(a)) { *out = FLOAT_VAL(-AS_FLOAT(a)); return true; }
+    return false;
+  case OP_NODE_NOT: // defined for every value via the truthiness rule
+    *out = BOOL_VAL(irFalsey(a));
+    return true;
+  case OP_NODE_BITNOT:
+    if (IS_INT(a)) { *out = INT_VAL(~AS_INT(a)); return true; }
+    return false;
+  default:
+    return false;
+  }
+}
+
+// Fold a binary op over two known-constant operands, mirroring vm.c exactly.
+// Returns false when folding would change behaviour: a type mismatch, or a case
+// the VM raises (÷0, %0, shift ∉ [0,63]) — those must stay to fail at runtime.
+static bool foldBinary(NodeOp op, Value a, Value b, Value *out) {
+  switch (op) {
+  case OP_NODE_ADD:
+  case OP_NODE_SUB:
+  case OP_NODE_MUL: {
+    // NB: string `+` never reaches the IR (string literals aren't lowered), so
+    // this is purely numeric, with int->float promotion like NUM_ARITH.
+    if (!IS_NUM(a) || !IS_NUM(b))
+      return false;
+    if (IS_INT(a) && IS_INT(b)) {
+      int64_t x = AS_INT(a), y = AS_INT(b);
+      *out = INT_VAL(op == OP_NODE_ADD ? x + y : op == OP_NODE_SUB ? x - y : x * y);
+    } else {
+      double x = AS_NUM(a), y = AS_NUM(b);
+      *out = FLOAT_VAL(op == OP_NODE_ADD ? x + y : op == OP_NODE_SUB ? x - y : x * y);
+    }
+    return true;
+  }
+  case OP_NODE_DIV:
+    if (!IS_NUM(a) || !IS_NUM(b))
+      return false;
+    if (IS_INT(a) && IS_INT(b)) {
+      if (AS_INT(b) == 0)
+        return false; // leave it: the VM raises "division by zero"
+      *out = INT_VAL(AS_INT(a) / AS_INT(b));
+    } else {
+      // Float division is IEEE-defined even by zero (inf/nan), so always foldable.
+      *out = FLOAT_VAL(AS_NUM(a) / AS_NUM(b));
+    }
+    return true;
+  case OP_NODE_MOD:
+    if (!IS_INT(a) || !IS_INT(b))
+      return false;
+    if (AS_INT(b) == 0)
+      return false; // leave it: the VM raises "modulo by zero"
+    *out = INT_VAL(AS_INT(a) % AS_INT(b));
+    return true;
+  case OP_NODE_BITAND:
+  case OP_NODE_BITOR:
+  case OP_NODE_BITXOR: {
+    if (!IS_INT(a) || !IS_INT(b))
+      return false;
+    int64_t x = AS_INT(a), y = AS_INT(b);
+    *out = INT_VAL(op == OP_NODE_BITAND ? x & y
+                   : op == OP_NODE_BITOR ? x | y
+                                         : x ^ y);
+    return true;
+  }
+  case OP_NODE_SHL:
+  case OP_NODE_SHR: {
+    if (!IS_INT(a) || !IS_INT(b))
+      return false;
+    if (AS_INT(b) < 0 || AS_INT(b) > 63)
+      return false; // leave it: the VM raises "shift amount must be 0..63"
+    int64_t x = AS_INT(a), y = AS_INT(b);
+    *out = INT_VAL(op == OP_NODE_SHL ? (int64_t)((uint64_t)x << y) : x >> y);
+    return true;
+  }
+  case OP_NODE_EQUAL: // defined for all types
+    *out = BOOL_VAL(valuesEqual(a, b));
+    return true;
+  case OP_NODE_LESS:
+  case OP_NODE_GREATER:
+    if (!IS_NUM(a) || !IS_NUM(b))
+      return false;
+    *out = BOOL_VAL(op == OP_NODE_LESS ? AS_NUM(a) < AS_NUM(b)
+                                       : AS_NUM(a) > AS_NUM(b));
+    return true;
+  default:
+    return false;
+  }
+}
+
+// The current known-constant value of a variable (or "unknown"). Names are
+// interned, so identity is a pointer compare.
+typedef struct {
+  ObjString *var;
+  bool known;
+  Value val;
+} VarConst;
+
+static VarConst *findVar(VarConst *vars, int count, ObjString *name) {
+  for (int i = 0; i < count; i++)
+    if (vars[i].var == name)
+      return &vars[i];
+  return NULL;
+}
+
+// Rewrite an instruction in place into `dest = const v`, dropping its operands so
+// it reads as a pure constant (which also makes it a clean leaf for the step-65
+// dead-temp sweep).
+static void makeConst(IRInstr *in, Value v) {
+  in->op = IR_CONST;
+  in->constant = v;
+  in->a = in->b = -1;
+  in->var = NULL;
+}
+
+// Constant-propagate and fold, in one forward pass. Prints the IR before
+// ("lowered") and after ("optimised") so `--ir` shows the transformation.
+void optimizeIR(IRFunc *fn) {
+  printIR(fn, "lowered");
+
+  int n = fn->nextTemp;
+  bool *known = n ? calloc(n, sizeof(bool)) : NULL;   // does temp t hold a constant?
+  Value *val = n ? calloc(n, sizeof(Value)) : NULL;   // …and which one
+  VarConst *vars = NULL;
+  int varCount = 0, varCap = 0;
+
+  for (int i = 0; i < fn->count; i++) {
+    IRInstr *in = &fn->code[i];
+    switch (in->op) {
+    case IR_CONST:
+      if (in->dest >= 0) { known[in->dest] = true; val[in->dest] = in->constant; }
+      break;
+    case IR_LOAD: {
+      VarConst *vc = findVar(vars, varCount, in->var);
+      if (vc != NULL && vc->known) {
+        makeConst(in, vc->val); // propagate the variable's constant into the load
+        known[in->dest] = true;
+        val[in->dest] = vc->val;
+      } else {
+        known[in->dest] = false;
+      }
+      break;
+    }
+    case IR_STORE: {
+      VarConst *vc = findVar(vars, varCount, in->var);
+      if (vc == NULL) {
+        if (varCount + 1 > varCap) {
+          varCap = varCap < 8 ? 8 : varCap * 2;
+          vars = realloc(vars, sizeof(VarConst) * varCap);
+        }
+        vc = &vars[varCount++];
+        vc->var = in->var;
+      }
+      // The last store wins (straight-line code): record or clear its constant.
+      if (in->a >= 0 && known[in->a]) { vc->known = true; vc->val = val[in->a]; }
+      else vc->known = false;
+      break;
+    }
+    case IR_UNARY: {
+      Value out;
+      if (in->a >= 0 && known[in->a] && foldUnary(in->nodeOp, val[in->a], &out)) {
+        makeConst(in, out);
+        known[in->dest] = true;
+        val[in->dest] = out;
+      } else if (in->dest >= 0) {
+        known[in->dest] = false;
+      }
+      break;
+    }
+    case IR_BINARY: {
+      Value out;
+      if (in->a >= 0 && in->b >= 0 && known[in->a] && known[in->b] &&
+          foldBinary(in->nodeOp, val[in->a], val[in->b], &out)) {
+        makeConst(in, out);
+        known[in->dest] = true;
+        val[in->dest] = out;
+      } else if (in->dest >= 0) {
+        known[in->dest] = false;
+      }
+      break;
+    }
+    case IR_PRINT:
+      break;
+    }
+  }
+
+  free(known);
+  free(val);
+  free(vars);
+
+  printIR(fn, "optimised");
+}

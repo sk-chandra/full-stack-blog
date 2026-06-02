@@ -1859,10 +1859,23 @@ walks.
   --ir file` lowers the top level and each top-level function and prints the
   result — deliberately **without** running the AST folder first, so the IR
   optimiser has real constants to fold and the before/after is visible.
-- **Constant propagation + folding** (step 64b, next) and **CSE + dead-temp
-  elimination** (step 65) run on this IR — the analyses that were intractable on
-  the stack become local value-numbering and a liveness sweep here. That is the
-  payoff `--ir` is built to show.
+- ~~**Constant propagation + folding**~~ ✓ (step 64b) — `iropt.c` walks the IR
+  once. It tracks, per temporary, whether it holds a known constant, and per
+  variable, the constant last *stored* to it (sound because the code is straight-
+  line: the most recent store dominates every later load). So `load x` is
+  rewritten to the stored constant, and any op whose operands are all known is
+  folded to a `const`. The discipline that makes this safe is mirroring vm.c's
+  arithmetic *exactly* (int/float promotion, the truthiness rule, value equality)
+  and **refusing to fold anything the VM would raise** — division/modulo by zero,
+  an out-of-range shift, a type mismatch — so those instructions survive and fail
+  at runtime precisely as before. `cnano --ir` prints the IR before (`lowered`)
+  and after (`optimised`): `a = 2+3*4; b = a+a; print b` collapses to `print
+  const 28`. (The now-dead `const` temporaries that fed the folded ops are left in
+  place; the next step removes them.)
+- **CSE + dead-temp elimination** (step 65, next) run on this same IR — local
+  value-numbering to share repeated subexpressions, and a liveness sweep to delete
+  the temporaries nothing reads (including the dead consts left by folding). That
+  completes the payoff `--ir` is built to show.
 
 ### Other educational arcs ahead
 

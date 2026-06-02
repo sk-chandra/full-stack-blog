@@ -1317,7 +1317,7 @@ InterpretResult dumpIRFile(const char *path) {
   // The top-level straight-line code.
   IRFunc *top = lowerToIR(&program, "<script>");
   if (top != NULL) {
-    printIR(top, "lowered");
+    optimizeIR(top); // prints the IR before (lowered) and after (optimised)
     freeIR(top);
   } else {
     printf("== IR: <script> == (top level is not straight-line scalar code)\n\n");
@@ -1330,7 +1330,7 @@ InterpretResult dumpIRFile(const char *path) {
     const char *name = s->as.fun.name ? s->as.fun.name->chars : "fn";
     IRFunc *fn = lowerToIR(s->as.fun.body, name);
     if (fn != NULL) {
-      printIR(fn, "lowered");
+      optimizeIR(fn); // prints the IR before (lowered) and after (optimised)
       freeIR(fn);
     } else {
       printf("== IR: %s == (not straight-line scalar code; skipped)\n\n", name);

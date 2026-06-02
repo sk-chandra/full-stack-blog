@@ -46,4 +46,9 @@ IRFunc *lowerToIR(Program *body, const char *name);
 void freeIR(IRFunc *fn);
 void printIR(IRFunc *fn, const char *title);
 
+// Optimise the IR in place — constant propagation + folding (step 64b), then
+// CSE + dead-temp elimination (step 65). Prints the IR before ("lowered") and
+// after ("optimised") so `--ir` shows the transformation.
+void optimizeIR(IRFunc *fn);
+
 #endif // CNANO_IR_H

@@ -735,6 +735,27 @@ case "$ir_out2" in
   *)
     printf '  FAIL %-22s --ir should skip non-subset:\n%s\n' "ir-reject" "$ir_out2"; fail=$((fail + 1)) ;;
 esac
+# --- IR constant propagation + folding (step 64b) ---
+# `a` folds to 14 and propagates, so `a + a` folds to a constant 28 after opt.
+printf 'let a = 2 + 3 * 4; let b = a + a; print b;' > "$tmp"
+ir_opt="$("$CNANO" --ir "$tmp" 2>&1)"
+case "$ir_opt" in
+  *"optimised"*"const 28"*)
+    printf '  ok   %-22s --ir folds + propagates\n' "ir-fold"; pass=$((pass + 1)) ;;
+  *)
+    printf '  FAIL %-22s --ir did not fold to 28:\n%s\n' "ir-fold" "$ir_opt"; fail=$((fail + 1)) ;;
+esac
+# Soundness: division by zero must NOT be folded (the VM raises it at runtime),
+# so the divide survives into the optimised IR.
+printf 'let q = 10 / 0; print q;' > "$tmp"
+ir_dz="$("$CNANO" --ir "$tmp" 2>&1)"
+opt_section="${ir_dz#*optimised}"
+case "$opt_section" in
+  *" / "*)
+    printf '  ok   %-22s --ir leaves /0 unfolded\n' "ir-nofold-div0"; pass=$((pass + 1)) ;;
+  *)
+    printf '  FAIL %-22s --ir wrongly folded /0:\n%s\n' "ir-nofold-div0" "$ir_dz"; fail=$((fail + 1)) ;;
+esac
 
 # --- garbage collector (step 10) ---
 # Churn: 5000 short-lived closures (+ their upvalues) are allocated and become
