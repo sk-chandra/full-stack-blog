@@ -812,6 +812,12 @@ check_prog "gen-pick"     'fn pick<T>(c: bool, a: T, b: T): T { if (c) { return 
 check_prog "gen-inferred" 'fn id<T>(x: T) { return x; } print id(99);' "99"
 # T can itself be a container type (id over an array), solved end to end.
 check_prog "gen-array"    'fn id<T>(x: T): T { return x; } let xs = id([1,2,3]); print xs[1];' "2"
+# A type variable NESTED inside a parameter ([T]) is solved from the element type.
+check_prog "gen-nested"   'fn head<T>(xs: [T]): T { return xs[0]; } print head([10,20,30]);' "10"
+check_diag "gen-nested-enf" 'fn head<T>(xs: [T]): T { return xs[0]; } let b: bool = head([1,2]); print b;' \
+  "is int but variable is declared bool"
+# Two variables nested in a map parameter, both solved.
+check_prog "gen-map"      'fn pairUp<K, V>(k: K, v: V): {K: V} { return {k: v}; } let m = pairUp("age", 42); print m["age"];' "42"
 # The native backend has no parametric polymorphism, so it REJECTS generics.
 check_native_err "gen-native-reject" 'fn id<T>(x: T): T { return x; } print id(5);'
 

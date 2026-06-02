@@ -231,6 +231,13 @@ static Type *resolve(Type *t, int line) {
   }
   if (t->kind == TY_NULLABLE) // resolve inside `T?` (e.g. `Point?`)
     return typeNullable(resolve(t->element, line));
+  // Recurse into collection types so names nested inside them are resolved too —
+  // a struct reference (`[Point]`) or, for generics, a type parameter (`[T]`,
+  // `{K: V}`) becomes a type variable rather than a stuck reference.
+  if (t->kind == TY_ARRAY)
+    return typeArray(resolve(t->element, line));
+  if (t->kind == TY_MAP)
+    return typeMap(resolve(t->map.key, line), resolve(t->map.value, line));
   if (t->kind != TY_STRUCT || t->strct.fieldCount >= 0)
     return t; // not a reference (primitive, collection, or already resolved)
   // A bare name that matches an in-scope generic type parameter is a type

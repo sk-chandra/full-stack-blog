@@ -27,3 +27,13 @@ print echo(3.14);        // T = float -> 3.14
 // T can itself be a whole container type, solved end to end.
 let xs = id([10, 20, 30]); // T = [int]
 print xs[2];               // -> 30
+
+// A type variable can also be NESTED inside a parameter: the checker solves it
+// from the element/key/value types.
+fn head<T>(items: [T]): T { return items[0]; }
+fn pairUp<K, V>(key: K, val: V): {K: V} { return {key: val}; }
+
+print head([5, 6, 7]);     // T = int   -> 5
+let ages = pairUp("sam", 30); // K = str, V = int  -> {str: int}
+print ages["sam"];         // -> 30
+

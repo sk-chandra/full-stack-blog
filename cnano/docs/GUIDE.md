@@ -1941,11 +1941,17 @@ fewer annotations are needed without losing static checking.
   specialised copy per instantiation: faster code, but code-size blow-up and no
   separate compilation. (The `--native` backend, having no polymorphism, cleanly
   *rejects* a generic rather than miscompiling it.) Generics compose with return
-  inference — an unannotated `fn id<T>(x: T)` is inferred `: T`. Scope note: a
-  type variable nested *inside* a parameter (`fn head<T>(xs: [T]): T`) isn't
-  solved yet (only top-level positions unify), a documented next increment.
+  inference — an unannotated `fn id<T>(x: T)` is inferred `: T`.
+- ~~**Generics over nested positions**~~ ✓ (step 68) — a type variable nested
+  *inside* a parameter now solves too: `fn head<T>(xs: [T]): T` infers `T` from
+  the array's element type, and `fn pairUp<K, V>(k: K, v: V): {K: V}` solves both
+  from a map. The enabling change was tiny — `resolve` now recurses into `[…]` and
+  `{…}` (so a name nested in a collection becomes a type variable, the same way it
+  already did for `T?` and unions) — because `unify`/`substitute` were already
+  written to walk those shapes. (It also makes `resolve` more correct in general:
+  a struct reference nested in `[Point]` is now resolved, not left stuck.)
 - **Still ahead in this arc:** parameter-type inference from call sites, and
-  generics over nested positions (`[T]`, `{K: V}` parameters) and generic structs.
+  generic structs (`struct Box<T> { value: T }`).
 
 ### Other educational arcs ahead
 
