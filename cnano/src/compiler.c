@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "compiler.h"
+#include "dce.h"      // dead-block elimination (post-compile)
 #include "object.h"
 #include "peephole.h" // post-compile bytecode peephole pass
 
@@ -1121,8 +1122,10 @@ ObjFunction *compile(Program *program) {
   current = NULL;
   if (hadCompileError)
     return NULL;
-  // Post-compilation: a peephole pass over the script and every nested function
-  // (jumps are recomputed as bytes are removed). Only on a clean compile.
+  // Post-compilation passes over the script and every nested function (jumps are
+  // recomputed as bytes are removed). Only on a clean compile. Peephole first
+  // (it can leave a JUMP dead), then drop any now-unreachable basic blocks.
   peepholeFunction(function);
+  eliminateDeadBlocks(function);
   return function;
 }

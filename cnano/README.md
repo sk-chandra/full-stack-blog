@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (673 cases, incl. native + GC)
+make test       # run the end-to-end test suite (675 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -200,8 +200,10 @@ make run        # start the REPL
   files**, errors name the file they came from (`[lib/math.cn:2] Type error: …`),
   including each frame of a runtime stack trace; single-file programs keep the
   familiar `[line N]`. The compiler also builds a **control-flow graph** of each
-  function (`--cfg` prints basic blocks + edges) and **warns on unreachable
-  code** (a statement after a definite `return`/`break`/`continue`/`throw`)
+  function (`--cfg` prints basic blocks + edges), **warns on unreachable code** (a
+  statement after a definite `return`/`break`/`continue`/`throw`), and runs
+  **dead-block elimination** over the CFG (dropping blocks the VM can never reach,
+  with the jump offsets recomputed)
 - **Native compilation** (ahead-of-time): `cnano --native file.cn -o prog`
   compiles the **statically-typed, first-order subset** to C and invokes the
   system `cc`, producing a standalone native executable with no interpreter.
@@ -265,6 +267,7 @@ make run        # start the REPL
 | `src/optimize.{h,c}` | AST optimisation pass | constant folding (bottom-up rewrite) |
 | `src/peephole.{h,c}` | bytecode optimisation pass | delete dead pairs + remap jump offsets |
 | `src/cfg.{h,c}` | control-flow graph | basic blocks + edges over bytecode (`--cfg`); reachability |
+| `src/dce.{h,c}` | dead-block elimination | drop unreachable blocks; recompute spanning jumps |
 | `src/codegen_c.{h,c}` | native backend | AST → C source → `cc` → executable (AOT) |
 | `src/memory.{h,c}` | GC + allocator | mark-and-sweep, tri-colour worklist, weak intern table |
 | `src/value.{h,c}` | values + constant pool | tagged-union dynamic values |

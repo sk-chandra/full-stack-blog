@@ -1821,8 +1821,25 @@ local folding + a peephole pass. This arc builds the missing machinery.
   falls through — so it false-positived on idiomatic, correct code. (All-paths-
   return is left as future work: it needs the checker's exhaustiveness result and
   constant-condition info threaded into the analysis.)
-- next: constant propagation, dead-code elimination, and value numbering / CSE,
-  all over the bytecode CFG.
+- ~~**Dead-block elimination**~~ ✓ (step 63) — `dce.c` drops basic blocks the
+  CFG marks unreachable (compiler artifacts like the jump-over an if-branch that
+  returns, or the implicit trailing return after an explicit one), recomputing the
+  jump offsets that span the removed bytes (the peephole's compaction, here driven
+  by the CFG). Removing never-run code can't change behaviour, so the whole suite
+  stays byte-identical — the proof the jump-remapping is right.
+- **A finding worth more than the code:** the *value-level* optimizations
+  originally planned here — constant propagation, value dead-store elimination,
+  CSE — turn out to resist stack bytecode. "The value in local slot N" isn't
+  directly addressable: a `let x = 5` just leaves the constant at a stack
+  position, so identifying it needs a whole-function abstract interpreter that
+  tracks the operand stack with a correct per-opcode stack-effect model — high
+  surface, real miscompile risk, modest payoff (the AST folder already took the
+  easy wins). This is the same lesson as the GC chapter: **the representation
+  dictates which optimizations are tractable.** It is precisely *why* optimizing
+  compilers introduce a register/SSA intermediate representation — where values
+  are named and these analyses become natural. So const-prop/CSE are deferred to
+  a future **IR arc** (build a small three-address/SSA IR, optimise there, lower
+  back to bytecode), the honest and proper home for them.
 
 ### Other educational arcs ahead
 

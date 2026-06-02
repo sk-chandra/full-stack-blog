@@ -686,12 +686,18 @@ case "$cfg_out" in
   *)
     printf '  FAIL %-22s --cfg output unexpected:\n%s\n' "cfg-blocks" "$cfg_out"; fail=$((fail + 1)) ;;
 esac
+# --cfg reflects the FINAL (optimised) chunk — dead-block elimination (step 63)
+# has already removed unreachable blocks, so none should remain.
 case "$cfg_out" in
   *"unreachable"*)
-    printf '  ok   %-22s --cfg unreachable ok\n' "cfg-unreach"; pass=$((pass + 1)) ;;
+    printf '  FAIL %-22s --cfg still shows an unreachable block (DCE missed it)\n' "dce-clean"
+    fail=$((fail + 1)) ;;
   *)
-    printf '  FAIL %-22s --cfg missing unreachable block\n' "cfg-unreach"; fail=$((fail + 1)) ;;
+    printf '  ok   %-22s no unreachable blocks after DCE\n' "dce-clean"; pass=$((pass + 1)) ;;
 esac
+# DCE must be behaviour-preserving: dead-code-heavy programs still compute right.
+check_prog "dce-correct" 'fn f(n){ if (n<0) { return 0; } let s=0; while(n>0){ s+=n; n-=1; } return s; } print f(4);' "10"
+check_prog "dce-ifret"   'fn g(n){ if (n>0) { return "pos"; } else { return "neg"; } print "dead"; } print g(1); print g(-1);' "$(printf 'pos\nneg')"
 
 # --- unreachable-code analysis (step 62) ---
 # A statement after a definite control transfer warns (non-fatal: still runs).
