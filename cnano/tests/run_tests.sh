@@ -400,6 +400,12 @@ check_prog "assign-is-expr"   "let a = 0; print a = 7;"           "7"
 check_prog "var-keeps-state"  "let n = 1; n = n + n; n = n + n; print n;" "4"
 # Force the hash table to grow past its initial 8 buckets (>6 keys at 0.75 load).
 check_prog "many-globals"     "let a=1;let b=2;let c=3;let d=4;let e=5;let f=6;let g=7;let h=8;let i=9;print a+b+c+d+e+f+g+h+i;" "45"
+# Regression: with exactly 6 globals (count at the 0.75 load of an 8-slot table),
+# ASSIGNING to a global inside a loop used to trigger a table resize on the very
+# first update — which rehashed every entry to a new index WITHOUT bumping the
+# inline-cache generation, so later reads hit an empty bucket and saw nil. The fix
+# is that an update never grows the table. acc must accumulate 4*(1+2+3+4)=40.
+check_prog "global-cache-resize" "let a=1;let b=2;let c=3;let d=4;let acc=0;let i=0; while(i<4){ acc=acc+a+b+c+d; i=i+1; } print acc;" "40"
 
 # --- strings (step 3) ---
 check_prog "string-literal"   'print "hello";'                    "hello"

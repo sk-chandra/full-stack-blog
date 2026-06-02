@@ -664,6 +664,9 @@ static InterpretResult run(bool trace, int stopFrame) {
       // whose value (1) stays on the stack for the surrounding context.
       if (tableSet(&vm.globals, name, peek(0))) {
         tableDelete(&vm.globals, name);
+        // That errant insert may have grown/rehashed the table; re-validate every
+        // cached global index. (Matters if this error is caught by a try/catch.)
+        vm.globalsGen++;
         runtimeError("undefined variable '%s'", name->chars);
         return INTERPRET_RUNTIME_ERROR;
       }

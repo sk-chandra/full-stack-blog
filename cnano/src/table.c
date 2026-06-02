@@ -112,12 +112,22 @@ static void adjustCapacity(Table *table, int capacity) {
 }
 
 bool tableSet(Table *table, ObjString *key, Value value) {
-  // Grow before we exceed the load factor. count includes tombstones on purpose:
-  // a table full of tombstones still has long probe sequences, so we grow (which
-  // clears them) based on the occupied-or-tombstoned total.
+  // Grow before we exceed the load factor — but ONLY when this set will actually
+  // INSERT a new key (count rises). Updating an existing key must never grow,
+  // because a resize moves every entry to a new bucket index, and the global
+  // inline cache (vm.c) caches an entry INDEX that is only re-resolved when the
+  // generation bumps — and the generation bumps on global DEFINE, not on a plain
+  // assignment. Growing on an update would silently invalidate those caches.
   if (table->count + 1 > table->capacity * TABLE_MAX_LOAD) {
-    int capacity = table->capacity < 8 ? 8 : table->capacity * 2;
-    adjustCapacity(table, capacity);
+    bool willInsert = true; // (also true when there is no storage yet)
+    if (table->capacity > 0) {
+      Entry *existing = findEntry(table->entries, table->capacity, key);
+      willInsert = existing->key == NULL && IS_NIL(existing->value); // empty bucket
+    }
+    if (willInsert) {
+      int capacity = table->capacity < 8 ? 8 : table->capacity * 2;
+      adjustCapacity(table, capacity);
+    }
   }
 
   Entry *entry = findEntry(table->entries, table->capacity, key);

@@ -2028,7 +2028,18 @@ how a language works rather than a pile of features.
   (re-validated by the token), not a pointer, sidesteps the dangling-pointer
   hazard of a table that reallocates — a bug a GC-stress test would NOT have
   caught, since it's a non-GC realloc. Measured ~15–25% faster on global-heavy
-  workloads like `fib`).
+  workloads like `fib`. **A sequel bug, found and fixed in step 71:** the cache's
+  whole invariant is "an entry index only moves when the generation bumps, and the
+  generation bumps on global *define*." But `tableSet` grew the table whenever
+  `count+1` crossed the load factor — *including on a plain update* — so assigning
+  to an existing global with exactly six globals live (count 6 in an 8-slot table)
+  resized and rehashed mid-loop, moving every index *without* a generation bump.
+  Later reads then hit an empty bucket and saw `nil` → a spurious "operands must
+  be numbers". The fix is a one-liner with a clear rule: **an update must never
+  grow the table** (only an insert may), restoring the cache's invariant. A
+  lesson in how an optimisation silently couples to a data structure's resize
+  policy — and why the fix belongs in `tableSet`, not in a `globalsGen` bump
+  papered over the symptom.)
 - **Type-system depth (DONE):** ~~`match` exhaustiveness checking~~ ✓ (step 56 —
   over a *closed* domain, an enum or bool variable, a match with no `_` must cover
   every case or it's a compile error; an already-exhaustive match whose `_` can
