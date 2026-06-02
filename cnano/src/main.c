@@ -94,6 +94,9 @@ int main(int argc, const char *argv[]) {
     runFile(argv[2], true);
   } else if (argc == 3 && strcmp(argv[1], "--emit-c") == 0) {
     emitCFile(argv[2]);
+  } else if (argc == 3 && strcmp(argv[1], "--cfg") == 0) {
+    if (dumpCFGFile(argv[2]) != INTERPRET_OK)
+      exit(65);
   } else if (argc == 3 && strcmp(argv[1], "--stats") == 0) {
     // Profile a run: tally instructions/allocations/GC, then print a summary.
     vm.collectStats = true;
@@ -109,6 +112,7 @@ int main(int argc, const char *argv[]) {
             "  cnano                     start the REPL\n"
             "  cnano --dump path         run, showing bytecode + a VM trace\n"
             "  cnano --emit-c path       print generated C (typed subset)\n"
+            "  cnano --cfg path          print each function's control-flow graph\n"
             "  cnano --stats path        run, then print a profiling summary\n"
             "  cnano --native path -o X  compile to a native executable X\n");
     freeVM();

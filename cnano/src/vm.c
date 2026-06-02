@@ -6,6 +6,7 @@
 #include "builtins.h"
 #include "codegen_c.h"
 #include "compiler.h"
+#include "cfg.h"
 #include "debug.h"
 #include "memory.h"
 #include "module.h"
@@ -1284,4 +1285,37 @@ InterpretResult compileFileToC(const char *path, FILE *cFile) {
     return INTERPRET_COMPILE_ERROR;
   }
   return emitProgram(&program, cFile);
+}
+
+// Print the control-flow graph of a function and, recursively, of every nested
+// function it defines (which ride in its constant pool).
+static void cfgForFunction(ObjFunction *fn) {
+  CFG *cfg = buildCFG(&fn->chunk);
+  printCFG(cfg, fn->name ? fn->name->chars : "<script>");
+  freeCFG(cfg);
+  for (int i = 0; i < fn->chunk.constants.count; i++)
+    if (IS_FUNCTION(fn->chunk.constants.values[i]))
+      cfgForFunction(AS_FUNCTION(fn->chunk.constants.values[i]));
+}
+
+InterpretResult dumpCFGFile(const char *path) {
+  vm.gcEnabled = false;
+  Program program;
+  if (!loadModuleFile(path, &program)) {
+    freeTypes();
+    return INTERPRET_COMPILE_ERROR;
+  }
+  if (!typecheckProgram(&program)) {
+    freeProgram(&program);
+    freeTypes();
+    return INTERPRET_COMPILE_ERROR;
+  }
+  foldConstants(&program);
+  ObjFunction *function = compile(&program);
+  freeProgram(&program);
+  freeTypes();
+  if (function == NULL)
+    return INTERPRET_COMPILE_ERROR;
+  cfgForFunction(function);
+  return INTERPRET_OK;
 }

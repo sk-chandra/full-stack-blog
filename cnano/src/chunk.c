@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #include "chunk.h"
+#include "object.h" // AS_FUNCTION — CLOSURE's length depends on its upvalue count
 
 void initChunk(Chunk *chunk) {
   chunk->count = 0;
@@ -40,4 +41,41 @@ void writeChunk(Chunk *chunk, uint8_t byte, int line) {
 
 int addConstant(Chunk *chunk, Value value) {
   return writeValueArray(&chunk->constants, value);
+}
+
+int instructionLength(Chunk *chunk, int offset) {
+  switch (chunk->code[offset]) {
+  case OP_CONSTANT_LONG:
+    return 4;
+  case OP_JUMP:
+  case OP_JUMP_IF_FALSE:
+  case OP_LOOP:
+  case OP_BEGIN_TRY:
+  case OP_INVOKE:
+    return 3;
+  case OP_CONSTANT:
+  case OP_DEFINE_GLOBAL:
+  case OP_GET_GLOBAL:
+  case OP_SET_GLOBAL:
+  case OP_GET_LOCAL:
+  case OP_SET_LOCAL:
+  case OP_GET_UPVALUE:
+  case OP_SET_UPVALUE:
+  case OP_CALL:
+  case OP_TAIL_CALL:
+  case OP_BUILD_ARRAY:
+  case OP_BUILD_MAP:
+  case OP_GET_FIELD:
+  case OP_SET_FIELD:
+  case OP_METHOD:
+  case OP_IS_KIND:
+    return 2;
+  case OP_CLOSURE: {
+    // Variable length: the function constant, then two bytes per upvalue.
+    ObjFunction *fn = AS_FUNCTION(chunk->constants.values[chunk->code[offset + 1]]);
+    return 2 + 2 * fn->upvalueCount;
+  }
+  default:
+    return 1; // every operand-less opcode
+  }
 }

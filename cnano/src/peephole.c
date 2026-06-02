@@ -5,44 +5,8 @@
 #include "chunk.h"
 #include "peephole.h"
 
-// The byte length of the instruction starting at `off`. Mirrors the disassembler:
-// most ops are 1 byte, operand-carrying ops 2, jumps/INVOKE 3, CONSTANT_LONG 4,
-// and CLOSURE is variable (2 + 2 per captured upvalue, read from its function).
-static int instrLen(Chunk *c, int off) {
-  switch (c->code[off]) {
-  case OP_CONSTANT_LONG:
-    return 4;
-  case OP_JUMP:
-  case OP_JUMP_IF_FALSE:
-  case OP_LOOP:
-  case OP_BEGIN_TRY:
-  case OP_INVOKE:
-    return 3;
-  case OP_CONSTANT:
-  case OP_DEFINE_GLOBAL:
-  case OP_GET_GLOBAL:
-  case OP_SET_GLOBAL:
-  case OP_GET_LOCAL:
-  case OP_SET_LOCAL:
-  case OP_GET_UPVALUE:
-  case OP_SET_UPVALUE:
-  case OP_CALL:
-  case OP_TAIL_CALL:
-  case OP_BUILD_ARRAY:
-  case OP_BUILD_MAP:
-  case OP_GET_FIELD:
-  case OP_SET_FIELD:
-  case OP_METHOD:
-  case OP_IS_KIND:
-    return 2;
-  case OP_CLOSURE: {
-    ObjFunction *fn = AS_FUNCTION(c->constants.values[c->code[off + 1]]);
-    return 2 + 2 * fn->upvalueCount;
-  }
-  default:
-    return 1; // all the operand-less ops
-  }
-}
+// The byte length of the instruction at `off` (shared with the CFG builder).
+static int instrLen(Chunk *c, int off) { return instructionLength(c, off); }
 
 static bool isJump(uint8_t op) {
   return op == OP_JUMP || op == OP_JUMP_IF_FALSE || op == OP_LOOP ||

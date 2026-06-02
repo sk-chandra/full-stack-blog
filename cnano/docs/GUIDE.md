@@ -1797,7 +1797,23 @@ programs define their own types, and makes failure recoverable.
     renderer just needs the buffer origin (`lexerSource()`) to find the line and
     column; EOF and lexer-error tokens degrade to a line without a caret.
 
-### The educational arcs ahead
+### The optimising middle-end (Arc 6, in progress)
+
+The biggest gap in cnano's education was the *middle-end* — real compilers go
+front-end → IR → optimise → back-end, and cnano went AST → bytecode with only
+local folding + a peephole pass. This arc builds the missing machinery.
+
+- ~~**Control-flow graph**~~ ✓ (step 61) — `cfg.c` splits a chunk's flat bytecode
+  into BASIC BLOCKS (straight-line runs bounded by jump targets and control
+  transfers) and connects them with edges mirroring the jumps; a worklist walk
+  from the entry marks reachable blocks. `cnano --cfg file` prints it — the
+  data-flow analogue of `--dump`. The instruction-length decoder is now shared
+  (`instructionLength` in chunk.c) between the CFG and the peephole pass. This is
+  the backbone every later analysis iterates over.
+- next: a data-flow framework + safe checks (unreachable code, all-paths-return),
+  then constant propagation, dead-code elimination, and value numbering / CSE.
+
+### Other educational arcs ahead
 
 These are grouped by the concept each teaches, to keep cnano a *complete map* of
 how a language works rather than a pile of features.

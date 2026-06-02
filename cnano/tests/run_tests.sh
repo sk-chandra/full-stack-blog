@@ -676,6 +676,23 @@ case "$gc_stats" in
     printf '  FAIL %-22s GC stats missing:\n%s\n' "gc-stats" "$gc_stats"; fail=$((fail + 1)) ;;
 esac
 
+# --- control-flow graph (step 61) ---
+# --cfg prints basic blocks + successor edges, and flags unreachable blocks.
+printf 'fn f(n){ if (n<0) { return 0; } let s=0; while(n>0){ s+=n; n-=1; } return s; } print f(3);' > "$tmp"
+cfg_out="$("$CNANO" --cfg "$tmp" 2>&1)"
+case "$cfg_out" in
+  *"CFG: f"*"B0"*"->"*)
+    printf '  ok   %-22s --cfg ok\n' "cfg-blocks"; pass=$((pass + 1)) ;;
+  *)
+    printf '  FAIL %-22s --cfg output unexpected:\n%s\n' "cfg-blocks" "$cfg_out"; fail=$((fail + 1)) ;;
+esac
+case "$cfg_out" in
+  *"unreachable"*)
+    printf '  ok   %-22s --cfg unreachable ok\n' "cfg-unreach"; pass=$((pass + 1)) ;;
+  *)
+    printf '  FAIL %-22s --cfg missing unreachable block\n' "cfg-unreach"; fail=$((fail + 1)) ;;
+esac
+
 # --- "did you mean …?" suggestions (step 51) ---
 check_diag "sug-field"   'struct P { x: int, y: int } let p = P(1,2); print p.xx;' "did you mean 'x'?"
 check_diag "sug-global"  'let count = 5; print conut;' "did you mean 'count'?"

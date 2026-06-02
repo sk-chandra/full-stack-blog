@@ -153,4 +153,7 @@ InterpretResult compileToC(const char *source, FILE *cFile);
 // file's directory (used by `--emit-c` and `--native`).
 InterpretResult compileFileToC(const char *path, FILE *cFile);
 
+// Compile FILE and print the control-flow graph of every function (`--cfg`).
+InterpretResult dumpCFGFile(const char *path);
+
 #endif // CNANO_VM_H

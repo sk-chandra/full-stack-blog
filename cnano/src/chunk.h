@@ -176,4 +176,10 @@ void writeChunk(Chunk *chunk, uint8_t byte, int line);
 // Add a constant to the pool and return its index, for use as an OP_CONSTANT operand.
 int addConstant(Chunk *chunk, Value value);
 
+// The byte length of the instruction beginning at `offset` (1 for operand-less
+// ops, 2 for one-byte-operand ops, 3 for jumps/INVOKE, 4 for CONSTANT_LONG, and
+// 2 + 2*upvalues for CLOSURE). Shared by every pass that walks raw bytecode — the
+// peephole optimiser, the CFG builder, and so on.
+int instructionLength(Chunk *chunk, int offset);
+
 #endif // CNANO_CHUNK_H
