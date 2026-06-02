@@ -164,4 +164,8 @@ InterpretResult dumpIRFile(const char *path);
 // (`--types`) — return-type inference and let-inference made visible.
 InterpretResult dumpTypesFile(const char *path);
 
+// Compile FILE's straight-line integer code through the IR to x86-64 assembly,
+// written to stdout (`--asm`). The real machine-code back end.
+InterpretResult dumpAsmFile(const char *path);
+
 #endif // CNANO_VM_H

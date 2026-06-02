@@ -354,12 +354,18 @@ static void deadTempElim(IRFunc *fn) {
   free(live);
 }
 
+// Run the optimisation passes in place, without printing — for backends (the
+// x86-64 emitter) that want the optimised IR but not the --ir commentary.
+void optimizeIRPasses(IRFunc *fn) {
+  constPropFold(fn); // propagate + fold constants
+  cse(fn);           // share repeated subexpressions
+  deadTempElim(fn);  // drop temporaries nothing reads
+}
+
 // Optimise the IR in place and show the result. Prints "lowered" (the raw
 // lowering), then runs the three passes, then prints "optimised".
 void optimizeIR(IRFunc *fn) {
   printIR(fn, "lowered");
-  constPropFold(fn); // propagate + fold constants
-  cse(fn);           // share repeated subexpressions
-  deadTempElim(fn);  // drop temporaries nothing reads
+  optimizeIRPasses(fn);
   printIR(fn, "optimised");
 }

@@ -5,6 +5,7 @@
 
 #include "builtins.h"
 #include "codegen_c.h"
+#include "codegen_x64.h"
 #include "compiler.h"
 #include "cfg.h"
 #include "debug.h"
@@ -1339,6 +1340,45 @@ InterpretResult dumpIRFile(const char *path) {
   freeProgram(&program);
   freeTypes();
   return INTERPRET_OK;
+}
+
+// `--asm`: lower the top-level straight-line integer code to IR, optimise it,
+// and emit x86-64 assembly to stdout (which `cc` can assemble into a binary).
+InterpretResult dumpAsmFile(const char *path) {
+  vm.gcEnabled = false;
+  Program program;
+  if (!loadModuleFile(path, &program)) {
+    freeTypes();
+    return INTERPRET_COMPILE_ERROR;
+  }
+  if (!typecheckProgram(&program)) {
+    freeProgram(&program);
+    freeTypes();
+    return INTERPRET_COMPILE_ERROR;
+  }
+  IRFunc *top = lowerToIR(&program, "<script>");
+  InterpretResult result = INTERPRET_OK;
+  if (top == NULL) {
+    fprintf(stderr,
+            "cnano: the x86-64 backend only supports straight-line scalar code "
+            "(no control flow, calls, or collections).\n");
+    result = INTERPRET_COMPILE_ERROR;
+  } else {
+    // Emit from the LOWERED (unoptimised) IR on purpose: on literal-only
+    // straight-line code the optimiser folds everything to constants, which would
+    // hide the instruction selection and register allocation this backend exists
+    // to show. (`--ir` already demonstrates the optimiser; running
+    // optimizeIRPasses(top) here first would simply produce tighter code.)
+    if (!emitX64(top, stdout)) {
+      fprintf(stderr, "cnano: the x86-64 backend only supports integer code "
+                      "(no bool/float values).\n");
+      result = INTERPRET_COMPILE_ERROR;
+    }
+    freeIR(top);
+  }
+  freeProgram(&program);
+  freeTypes();
+  return result;
 }
 
 // `--types`: type-check (which runs return-type inference) and print the static

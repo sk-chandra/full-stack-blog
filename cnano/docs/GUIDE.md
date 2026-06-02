@@ -1953,6 +1953,41 @@ fewer annotations are needed without losing static checking.
 - **Still ahead in this arc:** parameter-type inference from call sites, and
   generic structs (`struct Box<T> { value: T }`).
 
+### A real machine-code back end (Arc 8, in progress)
+
+Until now cnano's "native" path transpiled to C and let `cc` do instruction
+selection and register allocation. That teaches AOT compilation but hides the two
+jobs at the heart of a code generator. This arc emits machine code directly.
+
+- ~~**x86-64 assembly from the IR**~~ ✓ (step 69) — `codegen_x64.c` turns the
+  three-address IR into AT&T-syntax x86-64 assembly (`cnano --asm`), assembled and
+  linked by `cc` into a standalone binary. It does the two canonical jobs:
+  - **Instruction selection:** each IR op becomes one or two instructions — `t =
+    a + b` → `mov a→rax; add b→rax; mov rax→t`; `imulq` for `*`; `cqto; idivq` for
+    `/` and `%` (quotient in `rax`, remainder in `rdx`); `sal/sar` via `cl` for
+    shifts; `printf` for `print`, under the System V calling convention.
+  - **Register allocation by linear scan:** the IR has unboundedly many
+    temporaries; the machine has a handful of registers. We compute each temp's
+    live range `[def … last use]`, then sweep the instructions once, handing out
+    registers and reclaiming them as ranges end. When more values are live than
+    there are registers, we **spill** the one whose range ends latest to a stack
+    slot — the textbook heuristic. Allocating the five *callee-saved* registers
+    (`rbx`, `r12–r15`) is a deliberate trick: their values survive the `call
+    printf`, so there is nothing to save around calls.
+
+  This is why the IR was worth building: the same named-temporary representation
+  that made the value optimisations tractable (Arc 6) is exactly what a register
+  allocator consumes. The backend is deliberately fed the *unoptimised* IR, so the
+  arithmetic and the allocator's register reuse (and, for a deep enough
+  expression, a real spill) are visible in the output — `--ir` already shows what
+  the optimiser would fold away. Scope is the straight-line **integer** subset;
+  booleans, floats, control flow, and calls are out of range and cleanly rejected
+  (`emitX64` returns false) rather than miscompiled.
+- **Still ahead in this arc:** control flow (labels + conditional jumps) and
+  function calls/frames in the emitter; floats via the SSE registers; then either
+  an ARM64 second target (to separate the *shape* of code generation from one
+  ISA) or emitting object code/ELF directly instead of going through `cc`.
+
 ### Other educational arcs ahead
 
 These are grouped by the concept each teaches, to keep cnano a *complete map* of

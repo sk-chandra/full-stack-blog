@@ -103,6 +103,9 @@ int main(int argc, const char *argv[]) {
   } else if (argc == 3 && strcmp(argv[1], "--types") == 0) {
     if (dumpTypesFile(argv[2]) != INTERPRET_OK)
       exit(65);
+  } else if (argc == 3 && strcmp(argv[1], "--asm") == 0) {
+    if (dumpAsmFile(argv[2]) != INTERPRET_OK)
+      exit(65);
   } else if (argc == 3 && strcmp(argv[1], "--stats") == 0) {
     // Profile a run: tally instructions/allocations/GC, then print a summary.
     vm.collectStats = true;
@@ -121,6 +124,7 @@ int main(int argc, const char *argv[]) {
             "  cnano --cfg path          print each function's control-flow graph\n"
             "  cnano --ir path           lower straight-line code to IR and print it\n"
             "  cnano --types path        print the inferred type of each top-level binding\n"
+            "  cnano --asm path          emit x86-64 assembly for straight-line integer code\n"
             "  cnano --stats path        run, then print a profiling summary\n"
             "  cnano --native path -o X  compile to a native executable X\n");
     freeVM();

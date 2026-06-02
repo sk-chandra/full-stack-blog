@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (696 cases, incl. native + GC)
+make test       # run the end-to-end test suite (705 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -43,6 +43,7 @@ make run        # start the REPL
 # compile the typed subset to a NATIVE executable (no interpreter), then run it
 ./build/cnano --native examples/native.cn -o /tmp/demo && /tmp/demo
 ./build/cnano --emit-c examples/native.cn      # or just inspect the generated C
+./build/cnano --asm examples/asm.cn            # x86-64 asm from the IR (regalloc + instr selection)
 
 # REPL (statements end with ';'; output only via `print`)
 ./build/cnano
@@ -228,6 +229,14 @@ make run        # start the REPL
   The VM still runs the full dynamic language; anything outside the scalar
   subset (collections, structs, closures, nullable/union, `nil`) is cleanly
   rejected rather than miscompiled
+- **x86-64 assembly backend**: `cnano --asm file.cn` compiles straight-line
+  **integer** code through the three-address IR all the way to real machine code,
+  doing the two jobs a back end must — **instruction selection** (each IR op → one
+  or two x86-64 instructions) and **register allocation** by **linear scan** over
+  the temporaries' live ranges, spilling to the stack when more than the five
+  callee-saved registers are live at once. The emitted assembly assembles and
+  links with `cc` into a standalone binary whose output matches the VM. This is
+  the IR's payoff as a *code-generation* substrate, not just an optimisation one
 - **Garbage collection**: a **mark-and-sweep** tracing collector reclaims dead
   heap objects *while the program runs* (an allocation-churning loop stays at
   bounded memory instead of growing forever). Tri-colour marking with an explicit
@@ -284,7 +293,8 @@ make run        # start the REPL
 | `src/dce.{h,c}` | dead-block elimination | drop unreachable blocks; recompute spanning jumps |
 | `src/ir.{h,c}` | three-address IR | named temporaries; the home for value optimisations (`--ir`) |
 | `src/iropt.c` | IR optimiser | constant propagation + folding, CSE (value numbering), dead-temp elimination |
-| `src/codegen_c.{h,c}` | native backend | AST → C source → `cc` → executable (AOT) |
+| `src/codegen_c.{h,c}` | native (C) backend | AST → C source → `cc` → executable (AOT) |
+| `src/codegen_x64.{h,c}` | x86-64 backend | IR → assembly; linear-scan register allocation + spilling (`--asm`) |
 | `src/memory.{h,c}` | GC + allocator | mark-and-sweep, tri-colour worklist, weak intern table |
 | `src/value.{h,c}` | values + constant pool | tagged-union dynamic values |
 | `src/object.{h,c}` | heap objects: strings, functions, natives, arrays, maps, closures, upvalues | object model, interning, value-keyed map table |

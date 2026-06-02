@@ -51,4 +51,7 @@ void printIR(IRFunc *fn, const char *title);
 // after ("optimised") so `--ir` shows the transformation.
 void optimizeIR(IRFunc *fn);
 
+// The same passes, without the before/after printing — for the x86-64 backend.
+void optimizeIRPasses(IRFunc *fn);
+
 #endif // CNANO_IR_H

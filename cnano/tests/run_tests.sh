@@ -144,6 +144,43 @@ check_native_err() {
   fi
 }
 
+# check_asm NAME PROGRAM EXPECTED — emit x86-64 assembly (--asm), assemble + link
+# it with cc, run the binary, and compare its stdout. This proves the machine-code
+# backend agrees with the VM down to real instructions.
+check_asm() {
+  local name="$1" prog="$2" expected="$3"
+  if [ "$HAVE_CC" -eq 0 ]; then
+    printf '  skip %-22s (no cc found)\n' "$name"; return
+  fi
+  printf '%s' "$prog" > "$tmp"
+  local asm="${tmp}.s" bin="${tmp}.asmbin"
+  if ! "$CNANO" --asm "$tmp" > "$asm" 2>/dev/null; then
+    printf '  FAIL %-22s : --asm emission failed\n' "$name"; fail=$((fail + 1)); return
+  fi
+  if ! cc "$asm" -o "$bin" >/dev/null 2>&1; then
+    printf '  FAIL %-22s : assembling emitted code failed\n' "$name"; fail=$((fail + 1)); rm -f "$asm"; return
+  fi
+  local got; got="$("$bin" 2>/dev/null)"
+  rm -f "$asm" "$bin"
+  if [ "$got" = "$expected" ]; then
+    printf '  ok   %-22s (asm) ok\n' "$name"; pass=$((pass + 1))
+  else
+    printf '  FAIL %-22s asm: expected [%s] got [%s]\n' "$name" "$expected" "$got"; fail=$((fail + 1))
+  fi
+}
+
+# check_asm_err NAME PROGRAM — expect the x86-64 backend to REJECT a program
+# (out-of-subset: bool/float/control-flow/calls).
+check_asm_err() {
+  local name="$1" prog="$2"
+  printf '%s' "$prog" > "$tmp"
+  if "$CNANO" --asm "$tmp" >/dev/null 2>&1; then
+    printf '  FAIL %-22s : asm expected rejection, but it emitted\n' "$name"; fail=$((fail + 1))
+  else
+    printf '  ok   %-22s -> asm rejected (as expected)\n' "$name"; pass=$((pass + 1))
+  fi
+}
+
 # check_module NAME ENTRY_REL EXPECTED FILE1 BODY1 [FILE2 BODY2 ...] — write a set
 # of files into a fresh temp directory (relative paths preserved, subdirs created)
 # and run ENTRY_REL on the VM, comparing stdout. Exercises `import` resolution.
@@ -820,6 +857,23 @@ check_diag "gen-nested-enf" 'fn head<T>(xs: [T]): T { return xs[0]; } let b: boo
 check_prog "gen-map"      'fn pairUp<K, V>(k: K, v: V): {K: V} { return {k: v}; } let m = pairUp("age", 42); print m["age"];' "42"
 # The native backend has no parametric polymorphism, so it REJECTS generics.
 check_native_err "gen-native-reject" 'fn id<T>(x: T): T { return x; } print id(5);'
+
+# --- x86-64 assembly backend (step 69) ---
+# Emit real machine code from the IR, assemble it, run it, and check it agrees
+# with the VM. Covers instruction selection, the printf calling convention, and
+# (in asm-spill) the register allocator's spill path.
+check_asm "asm-arith"   'print 2 + 3 * 4;'                              "14"
+check_asm "asm-vars"    'let a = 10; let b = a * a; print a; print b;'  "$(printf '10\n100')"
+check_asm "asm-ops"     'let x = 100; print x / 7; print x % 7; print x - 1;' "$(printf '14\n2\n99')"
+check_asm "asm-bitwise" 'print (12 & 10) | (1 << 4);'                   "$(printf '24')"
+check_asm "asm-neg"     'let n = 5; print -n; print ~n;'                "$(printf -- '-5\n-6')"
+# A right-nested expression keeps 6 temps live at once (> 5 registers), so the
+# allocator must SPILL — and the result must still be correct.
+check_asm "asm-spill"   'let r = 1 + (2 + (3 + (4 + (5 + (6 + 7))))); print r; print r * 3;' "$(printf '28\n84')"
+# Out-of-subset programs are cleanly rejected, not miscompiled.
+check_asm_err "asm-rej-float" 'let x = 1.5; print x;'
+check_asm_err "asm-rej-bool"  'print 1 < 2;'
+check_asm_err "asm-rej-flow"  'fn f(): int { return 1; } print f();'
 
 # --- the --types viewer (step 66) ---
 # Prints each top-level binding's inferred type, marking inferred returns.
