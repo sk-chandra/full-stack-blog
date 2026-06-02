@@ -24,6 +24,9 @@ typedef enum {
   IR_LABEL,         // L<a>:                     a jump TARGET (id in `a`)
   IR_JUMP,          // goto L<a>                 unconditional branch
   IR_JUMP_IF_FALSE, // if !t<a> goto L<b>        branch when the bool temp is false
+  // --- functions (step 72) ----------------------------------------------------
+  IR_CALL,          // dest = <var>(callArgs…)   call a named function
+  IR_RETURN,        // return t<a>  (a = -1 -> return no value)
 } IROp;
 
 typedef struct {
@@ -32,9 +35,11 @@ typedef struct {
   int a, b;          // operand temp ids (-1 when unused); also a label id for
                      // IR_LABEL/IR_JUMP (in a) and IR_JUMP_IF_FALSE (target in b)
   Value constant;    // IR_CONST
-  ObjString *var;    // IR_LOAD / IR_STORE
+  ObjString *var;    // IR_LOAD / IR_STORE; also the callee name for IR_CALL
   NodeOp nodeOp;     // IR_UNARY / IR_BINARY
   bool dead;         // set by dead-code elimination; skipped when printing
+  int *callArgs;     // IR_CALL: argument temp ids (owned)
+  int callArgCount;
 } IRInstr;
 
 typedef struct {
@@ -42,8 +47,17 @@ typedef struct {
   int count, capacity;
   int nextTemp;      // next fresh temporary id
   int nextLabel;     // next fresh label id (control flow)
-  const char *name;  // function name (for the header)
+  const char *name;  // function name (for the header / asm label)
+  ObjString **params; // parameter names (NULL for the top-level "main")
+  int paramCount;
 } IRFunc;
+
+// A whole program lowered to IR: the top-level code as "main" plus one IRFunc per
+// top-level function definition (step 72).
+typedef struct {
+  IRFunc **funcs;
+  int count;
+} IRModule;
 
 // Lower a straight-line statement list into IR. Returns NULL if `body` contains
 // anything outside the supported subset (control flow, calls, collections, …) —
@@ -51,6 +65,12 @@ typedef struct {
 IRFunc *lowerToIR(Program *body, const char *name);
 void freeIR(IRFunc *fn);
 void printIR(IRFunc *fn, const char *title);
+
+// Lower an entire program (top-level code + every top-level function) to an IR
+// module. Returns NULL if anything is outside the supported subset (nested
+// functions/closures, collections, …). Used by the x86-64 backend.
+IRModule *lowerModule(Program *program);
+void freeModule(IRModule *m);
 
 // Optimise the IR in place — constant propagation + folding (step 64b), then
 // CSE + dead-temp elimination (step 65). Prints the IR before ("lowered") and

@@ -769,8 +769,8 @@ case "$ir_out" in
   *)
     printf '  FAIL %-22s --ir output unexpected:\n%s\n' "ir-lower" "$ir_out"; fail=$((fail + 1)) ;;
 esac
-# Code outside the straight-line scalar subset is reported, not miscompiled.
-printf 'fn f(n){ return n; } print f(3);' > "$tmp"
+# Code outside the lowerable subset (collections here) is reported, not lowered.
+printf 'let a = [1, 2]; print a[0];' > "$tmp"
 ir_out2="$("$CNANO" --ir "$tmp" 2>&1)"
 case "$ir_out2" in
   *"not straight-line"*)
@@ -889,7 +889,17 @@ check_asm_err "asm-rej-boolvar"   'let b = 3 < 4; print b;'
 # cnano's truthiness makes 0 truthy, so branching on a bare int is rejected
 # (a zero-test would disagree with the VM).
 check_asm_err "asm-rej-intcond"   'let n = 0; while (n) { print 1; }'
-check_asm_err "asm-rej-flow"  'fn f(): int { return 1; } print f();'
+# Closures (a nested function capturing a variable) need upvalues -> rejected.
+check_asm_err "asm-rej-closure" 'fn mk() { let c = 0; fn inc() { return c; } return inc(); } print mk();'
+
+# Functions, parameters, and calls (step 72): compiled to native with the System
+# V ABI and a real call stack -- including recursion. Output must match the VM.
+check_asm "asm-call"      'fn add(a, b) { return a + b; } print add(3, 4);' "7"
+check_asm "asm-recursion" 'fn fib(n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(10);' "55"
+check_asm "asm-fact"      'fn fact(n) { if (n < 2) { return 1; } return n * fact(n-1); } print fact(6);' "720"
+check_asm "asm-mutual"    'fn isEven(n){ if(n==0){return 1==1;} return isOdd(n-1); } fn isOdd(n){ if(n==0){return 1==0;} return isEven(n-1); } if (isEven(10)) { print 1; } else { print 0; }' "1"
+check_asm "asm-loop-fn"   'fn sumTo(n){ let s=0; let i=1; while(i<n+1){ s=s+i; i=i+1; } return s; } print sumTo(100);' "5050"
+check_asm "asm-bool-cond" 'fn pos(n){ return n>0; } fn pick(n){ if(pos(n)){ return n; } return 0-n; } print pick(-8);' "8"
 
 # --- the --types viewer (step 66) ---
 # Prints each top-level binding's inferred type, marking inferred returns.

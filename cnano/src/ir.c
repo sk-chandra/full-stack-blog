@@ -24,9 +24,9 @@ static int freshLabel(IRFunc *fn) { return fn->nextLabel++; }
 // label id rides in `a` (or `b` for the conditional, whose condition temp is `a`).
 static void emitLabelOp(IRFunc *fn, IROp op, int label, int condTemp) {
   if (op == IR_JUMP_IF_FALSE)
-    emit(fn, (IRInstr){op, -1, condTemp, label, NIL_VAL, NULL, 0, false});
+    emit(fn, (IRInstr){op, -1, condTemp, label, NIL_VAL, NULL, 0, false, NULL, 0});
   else
-    emit(fn, (IRInstr){op, -1, label, -1, NIL_VAL, NULL, 0, false});
+    emit(fn, (IRInstr){op, -1, label, -1, NIL_VAL, NULL, 0, false, NULL, 0});
 }
 
 // Lower an expression, returning the temp id that holds its value, or -1 if the
@@ -42,19 +42,19 @@ static int lowerExpr(IRFunc *fn, Node *node) {
               : node->type == NODE_BOOL  ? BOOL_VAL(node->as.boolValue)
                                          : NIL_VAL;
     int t = freshTemp(fn);
-    emit(fn, (IRInstr){IR_CONST, t, -1, -1, v, NULL, 0, false});
+    emit(fn, (IRInstr){IR_CONST, t, -1, -1, v, NULL, 0, false, NULL, 0});
     return t;
   }
   case NODE_VAR_GET: {
     int t = freshTemp(fn);
-    emit(fn, (IRInstr){IR_LOAD, t, -1, -1, NIL_VAL, node->as.name, 0, false});
+    emit(fn, (IRInstr){IR_LOAD, t, -1, -1, NIL_VAL, node->as.name, 0, false, NULL, 0});
     return t;
   }
   case NODE_ASSIGN: {
     int v = lowerExpr(fn, node->as.var.value);
     if (v < 0)
       return -1;
-    emit(fn, (IRInstr){IR_STORE, -1, v, -1, NIL_VAL, node->as.var.name, 0, false});
+    emit(fn, (IRInstr){IR_STORE, -1, v, -1, NIL_VAL, node->as.var.name, 0, false, NULL, 0});
     return v; // assignment yields the stored value
   }
   case NODE_UNARY: {
@@ -62,7 +62,7 @@ static int lowerExpr(IRFunc *fn, Node *node) {
     if (o < 0)
       return -1;
     int t = freshTemp(fn);
-    emit(fn, (IRInstr){IR_UNARY, t, o, -1, NIL_VAL, NULL, node->as.unary.op, false});
+    emit(fn, (IRInstr){IR_UNARY, t, o, -1, NIL_VAL, NULL, node->as.unary.op, false, NULL, 0});
     return t;
   }
   case NODE_BINARY: {
@@ -71,11 +71,27 @@ static int lowerExpr(IRFunc *fn, Node *node) {
     if (a < 0 || b < 0)
       return -1;
     int t = freshTemp(fn);
-    emit(fn, (IRInstr){IR_BINARY, t, a, b, NIL_VAL, NULL, node->as.binary.op, false});
+    emit(fn, (IRInstr){IR_BINARY, t, a, b, NIL_VAL, NULL, node->as.binary.op, false, NULL, 0});
+    return t;
+  }
+  case NODE_CALL: {
+    // A direct call to a NAMED function (no first-class/indirect calls here).
+    if (node->as.call.callee->type != NODE_VAR_GET)
+      return -1;
+    int argc = node->as.call.argCount;
+    int *args = argc > 0 ? malloc(sizeof(int) * argc) : NULL;
+    for (int i = 0; i < argc; i++) {
+      args[i] = lowerExpr(fn, node->as.call.args[i]);
+      if (args[i] < 0) { free(args); return -1; }
+    }
+    int t = freshTemp(fn);
+    IRInstr in = {IR_CALL, t, -1, -1, NIL_VAL,
+                  node->as.call.callee->as.name, 0, false, args, argc};
+    emit(fn, in);
     return t;
   }
   default:
-    return -1; // calls, indexing, logicals, etc. — out of the subset
+    return -1; // indexing, logicals, lambdas, etc. — out of the subset
   }
 }
 
@@ -86,7 +102,7 @@ static bool lowerStmt(IRFunc *fn, Node *node) {
     int v = lowerExpr(fn, node->as.var.value);
     if (v < 0)
       return false;
-    emit(fn, (IRInstr){IR_STORE, -1, v, -1, NIL_VAL, node->as.var.name, 0, false});
+    emit(fn, (IRInstr){IR_STORE, -1, v, -1, NIL_VAL, node->as.var.name, 0, false, NULL, 0});
     return true;
   }
   case NODE_EXPR_STMT:
@@ -95,7 +111,7 @@ static bool lowerStmt(IRFunc *fn, Node *node) {
     int v = lowerExpr(fn, node->as.stmt.expr);
     if (v < 0)
       return false;
-    emit(fn, (IRInstr){IR_PRINT, -1, v, -1, NIL_VAL, NULL, 0, false});
+    emit(fn, (IRInstr){IR_PRINT, -1, v, -1, NIL_VAL, NULL, 0, false, NULL, 0});
     return true;
   }
   case NODE_BLOCK: {
@@ -124,6 +140,17 @@ static bool lowerStmt(IRFunc *fn, Node *node) {
     emitLabelOp(fn, IR_LABEL, lEnd, -1);
     return true;
   }
+  case NODE_RETURN: {
+    if (node->as.ret.value != NULL) {
+      int v = lowerExpr(fn, node->as.ret.value);
+      if (v < 0)
+        return false;
+      emit(fn, (IRInstr){IR_RETURN, -1, v, -1, NIL_VAL, NULL, 0, false, NULL, 0});
+    } else {
+      emit(fn, (IRInstr){IR_RETURN, -1, -1, -1, NIL_VAL, NULL, 0, false, NULL, 0});
+    }
+    return true;
+  }
   case NODE_WHILE: {
     // while (c) body [increment]:
     //     Lstart: cond; JUMP_IF_FALSE cond -> Lend; <body>; <increment>; JUMP Lstart; Lend:
@@ -147,7 +174,7 @@ static bool lowerStmt(IRFunc *fn, Node *node) {
   }
 }
 
-IRFunc *lowerToIR(Program *body, const char *name) {
+static IRFunc *newIRFunc(const char *name, ObjString **params, int paramCount) {
   IRFunc *fn = malloc(sizeof(IRFunc));
   if (fn == NULL)
     return NULL;
@@ -156,6 +183,15 @@ IRFunc *lowerToIR(Program *body, const char *name) {
   fn->nextTemp = 0;
   fn->nextLabel = 0;
   fn->name = name;
+  fn->params = params;
+  fn->paramCount = paramCount;
+  return fn;
+}
+
+IRFunc *lowerToIR(Program *body, const char *name) {
+  IRFunc *fn = newIRFunc(name, NULL, 0);
+  if (fn == NULL)
+    return NULL;
   for (int i = 0; i < body->count; i++) {
     if (body->statements[i]->type == NODE_FUN)
       continue; // skip nested function declarations
@@ -170,8 +206,69 @@ IRFunc *lowerToIR(Program *body, const char *name) {
 void freeIR(IRFunc *fn) {
   if (fn == NULL)
     return;
+  for (int i = 0; i < fn->count; i++)
+    free(fn->code[i].callArgs);
   free(fn->code);
   free(fn);
+}
+
+// Lower one function body (params already on `fn`). A NESTED function definition
+// is unsupported (it would need closures), so it bails.
+static bool lowerBody(IRFunc *fn, Program *body) {
+  for (int i = 0; i < body->count; i++)
+    if (!lowerStmt(fn, body->statements[i]))
+      return false;
+  return true;
+}
+
+IRModule *lowerModule(Program *program) {
+  IRModule *m = malloc(sizeof(IRModule));
+  if (m == NULL)
+    return NULL;
+  m->funcs = NULL;
+  m->count = 0;
+  int cap = 0;
+
+  // One IRFunc per top-level function definition.
+  for (int i = 0; i < program->count; i++) {
+    Node *s = program->statements[i];
+    if (s->type != NODE_FUN)
+      continue;
+    IRFunc *f = newIRFunc(s->as.fun.name ? s->as.fun.name->chars : "fn",
+                          s->as.fun.params, s->as.fun.paramCount);
+    if (f == NULL || !lowerBody(f, s->as.fun.body)) {
+      freeIR(f);
+      freeModule(m);
+      return NULL;
+    }
+    if (m->count + 1 > cap) { cap = cap < 4 ? 4 : cap * 2; m->funcs = realloc(m->funcs, sizeof(IRFunc *) * cap); }
+    m->funcs[m->count++] = f;
+  }
+
+  // The top-level code becomes "main" (skipping the function declarations).
+  IRFunc *main = newIRFunc("main", NULL, 0);
+  for (int i = 0; i < program->count; i++) {
+    Node *s = program->statements[i];
+    if (s->type == NODE_FUN)
+      continue;
+    if (!lowerStmt(main, s)) {
+      freeIR(main);
+      freeModule(m);
+      return NULL;
+    }
+  }
+  if (m->count + 1 > cap) { cap = cap < 4 ? 4 : cap * 2; m->funcs = realloc(m->funcs, sizeof(IRFunc *) * cap); }
+  m->funcs[m->count++] = main; // main is emitted last
+  return m;
+}
+
+void freeModule(IRModule *m) {
+  if (m == NULL)
+    return;
+  for (int i = 0; i < m->count; i++)
+    freeIR(m->funcs[i]);
+  free(m->funcs);
+  free(m);
 }
 
 static const char *opName(NodeOp op) {
@@ -231,6 +328,18 @@ void printIR(IRFunc *fn, const char *title) {
       break;
     case IR_JUMP_IF_FALSE:
       printf("  if !t%d goto L%d\n", in->a, in->b);
+      break;
+    case IR_CALL:
+      printf("  t%d = %s(", in->dest, in->var->chars);
+      for (int k = 0; k < in->callArgCount; k++)
+        printf("%st%d", k ? ", " : "", in->callArgs[k]);
+      printf(")\n");
+      break;
+    case IR_RETURN:
+      if (in->a >= 0)
+        printf("  return t%d\n", in->a);
+      else
+        printf("  return\n");
       break;
     }
   }

@@ -363,10 +363,14 @@ static void deadTempElim(IRFunc *fn) {
 // must NOT run them. Making them block-aware is a future step (it needs the CFG
 // + a dominator/data-flow framework).
 static bool hasControlFlow(IRFunc *fn) {
-  for (int i = 0; i < fn->count; i++)
-    if (fn->code[i].op == IR_LABEL || fn->code[i].op == IR_JUMP ||
-        fn->code[i].op == IR_JUMP_IF_FALSE)
+  for (int i = 0; i < fn->count; i++) {
+    IROp op = fn->code[i].op;
+    // Branches break the single-block assumption; a CALL has side effects (so CSE
+    // must never share two of them); a RETURN is an early control transfer.
+    if (op == IR_LABEL || op == IR_JUMP || op == IR_JUMP_IF_FALSE ||
+        op == IR_CALL || op == IR_RETURN)
       return true;
+  }
   return false;
 }
 

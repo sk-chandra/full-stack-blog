@@ -21,9 +21,10 @@
 
 #include "ir.h"
 
-// Emit a complete assembly program (a `main` that runs `fn` and returns 0) to
-// `out`. Returns false without emitting if `fn` uses anything outside the
-// supported integer subset — the caller then reports the program unsupported.
-bool emitX64(IRFunc *fn, FILE *out);
+// Emit a complete assembly program for an IR module — `main` plus one function
+// per definition (calls follow the System V ABI) — to `out`. Returns false
+// without emitting if anything is outside the supported integer subset, so the
+// caller can report the program unsupported.
+bool emitX64Module(IRModule *m, FILE *out);
 
 #endif // CNANO_CODEGEN_X64_H

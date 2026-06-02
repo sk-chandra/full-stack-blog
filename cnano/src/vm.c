@@ -1359,25 +1359,25 @@ InterpretResult dumpAsmFile(const char *path) {
     freeTypes();
     return INTERPRET_COMPILE_ERROR;
   }
-  IRFunc *top = lowerToIR(&program, "<script>");
+  // Lower the WHOLE program (top-level "main" + each function) to an IR module.
+  IRModule *mod = lowerModule(&program);
   InterpretResult result = INTERPRET_OK;
-  if (top == NULL) {
+  if (mod == NULL) {
     fprintf(stderr,
-            "cnano: the x86-64 backend only supports straight-line scalar code "
-            "(no control flow, calls, or collections).\n");
+            "cnano: the x86-64 backend only supports integer functions and "
+            "straight-line/loop code (no closures, collections, or floats).\n");
     result = INTERPRET_COMPILE_ERROR;
   } else {
-    // Emit from the LOWERED (unoptimised) IR on purpose: on literal-only
-    // straight-line code the optimiser folds everything to constants, which would
-    // hide the instruction selection and register allocation this backend exists
-    // to show. (`--ir` already demonstrates the optimiser; running
-    // optimizeIRPasses(top) here first would simply produce tighter code.)
-    if (!emitX64(top, stdout)) {
+    // Emit from the LOWERED (unoptimised) IR on purpose: on literal-only code the
+    // optimiser folds everything to constants, hiding the instruction selection
+    // and register allocation this backend exists to show. (`--ir` demonstrates
+    // the optimiser.)
+    if (!emitX64Module(mod, stdout)) {
       fprintf(stderr, "cnano: the x86-64 backend only supports integer code "
-                      "(no bool/float values).\n");
+                      "(no bool/float printing; >6 args; unknown callees).\n");
       result = INTERPRET_COMPILE_ERROR;
     }
-    freeIR(top);
+    freeModule(mod);
   }
   freeProgram(&program);
   freeTypes();

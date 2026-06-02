@@ -29,3 +29,12 @@ while (i < a) {
   i = i + 1;
 }
 print sum;                // 91
+
+// Functions compile to real machine functions under the System V calling
+// convention — arguments in rdi/rsi/…, result in rax — so recursion runs on the
+// hardware call stack with no interpreter at all.
+fn fib(n) {
+  if (n < 2) { return n; }
+  return fib(n - 1) + fib(n - 2);
+}
+print fib(15);            // 610

@@ -2000,10 +2000,30 @@ jobs at the heart of a code generator. This arc emits machine code directly.
   IR optimiser (Arc 6) is now *gated* off when control flow is present: its
   local passes assume a single straight-line block, and making them block-aware
   needs the CFG + a data-flow framework (a future step).
-- **Still ahead in this arc:** function calls/frames in the emitter (multiple
-  functions, the call ABI); floats via the SSE registers; making the IR optimiser
-  block-aware; then either an ARM64 second target (to separate the *shape* of code
-  generation from one ISA) or emitting object code/ELF directly instead of `cc`.
+- ~~**Functions, parameters, calls, recursion**~~ ✓ (step 72) — the capstone of
+  the native backend. The IR gained `IR_CALL` and `IR_RETURN`, and lowering grew a
+  *module* (`lowerModule`): the top-level code becomes `main`, and each function
+  becomes its own `IRFunc` with a parameter list. The emitter compiles each as a
+  real machine function under the **System V calling convention**: incoming
+  arguments arrive in `rdi`/`rsi`/`rdx`/`rcx`/`r8`/`r9` and are spilled to the
+  parameter stack slots in the prologue; a call marshals its argument temps into
+  those registers, `call`s the callee, and reads the result from `rax`; `return`
+  moves its value to `rax` and jumps to a shared epilogue. So `fib` recurses on
+  the **hardware call stack** with no interpreter — mutual recursion and Ackermann
+  work too. The register allocator again needed *no* change: temporaries live in
+  **callee-saved** registers (`rbx`, `r12–r15`) or the stack, so they survive a
+  `call` with nothing to save, and argument sources are never the argument
+  registers themselves. One subtlety the int-only backend must get right: a
+  function may *return a boolean* (`fn isEven(n){ return n%2==0; }`), so a call's
+  result type isn't obvious locally — a module-level **fixpoint** computes each
+  function's "returns bool?", letting a bool result flow into a condition (fine)
+  while still rejecting it from a `print` (which would show `0`/`1`, not
+  `true`/`false`). Out-of-subset features — closures, floats, >6 parameters,
+  unknown callees — get the whole module rejected up front (never half-emitted).
+- **Still ahead in this arc:** floats via the SSE registers; making the IR
+  optimiser block-aware (CFG + data-flow); then either an ARM64 second target (to
+  separate the *shape* of code generation from one ISA) or emitting object
+  code/ELF directly instead of going through `cc`.
 
 ### Other educational arcs ahead
 
