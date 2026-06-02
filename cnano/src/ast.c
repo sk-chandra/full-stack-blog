@@ -86,6 +86,7 @@ Node *newVarDecl(ObjString *name, Node *value, Type *declaredType, int line) {
   node->as.var.name = name;
   node->as.var.value = value;
   node->as.var.declaredType = declaredType;
+  node->as.var.inferredType = NULL; // set by the type checker
   node->as.var.isConst = false; // the parser sets this for `const` declarations
   return node;
 }
@@ -294,6 +295,7 @@ Node *newFun(ObjString *name, ObjString **params, Type **paramTypes,
   node->as.fun.paramTypes = paramTypes;
   node->as.fun.paramCount = paramCount;
   node->as.fun.returnType = returnType;
+  node->as.fun.returnAnnotated = true; // parser clears this when no `: T` is given
   node->as.fun.body = body;
   node->as.fun.isGenerator = false; // set by the parser if a `yield` is seen
   return node;

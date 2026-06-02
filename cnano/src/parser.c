@@ -1417,8 +1417,10 @@ static Node *finishFunction(ObjString *name, int line) {
   }
   consume(TOKEN_RPAREN, "Expect ')' after parameters.");
 
-  // Optional return-type annotation: `fn f(...) : TYPE { ... }`. Default any.
-  Type *returnType = match(TOKEN_COLON) ? parseType() : typeAny();
+  // Optional return-type annotation: `fn f(...) : TYPE { ... }`. When omitted the
+  // checker INFERS the return type from the body, so record that it was absent.
+  bool returnAnnotated = match(TOKEN_COLON);
+  Type *returnType = returnAnnotated ? parseType() : typeAny();
 
   // Track whether THIS function's body contains a `yield` (save/restore so a
   // nested function doesn't leak its flag to the enclosing one).
@@ -1442,6 +1444,7 @@ static Node *finishFunction(ObjString *name, int line) {
   }
 
   Node *fn = newFun(name, params, paramTypes, paramCount, returnType, body, line);
+  fn->as.fun.returnAnnotated = returnAnnotated;
   fn->as.fun.isGenerator = parser.fnSawYield;
   parser.fnSawYield = savedSawYield;
   return fn;

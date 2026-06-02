@@ -1341,6 +1341,43 @@ InterpretResult dumpIRFile(const char *path) {
   return INTERPRET_OK;
 }
 
+// `--types`: type-check (which runs return-type inference) and print the static
+// type of every top-level binding — the inference made visible, like `--ir`.
+InterpretResult dumpTypesFile(const char *path) {
+  vm.gcEnabled = false;
+  Program program;
+  if (!loadModuleFile(path, &program)) {
+    freeTypes();
+    return INTERPRET_COMPILE_ERROR;
+  }
+  if (!typecheckProgram(&program)) {
+    freeProgram(&program);
+    freeTypes();
+    return INTERPRET_COMPILE_ERROR;
+  }
+  printf("== types ==\n");
+  for (int i = 0; i < program.count; i++) {
+    Node *s = program.statements[i];
+    if (s->type == NODE_VAR_DECL) {
+      const char *t = s->as.var.inferredType ? typeName(s->as.var.inferredType) : "any";
+      printf("  %s %s : %s\n", s->as.var.isConst ? "const" : "let",
+             s->as.var.name->chars, t);
+    } else if (s->type == NODE_FUN) {
+      printf("  fn %s(", s->as.fun.name ? s->as.fun.name->chars : "lambda");
+      for (int p = 0; p < s->as.fun.paramCount; p++)
+        printf("%s%s: %s", p ? ", " : "", s->as.fun.params[p]->chars,
+               typeName(s->as.fun.paramTypes[p]));
+      // returnType was rewritten in place to the inferred type when unannotated.
+      printf(") : %s%s\n", typeName(s->as.fun.returnType),
+             s->as.fun.returnAnnotated ? "" : "   (inferred)");
+    }
+  }
+  printf("\n");
+  freeProgram(&program);
+  freeTypes();
+  return INTERPRET_OK;
+}
+
 InterpretResult dumpCFGFile(const char *path) {
   vm.gcEnabled = false;
   Program program;

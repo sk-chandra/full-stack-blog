@@ -160,4 +160,8 @@ InterpretResult dumpCFGFile(const char *path);
 // after the IR optimiser (`--ir`).
 InterpretResult dumpIRFile(const char *path);
 
+// Type-check FILE and print the inferred static type of every top-level binding
+// (`--types`) — return-type inference and let-inference made visible.
+InterpretResult dumpTypesFile(const char *path);
+
 #endif // CNANO_VM_H

@@ -1894,6 +1894,37 @@ walks.
   optimisations are tractable.** (Wiring the optimised IR back to bytecode as the
   execution backend is the natural next project.)
 
+### Type inference (Arc 7, in progress)
+
+cnano was already *gradually* typed with a touch of inference (a `let` with no
+annotation takes its initialiser's type). This arc pushes inference further so
+fewer annotations are needed without losing static checking.
+
+- ~~**Return-type inference**~~ ✓ (step 66) — a function written without a `: T`
+  return annotation no longer defaults to the dynamic `any`; the checker INFERS
+  its return type from the body. While checking such a body it enters an
+  inference mode where each `return EXPR` *joins* its value's type into a running
+  union (so a function returning `int` on one path and `"…"` on another is
+  inferred `int | str`) instead of being checked against a declared type. The
+  inferred type is written back onto both the AST node and the function's `Type`,
+  so callers see it and get real checking — e.g. assigning an inferred-`int`
+  result to a `bool` variable is now an error that the old `any` silently allowed.
+  The crucial **soundness** rule: if control can fall off the end of the body the
+  function implicitly returns `nil`, so `nil` is unioned in — reusing the same
+  `alwaysExits` under-approximation from the unreachable-code analysis, which when
+  unsure assumes the body *can* fall through (only ever *widening* the inferred
+  type, never narrowing it unsoundly). So a function that returns on every path
+  keeps the precise `int`, while one with a bare `if` is inferred `int | nil`.
+  Two honest limitations, documented rather than hidden: a function whose body
+  forward-references another unannotated function (or recurses) can fall back to
+  `any` (no fixpoint solver), and an unannotated exhaustive-`match` function is
+  conservatively `T?` because `alwaysExits` doesn't yet read the exhaustiveness
+  result. `cnano --types file` prints the inferred type of every top-level
+  binding — inference made visible, like `--ir` and `--cfg`.
+- **Still ahead in this arc:** parameter-type inference from call sites, and
+  **generics** (parametric polymorphism — `fn id<T>(x: T): T`, generic
+  containers) with monomorphisation or type-erasure as the worked trade-off.
+
 ### Other educational arcs ahead
 
 These are grouped by the concept each teaches, to keep cnano a *complete map* of

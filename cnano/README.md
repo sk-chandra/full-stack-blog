@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (681 cases, incl. native + GC)
+make test       # run the end-to-end test suite (686 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -36,6 +36,7 @@ make run        # start the REPL
 ./build/cnano --dump examples/variables.cn
 ./build/cnano --cfg examples/control_flow.cn   # control-flow graph (basic blocks)
 ./build/cnano --ir examples/ir.cn              # three-address IR, before + after optimisation
+./build/cnano --types examples/showcase.cn     # inferred type of each top-level binding
 ./build/cnano --stats examples/showcase.cn     # profile: opcode/alloc/GC summary
 
 # compile the typed subset to a NATIVE executable (no interpreter), then run it
@@ -168,8 +169,12 @@ make run        # start the REPL
   can't use either where a specific type is required until you **narrow** it —
   with `if (x != nil) { … }` for nullables or `if (x is int) { … }` for unions
   (the runtime `x is T` test doubles as the checker's narrowing guard, treating
-  `x` as the tested type inside the branch). Unannotated code is `any` and stays
-  fully dynamic, so typed and untyped code mix freely
+  `x` as the tested type inside the branch). Unannotated *values* stay `any` and
+  fully dynamic, so typed and untyped code mix freely — but a function written
+  without a `: T` return annotation has its return type **inferred** from the body
+  (joining each `return`, plus `nil` if it can fall off the end), so its callers
+  still get real checking. `cnano --types file` prints the inferred type of every
+  top-level binding
 - **Modules**: `import "path.cn";` at the top level pulls another file's
   declarations into the program. Paths resolve **relative to the importing file**
   (so a library's own imports work no matter who imports it), and each file is

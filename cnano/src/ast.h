@@ -163,6 +163,9 @@ typedef struct Node {
       ObjString *name;
       struct Node *value;
       Type *declaredType;
+      Type *inferredType; // filled by the checker: the variable's static type
+                          // (annotation if given, else the initialiser's) — for
+                          // the `--types` viewer. NULL until checked.
       bool isConst; // declared with `const` — reassignment is a compile error
     } var;
     // NODE_BLOCK: a brace-delimited sequence of statements forming a new scope.
@@ -264,6 +267,7 @@ typedef struct Node {
       Type **paramTypes;    // parallel heap array of annotation Type* (typeAny default)
       int paramCount;
       Type *returnType;
+      bool returnAnnotated; // was a `: T` written? if not, the checker INFERS it
       struct Program *body;
       bool isGenerator; // body contains `yield` — calling it yields a Generator
     } fun;

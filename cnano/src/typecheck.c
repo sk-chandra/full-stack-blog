@@ -94,6 +94,11 @@ typedef struct {
   // The declared return type of the function currently being checked, so a
   // `return EXPR;` can be validated against it. NULL at top level.
   Type *currentReturnType;
+  // Return-type INFERENCE for functions written without a `: T` annotation.
+  // While checking such a body, `inferringReturn` is true and every `return`
+  // joins its value's type into `inferredReturn` (NULL until the first one).
+  bool inferringReturn;
+  Type *inferredReturn;
   bool hadError;
 } Checker;
 
@@ -252,6 +257,18 @@ static Type *checkExpr(Node *node);
 static void checkStatement(Node *node);
 static Type *functionTypeOf(Node *fun);   // defined below; used for lambdas
 static void checkUnreachable(Program *body); // unreachable-code warning
+static bool alwaysExits(Node *node);         // does a statement definitely exit?
+
+// Saved checker state around one function body (return-type inference). Declared
+// here because the lambda case in checkExpr (above its definition) uses it.
+typedef struct {
+  Type *savedReturn;
+  bool savedInferring;
+  Type *savedInferred;
+  bool inferring;
+} InferCtx;
+static InferCtx beginReturnCheck(Node *fun);
+static void endReturnCheck(Node *fun, Type *fnType, InferCtx c);
 
 // Helper: an arithmetic operand must be int OR any. Returns false (and reports)
 // only when the operand is a KNOWN non-int — the gradual rule in action.
@@ -456,8 +473,7 @@ static Type *checkExpr(Node *node) {
     // recursion-by-name. Its type is a real function type, so a direct call is
     // arity/return-checked like any other.
     Type *fnType = functionTypeOf(node);
-    Type *savedReturn = checker.currentReturnType;
-    checker.currentReturnType = resolve(node->as.fun.returnType, node->line);
+    InferCtx ic = beginReturnCheck(node);
     beginScope();
     for (int i = 0; i < node->as.fun.paramCount; i++)
       declareSymbol(node->as.fun.params[i],
@@ -467,7 +483,7 @@ static Type *checkExpr(Node *node) {
     for (int i = 0; i < body->count; i++)
       checkStatement(body->statements[i]);
     endScope();
-    checker.currentReturnType = savedReturn;
+    endReturnCheck(node, fnType, ic);
     return fnType;
   }
   case NODE_CALL:
@@ -658,6 +674,49 @@ static Type *functionTypeOf(Node *fun) {
   return typeFunction(params, n, resolve(fun->as.fun.returnType, fun->line));
 }
 
+// Enter a function body. If it has no `: T` annotation, switch the checker into
+// inference mode (returns are accumulated, not checked); otherwise record the
+// declared return type for `return` validation as before.
+static InferCtx beginReturnCheck(Node *fun) {
+  InferCtx c;
+  c.savedReturn = checker.currentReturnType;
+  c.savedInferring = checker.inferringReturn;
+  c.savedInferred = checker.inferredReturn;
+  c.inferring = !fun->as.fun.returnAnnotated;
+  checker.inferringReturn = c.inferring;
+  checker.inferredReturn = NULL;
+  checker.currentReturnType =
+      c.inferring ? NULL : resolve(fun->as.fun.returnType, fun->line);
+  return c;
+}
+
+// Leave a function body. If we were inferring, write the inferred return type
+// (defaulting to nil when no path returns a value) back onto the AST node — so
+// later passes see it — and into the function's Type, so callers do too.
+static void endReturnCheck(Node *fun, Type *fnType, InferCtx c) {
+  if (c.inferring) {
+    Type *inferred = checker.inferredReturn ? checker.inferredReturn : typeNil();
+    // SOUNDNESS: if control can fall off the end of the body, the function
+    // implicitly returns nil on that path, so union it in. (alwaysExits is the
+    // same under-approximation step 62 uses — when unsure, it assumes the body
+    // CAN fall through, which only ever widens the inferred type. So an
+    // unannotated function whose exhaustiveness the checker can't see is inferred
+    // `T?` rather than `T` — imprecise but never unsound.)
+    Program *body = fun->as.fun.body;
+    bool exits = false;
+    for (int i = 0; i < body->count; i++)
+      if (alwaysExits(body->statements[i])) { exits = true; break; }
+    if (!exits)
+      inferred = typeUnite(inferred, typeNil());
+    fun->as.fun.returnType = inferred;
+    if (fnType != NULL)
+      fnType->fn.returnType = inferred;
+  }
+  checker.currentReturnType = c.savedReturn;
+  checker.inferringReturn = c.savedInferring;
+  checker.inferredReturn = c.savedInferred;
+}
+
 static void checkFunction(Node *node) {
   Type *fnType = functionTypeOf(node);
   // Bind the function's own name in the CURRENT scope before checking the body,
@@ -665,9 +724,8 @@ static void checkFunction(Node *node) {
   declareSymbol(node->as.fun.name, fnType);
 
   // Check the body in a fresh scope, with parameters bound to their types and the
-  // expected return type recorded for `return` validation.
-  Type *savedReturn = checker.currentReturnType;
-  checker.currentReturnType = resolve(node->as.fun.returnType, node->line);
+  // return type recorded (or inferred, if unannotated) for `return` handling.
+  InferCtx ic = beginReturnCheck(node);
   beginScope();
   for (int i = 0; i < node->as.fun.paramCount; i++)
     declareSymbol(node->as.fun.params[i],
@@ -677,7 +735,7 @@ static void checkFunction(Node *node) {
   for (int i = 0; i < body->count; i++)
     checkStatement(body->statements[i]);
   endScope();
-  checker.currentReturnType = savedReturn;
+  endReturnCheck(node, fnType, ic);
 }
 
 // Type-check a struct METHOD body, with `self` bound to the struct type so the
@@ -931,9 +989,9 @@ static void checkStatement(Node *node) {
     }
     // The variable's static type is its annotation if given, else the (possibly
     // inferred) type of its initialiser — a tiny bit of type INFERENCE.
-    declareSymbolConst(node->as.var.name,
-                       declared->kind != TY_ANY ? declared : valueType,
-                       node->as.var.isConst);
+    Type *staticType = declared->kind != TY_ANY ? declared : valueType;
+    node->as.var.inferredType = staticType; // record it for the `--types` viewer
+    declareSymbolConst(node->as.var.name, staticType, node->as.var.isConst);
     break;
   }
   case NODE_BLOCK: {
@@ -1003,8 +1061,15 @@ static void checkStatement(Node *node) {
     break;
   case NODE_RETURN: {
     Type *retType = node->as.ret.value ? checkExpr(node->as.ret.value) : typeNil();
-    if (checker.currentReturnType != NULL &&
-        !compatible(checker.currentReturnType, retType)) {
+    if (checker.inferringReturn) {
+      // No annotation to check against — instead INFER, joining each return's
+      // type into a union (so a function returning int on one path and nil on
+      // another is inferred `int?`).
+      checker.inferredReturn = checker.inferredReturn == NULL
+                                   ? retType
+                                   : typeUnite(checker.inferredReturn, retType);
+    } else if (checker.currentReturnType != NULL &&
+               !compatible(checker.currentReturnType, retType)) {
       char msg[128];
       snprintf(msg, sizeof(msg), "returning %s from a function declared to return %s",
                typeName(retType), typeName(checker.currentReturnType));
@@ -1031,6 +1096,8 @@ bool typecheckProgram(Program *program) {
   checker.symbolCount = 0;
   checker.scopeDepth = 0;
   checker.currentReturnType = NULL;
+  checker.inferringReturn = false;
+  checker.inferredReturn = NULL;
   checker.hadError = false;
   structCount = 0;
   enumCount = 0;

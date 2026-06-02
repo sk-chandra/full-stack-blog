@@ -784,6 +784,32 @@ case "$opt_dce" in
     fi ;;
 esac
 
+# --- return-type inference (step 66) ---
+# An unannotated function's return type is inferred from its body and ENFORCED at
+# call sites: `add` infers int, so assigning its result to a bool is an error
+# (under the old gradual rule it was `any` and slipped through).
+check_diag "inf-enforced" 'fn add(a: int, b: int) { return a + b; } let bad: bool = add(1,2); print bad;' \
+  "is int but variable is declared bool"
+# A correct use of the same inferred type still runs.
+check_prog "inf-runs"     'fn add(a: int, b: int) { return a + b; } print add(2,3);' "5"
+# Soundness: a function that can fall off the end is inferred T|nil, so using its
+# result where a non-nil int is required is rejected.
+check_diag "inf-nil-union" 'fn maybe(n: int) { if (n > 0) { return n; } } let x: int = maybe(1); print x;' \
+  "variable is declared int"
+# A function that returns on every path keeps the precise (non-nil) type.
+check_prog "inf-allpaths"  'fn sign(n: int) { if (n < 0) { return -1; } else { return 1; } } let x: int = sign(5); print x;' "1"
+
+# --- the --types viewer (step 66) ---
+# Prints each top-level binding's inferred type, marking inferred returns.
+printf 'fn add(a: int, b: int) { return a + b; } fn maybe(n: int) { if (n>0) { return n; } } let s = "hi";' > "$tmp"
+ty_out="$("$CNANO" --types "$tmp" 2>&1)"
+case "$ty_out" in
+  *"fn add(a: int, b: int) : int"*"(inferred)"*"int | nil"*"let s : str"*)
+    printf '  ok   %-22s --types ok\n' "types-view"; pass=$((pass + 1)) ;;
+  *)
+    printf '  FAIL %-22s --types output unexpected:\n%s\n' "types-view" "$ty_out"; fail=$((fail + 1)) ;;
+esac
+
 # --- garbage collector (step 10) ---
 # Churn: 5000 short-lived closures (+ their upvalues) are allocated and become
 # garbage. Correct output here means the GC reclaims them without corrupting the
