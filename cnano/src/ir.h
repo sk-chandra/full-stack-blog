@@ -20,12 +20,17 @@ typedef enum {
   IR_UNARY,  // dest = <op> a
   IR_BINARY, // dest = a <op> b
   IR_PRINT,  // print a                    (an effect)
+  // --- control flow (step 70): turn the IR from straight-line into a real CFG --
+  IR_LABEL,         // L<a>:                     a jump TARGET (id in `a`)
+  IR_JUMP,          // goto L<a>                 unconditional branch
+  IR_JUMP_IF_FALSE, // if !t<a> goto L<b>        branch when the bool temp is false
 } IROp;
 
 typedef struct {
   IROp op;
   int dest;          // temp id this defines, or -1 for an effect with no value
-  int a, b;          // operand temp ids (-1 when unused)
+  int a, b;          // operand temp ids (-1 when unused); also a label id for
+                     // IR_LABEL/IR_JUMP (in a) and IR_JUMP_IF_FALSE (target in b)
   Value constant;    // IR_CONST
   ObjString *var;    // IR_LOAD / IR_STORE
   NodeOp nodeOp;     // IR_UNARY / IR_BINARY
@@ -36,6 +41,7 @@ typedef struct {
   IRInstr *code;
   int count, capacity;
   int nextTemp;      // next fresh temporary id
+  int nextLabel;     // next fresh label id (control flow)
   const char *name;  // function name (for the header)
 } IRFunc;
 

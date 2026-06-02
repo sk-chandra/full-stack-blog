@@ -1,21 +1,31 @@
-// A straight-line integer program — the input the x86-64 backend compiles.
+// A straight-line + control-flow integer program — the input the x86-64 backend
+// compiles all the way to native machine code.
 //
 //   cnano --asm examples/asm.cn            # see the generated assembly
 //   cnano --asm examples/asm.cn > a.s && cc a.s -o a && ./a   # build + run it
 //
 // The backend lowers this to the three-address IR, then does real code
-// generation: instruction selection (each op -> mov/add/imul/idiv/…) and
-// register allocation (the temporaries are packed into rbx/r12–r15 by linear
-// scan, spilling to the stack only when more than five are live at once).
-// Scope is the integer subset; booleans, floats, control flow and calls need
-// the VM (or the --native C backend).
+// generation: instruction selection (each op -> mov/add/imul/idiv/cmp/…) and
+// register allocation (the per-statement temporaries are packed into rbx/r12–r15
+// by linear scan, spilling to the stack only when more than five are live).
+// Control flow becomes labels and jumps; a loop's state lives in memory
+// variables, while only the temporaries are register-allocated. Scope is the
+// integer subset; floats, control-flow conditions that aren't booleans, and
+// calls need the VM (or the --native C backend).
 
 let a = 2 + 3 * 4;        // precedence: 14
 let b = (a * a) - 1;      // 195
-let c = a + b;            // 209
 
 print a;
 print b;
-print c;
-print c % 7;              // division/remainder use idiv
+print b % 7;              // remainder uses idiv
 print (a << 2) | 1;       // shifts and bitwise-or
+
+// A loop, compiled to a backward jump (cmp / jl / jmp):
+let sum = 0;
+let i = 1;
+while (i < a) {
+  sum = sum + i;          // 1 + 2 + … + 13
+  i = i + 1;
+}
+print sum;                // 91

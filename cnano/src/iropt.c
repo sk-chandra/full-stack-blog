@@ -18,6 +18,7 @@
 // out-of-range shift, a type mismatch — leaving that instruction intact so the
 // error still happens, at runtime, exactly as before.
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #include "ir.h"
@@ -216,6 +217,7 @@ static void constPropFold(IRFunc *fn) {
       break;
     }
     case IR_PRINT:
+    default: // control-flow ops never reach here (guarded by hasControlFlow)
       break;
     }
   }
@@ -354,9 +356,25 @@ static void deadTempElim(IRFunc *fn) {
   free(live);
 }
 
+// These three passes are all LOCAL — they assume one straight-line basic block
+// (the most-recent store dominates every load, every value flows forward once).
+// Branches break those assumptions (a load could come from either side of a
+// merge; a backward jump re-runs code), so when the IR contains control flow we
+// must NOT run them. Making them block-aware is a future step (it needs the CFG
+// + a dominator/data-flow framework).
+static bool hasControlFlow(IRFunc *fn) {
+  for (int i = 0; i < fn->count; i++)
+    if (fn->code[i].op == IR_LABEL || fn->code[i].op == IR_JUMP ||
+        fn->code[i].op == IR_JUMP_IF_FALSE)
+      return true;
+  return false;
+}
+
 // Run the optimisation passes in place, without printing — for backends (the
 // x86-64 emitter) that want the optimised IR but not the --ir commentary.
 void optimizeIRPasses(IRFunc *fn) {
+  if (hasControlFlow(fn))
+    return; // the local passes are unsound across branches
   constPropFold(fn); // propagate + fold constants
   cse(fn);           // share repeated subexpressions
   deadTempElim(fn);  // drop temporaries nothing reads
@@ -366,6 +384,11 @@ void optimizeIRPasses(IRFunc *fn) {
 // lowering), then runs the three passes, then prints "optimised".
 void optimizeIR(IRFunc *fn) {
   printIR(fn, "lowered");
+  if (hasControlFlow(fn)) {
+    printf("(optimiser skipped: the local passes need straight-line code; this "
+           "function has control flow)\n\n");
+    return;
+  }
   optimizeIRPasses(fn);
   printIR(fn, "optimised");
 }

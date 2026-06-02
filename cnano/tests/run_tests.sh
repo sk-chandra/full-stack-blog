@@ -870,9 +870,19 @@ check_asm "asm-neg"     'let n = 5; print -n; print ~n;'                "$(print
 # A right-nested expression keeps 6 temps live at once (> 5 registers), so the
 # allocator must SPILL — and the result must still be correct.
 check_asm "asm-spill"   'let r = 1 + (2 + (3 + (4 + (5 + (6 + 7))))); print r; print r * 3;' "$(printf '28\n84')"
+# Control flow (step 70): loops and branches compiled to native jumps.
+check_asm "asm-while"   'let n=10; let i=1; let s=0; while (i<n) { s=s+i; i=i+1; } print s;' "45"
+check_asm "asm-if"      'let n=7; if (n % 2 == 0) { print 0; } else { print 1; } print n;' "$(printf '1\n7')"
+check_asm "asm-for"     'let f=1; for (let k=1; k<6; k=k+1) { f=f*k; } print f;' "120"
+check_asm "asm-nested"  'let m=0; let j=0; while (j<5) { if (j>m) { m=j; } j=j+1; } print m;' "4"
+check_asm "asm-true"    'if (true) { print 42; } else { print 0; }' "42"
 # Out-of-subset programs are cleanly rejected, not miscompiled.
 check_asm_err "asm-rej-float" 'let x = 1.5; print x;'
-check_asm_err "asm-rej-bool"  'print 1 < 2;'
+check_asm_err "asm-rej-printbool" 'print 1 < 2;'
+check_asm_err "asm-rej-boolvar"   'let b = 3 < 4; print b;'
+# cnano's truthiness makes 0 truthy, so branching on a bare int is rejected
+# (a zero-test would disagree with the VM).
+check_asm_err "asm-rej-intcond"   'let n = 0; while (n) { print 1; }'
 check_asm_err "asm-rej-flow"  'fn f(): int { return 1; } print f();'
 
 # --- the --types viewer (step 66) ---

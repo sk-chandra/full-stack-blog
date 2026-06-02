@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (705 cases, incl. native + GC)
+make test       # run the end-to-end test suite (712 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -229,14 +229,16 @@ make run        # start the REPL
   The VM still runs the full dynamic language; anything outside the scalar
   subset (collections, structs, closures, nullable/union, `nil`) is cleanly
   rejected rather than miscompiled
-- **x86-64 assembly backend**: `cnano --asm file.cn` compiles straight-line
-  **integer** code through the three-address IR all the way to real machine code,
-  doing the two jobs a back end must — **instruction selection** (each IR op → one
-  or two x86-64 instructions) and **register allocation** by **linear scan** over
-  the temporaries' live ranges, spilling to the stack when more than the five
-  callee-saved registers are live at once. The emitted assembly assembles and
-  links with `cc` into a standalone binary whose output matches the VM. This is
-  the IR's payoff as a *code-generation* substrate, not just an optimisation one
+- **x86-64 assembly backend**: `cnano --asm file.cn` compiles **integer** code —
+  including `if`/`while` **control flow** — through the three-address IR all the
+  way to real machine code, doing the two jobs a back end must: **instruction
+  selection** (each IR op → one or two x86-64 instructions; comparisons →
+  `cmp`/`setcc`, branches → `jmp`/`jz`, so a loop is a backward jump) and
+  **register allocation** by **linear scan** over the temporaries' live ranges,
+  spilling to the stack when more than the five callee-saved registers are live at
+  once. The emitted assembly assembles and links with `cc` into a standalone
+  binary whose output matches the VM. This is the IR's payoff as a
+  *code-generation* substrate, not just an optimisation one
 - **Garbage collection**: a **mark-and-sweep** tracing collector reclaims dead
   heap objects *while the program runs* (an allocation-churning loop stays at
   bounded memory instead of growing forever). Tri-colour marking with an explicit

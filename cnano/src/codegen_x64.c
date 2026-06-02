@@ -34,31 +34,54 @@ typedef struct {
 } Loc;
 
 // Does instruction `in` read temporary in a / in b? (Defines which operands form
-// the live ranges, and which to load when emitting.)
+// the live ranges, and which to load when emitting.) IR_JUMP_IF_FALSE reads its
+// condition temp `a`; its `b` is a LABEL, not a temp.
 static bool readsA(const IRInstr *in) {
   return in->op == IR_STORE || in->op == IR_PRINT || in->op == IR_UNARY ||
-         in->op == IR_BINARY;
+         in->op == IR_BINARY || in->op == IR_JUMP_IF_FALSE;
 }
 static bool readsB(const IRInstr *in) { return in->op == IR_BINARY; }
 
-// Reject anything outside the integer subset: a non-int constant, or an op whose
-// result is a boolean (logical-not, comparisons). Everything else the IR can
-// produce here is integer-valued.
-static bool supported(IRFunc *fn) {
-  for (int i = 0; i < fn->count; i++) {
-    IRInstr *in = &fn->code[i];
-    if (in->dead)
-      continue;
-    if (in->op == IR_CONST && !IS_INT(in->constant))
-      return false;
-    if (in->op == IR_UNARY && in->nodeOp == OP_NODE_NOT)
-      return false;
-    if (in->op == IR_BINARY &&
-        (in->nodeOp == OP_NODE_EQUAL || in->nodeOp == OP_NODE_LESS ||
-         in->nodeOp == OP_NODE_GREATER))
-      return false;
+// Is a node-op a comparison (it produces a boolean, represented here as 0/1)?
+static bool isComparison(NodeOp op) {
+  return op == OP_NODE_EQUAL || op == OP_NODE_LESS || op == OP_NODE_GREATER;
+}
+
+// Classify each temporary as boolean or integer. A bool is born from a
+// comparison, a logical `!`, a `true`/`false` constant, or a load of a variable
+// that has had a bool stored to it. Because a load can precede its store across a
+// loop's back-edge, we iterate to a FIXPOINT. (We don't print booleans or branch
+// on integers, so this is what lets us keep the int/bool worlds from mixing.)
+static void classifyBools(IRFunc *fn, bool *isBool, ObjString **vars,
+                          bool *varIsBool, int varCount) {
+  bool changed = true;
+  while (changed) {
+    changed = false;
+    for (int i = 0; i < fn->count; i++) {
+      IRInstr *in = &fn->code[i];
+      if (in->dead)
+        continue;
+      bool nb = false;
+      if (in->op == IR_CONST)
+        nb = IS_BOOL(in->constant);
+      else if (in->op == IR_BINARY)
+        nb = isComparison(in->nodeOp);
+      else if (in->op == IR_UNARY)
+        nb = in->nodeOp == OP_NODE_NOT;
+      else if (in->op == IR_LOAD) {
+        for (int v = 0; v < varCount; v++)
+          if (vars[v] == in->var) { nb = varIsBool[v]; break; }
+      } else if (in->op == IR_STORE) {
+        // A bool stored into a variable taints it (so later loads are bool too).
+        if (isBool[in->a])
+          for (int v = 0; v < varCount; v++)
+            if (vars[v] == in->var && !varIsBool[v]) { varIsBool[v] = true; changed = true; }
+        continue;
+      } else
+        continue;
+      if (in->dest >= 0 && nb && !isBool[in->dest]) { isBool[in->dest] = true; changed = true; }
+    }
   }
-  return true;
 }
 
 // The rbp-relative byte offset of variable `name`'s stack slot (variables follow
@@ -80,10 +103,51 @@ static void tempOperand(Loc l, int reservedSlots, int varCount, char *buf, size_
 }
 
 bool emitX64(IRFunc *fn, FILE *out) {
-  if (!supported(fn))
-    return false;
-
   int n = fn->nextTemp;
+
+  // Collect the distinct variables (each gets a stack slot) — needed before we
+  // can classify which temporaries are boolean.
+  ObjString **vars = NULL;
+  int varCount = 0, varCap = 0;
+  for (int i = 0; i < fn->count; i++) {
+    IRInstr *in = &fn->code[i];
+    if (in->dead || (in->op != IR_LOAD && in->op != IR_STORE))
+      continue;
+    bool seen = false;
+    for (int v = 0; v < varCount; v++)
+      if (vars[v] == in->var) { seen = true; break; }
+    if (!seen) {
+      if (varCount + 1 > varCap) { varCap = varCap < 8 ? 8 : varCap * 2; vars = realloc(vars, sizeof(ObjString *) * varCap); }
+      vars[varCount++] = in->var;
+    }
+  }
+
+  // Classify temps as bool/int, then reject what this integer backend can't model
+  // faithfully: a non-int/bool constant (float/nil), PRINTING a boolean (the VM
+  // prints true/false, not 0/1), or BRANCHING on a non-boolean (cnano's int
+  // truthiness — 0 is truthy — would disagree with a zero-test).
+  bool *isBool = n > 0 ? calloc(n, sizeof(bool)) : NULL;
+  bool *varIsBool = varCount > 0 ? calloc(varCount, sizeof(bool)) : NULL;
+  classifyBools(fn, isBool, vars, varIsBool, varCount);
+  bool ok = true;
+  for (int i = 0; i < fn->count && ok; i++) {
+    IRInstr *in = &fn->code[i];
+    if (in->dead)
+      continue;
+    if (in->op == IR_CONST && !IS_INT(in->constant) && !IS_BOOL(in->constant))
+      ok = false;
+    else if (in->op == IR_PRINT && in->a >= 0 && isBool[in->a])
+      ok = false;
+    else if (in->op == IR_JUMP_IF_FALSE && in->a >= 0 && !isBool[in->a])
+      ok = false;
+  }
+  if (!ok) {
+    free(vars);
+    free(isBool);
+    free(varIsBool);
+    return false;
+  }
+
   Loc *loc = n > 0 ? calloc(n, sizeof(Loc)) : NULL;
   int *lastUse = n > 0 ? malloc(sizeof(int) * n) : NULL;
   for (int i = 0; i < n; i++)
@@ -148,21 +212,6 @@ bool emitX64(IRFunc *fn, FILE *out) {
     }
   }
 
-  // --- collect the distinct variables (each gets a stack slot) ---------------
-  ObjString **vars = NULL;
-  int varCount = 0, varCap = 0;
-  for (int i = 0; i < fn->count; i++) {
-    IRInstr *in = &fn->code[i];
-    if (in->dead || (in->op != IR_LOAD && in->op != IR_STORE))
-      continue;
-    bool seen = false;
-    for (int v = 0; v < varCount; v++)
-      if (vars[v] == in->var) { seen = true; break; }
-    if (!seen) {
-      if (varCount + 1 > varCap) { varCap = varCap < 8 ? 8 : varCap * 2; vars = realloc(vars, sizeof(ObjString *) * varCap); }
-      vars[varCount++] = in->var;
-    }
-  }
   // Frame: NUM_REGS reserved register-save slots + variables + spills, 16-aligned.
   int slots = NUM_REGS + varCount + spillCount;
   int frame = ((slots * 8) + 15) & ~15;
@@ -190,14 +239,16 @@ bool emitX64(IRFunc *fn, FILE *out) {
       tempOperand(loc[in->b], NUM_REGS, varCount, bb, sizeof(bb));
 
     switch (in->op) {
-    case IR_CONST:
-      // 64-bit immediate -> the destination (via rax if the dest is a memory slot).
+    case IR_CONST: {
+      // A bool constant is materialised as the integer 0/1.
+      long long imm = IS_BOOL(in->constant) ? (AS_BOOL(in->constant) ? 1 : 0)
+                                             : (long long)AS_INT(in->constant);
       if (loc[in->dest].kind == L_REG)
-        fprintf(out, "  movabsq $%lld, %s\n", (long long)AS_INT(in->constant), bd);
+        fprintf(out, "  movabsq $%lld, %s\n", imm, bd);
       else
-        fprintf(out, "  movabsq $%lld, %%rax\n  movq %%rax, %s\n",
-                (long long)AS_INT(in->constant), bd);
+        fprintf(out, "  movabsq $%lld, %%rax\n  movq %%rax, %s\n", imm, bd);
       break;
+    }
     case IR_LOAD:
       fprintf(out, "  movq -%d(%%rbp), %%rax\n  movq %%rax, %s\n",
               varOffset(in->var, vars, varCount), bd);
@@ -224,13 +275,27 @@ bool emitX64(IRFunc *fn, FILE *out) {
       case OP_NODE_SHR: fprintf(out, "  movq %s, %%rcx\n  sarq %%cl, %%rax\n", bb); break;
       case OP_NODE_DIV: fprintf(out, "  cqto\n  idivq %s\n", bb); break; // quotient -> rax
       case OP_NODE_MOD: fprintf(out, "  cqto\n  idivq %s\n  movq %%rdx, %%rax\n", bb); break;
-      default: break; // comparisons were rejected by supported()
+      // Comparisons: cmp, then set the 0/1 result with the matching condition code.
+      case OP_NODE_EQUAL:   fprintf(out, "  cmpq %s, %%rax\n  sete %%al\n  movzbq %%al, %%rax\n", bb); break;
+      case OP_NODE_LESS:    fprintf(out, "  cmpq %s, %%rax\n  setl %%al\n  movzbq %%al, %%rax\n", bb); break;
+      case OP_NODE_GREATER: fprintf(out, "  cmpq %s, %%rax\n  setg %%al\n  movzbq %%al, %%rax\n", bb); break;
+      default: break;
       }
       fprintf(out, "  movq %%rax, %s\n", bd);
       break;
     case IR_PRINT:
       fprintf(out, "  leaq .LCfmt(%%rip), %%rdi\n  movq %s, %%rsi\n", ba);
       fprintf(out, "  xorl %%eax, %%eax\n  call printf@PLT\n");
+      break;
+    case IR_LABEL:
+      fprintf(out, ".Lbl%d:\n", in->a);
+      break;
+    case IR_JUMP:
+      fprintf(out, "  jmp .Lbl%d\n", in->a);
+      break;
+    case IR_JUMP_IF_FALSE:
+      // The condition is a boolean (0/1): branch when it is zero (false).
+      fprintf(out, "  movq %s, %%rax\n  testq %%rax, %%rax\n  jz .Lbl%d\n", ba, in->b);
       break;
     }
   }
@@ -246,5 +311,7 @@ bool emitX64(IRFunc *fn, FILE *out) {
   free(loc);
   free(lastUse);
   free(vars);
+  free(isBool);
+  free(varIsBool);
   return true;
 }

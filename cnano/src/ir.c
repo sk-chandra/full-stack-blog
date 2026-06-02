@@ -18,6 +18,16 @@ static int emit(IRFunc *fn, IRInstr instr) {
 }
 
 static int freshTemp(IRFunc *fn) { return fn->nextTemp++; }
+static int freshLabel(IRFunc *fn) { return fn->nextLabel++; }
+
+// Emit a label definition / an unconditional jump / a conditional jump. The
+// label id rides in `a` (or `b` for the conditional, whose condition temp is `a`).
+static void emitLabelOp(IRFunc *fn, IROp op, int label, int condTemp) {
+  if (op == IR_JUMP_IF_FALSE)
+    emit(fn, (IRInstr){op, -1, condTemp, label, NIL_VAL, NULL, 0, false});
+  else
+    emit(fn, (IRInstr){op, -1, label, -1, NIL_VAL, NULL, 0, false});
+}
 
 // Lower an expression, returning the temp id that holds its value, or -1 if the
 // expression is outside the straight-line scalar subset (the caller then bails).
@@ -88,8 +98,52 @@ static bool lowerStmt(IRFunc *fn, Node *node) {
     emit(fn, (IRInstr){IR_PRINT, -1, v, -1, NIL_VAL, NULL, 0, false});
     return true;
   }
+  case NODE_BLOCK: {
+    // A block just groups statements; the IR models variables by name, so there
+    // is no separate scope to open (block-local shadowing is unsupported).
+    Program *b = node->as.block;
+    for (int i = 0; i < b->count; i++)
+      if (!lowerStmt(fn, b->statements[i]))
+        return false;
+    return true;
+  }
+  case NODE_IF: {
+    // if (c) then [else otherwise]:
+    //     cond; JUMP_IF_FALSE cond -> Lelse; <then>; JUMP Lend; Lelse: <else>; Lend:
+    int c = lowerExpr(fn, node->as.ifStmt.condition);
+    if (c < 0)
+      return false;
+    int lElse = freshLabel(fn), lEnd = freshLabel(fn);
+    emitLabelOp(fn, IR_JUMP_IF_FALSE, lElse, c);
+    if (!lowerStmt(fn, node->as.ifStmt.then))
+      return false;
+    emitLabelOp(fn, IR_JUMP, lEnd, -1);
+    emitLabelOp(fn, IR_LABEL, lElse, -1);
+    if (node->as.ifStmt.otherwise != NULL && !lowerStmt(fn, node->as.ifStmt.otherwise))
+      return false;
+    emitLabelOp(fn, IR_LABEL, lEnd, -1);
+    return true;
+  }
+  case NODE_WHILE: {
+    // while (c) body [increment]:
+    //     Lstart: cond; JUMP_IF_FALSE cond -> Lend; <body>; <increment>; JUMP Lstart; Lend:
+    int lStart = freshLabel(fn), lEnd = freshLabel(fn);
+    emitLabelOp(fn, IR_LABEL, lStart, -1);
+    int c = lowerExpr(fn, node->as.whileStmt.condition);
+    if (c < 0)
+      return false;
+    emitLabelOp(fn, IR_JUMP_IF_FALSE, lEnd, c);
+    if (!lowerStmt(fn, node->as.whileStmt.body))
+      return false;
+    if (node->as.whileStmt.increment != NULL &&
+        lowerExpr(fn, node->as.whileStmt.increment) < 0)
+      return false; // the `for`-loop step (desugared into the while)
+    emitLabelOp(fn, IR_JUMP, lStart, -1);
+    emitLabelOp(fn, IR_LABEL, lEnd, -1);
+    return true;
+  }
   default:
-    return false; // if/while/return/fun/match/... — not straight-line
+    return false; // return/fun/match/break/continue/... — not yet lowered
   }
 }
 
@@ -100,6 +154,7 @@ IRFunc *lowerToIR(Program *body, const char *name) {
   fn->code = NULL;
   fn->count = fn->capacity = 0;
   fn->nextTemp = 0;
+  fn->nextLabel = 0;
   fn->name = name;
   for (int i = 0; i < body->count; i++) {
     if (body->statements[i]->type == NODE_FUN)
@@ -167,6 +222,15 @@ void printIR(IRFunc *fn, const char *title) {
       break;
     case IR_PRINT:
       printf("  print t%d\n", in->a);
+      break;
+    case IR_LABEL:
+      printf("L%d:\n", in->a);
+      break;
+    case IR_JUMP:
+      printf("  goto L%d\n", in->a);
+      break;
+    case IR_JUMP_IF_FALSE:
+      printf("  if !t%d goto L%d\n", in->a, in->b);
       break;
     }
   }

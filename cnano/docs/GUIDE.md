@@ -1980,13 +1980,30 @@ jobs at the heart of a code generator. This arc emits machine code directly.
   allocator consumes. The backend is deliberately fed the *unoptimised* IR, so the
   arithmetic and the allocator's register reuse (and, for a deep enough
   expression, a real spill) are visible in the output — `--ir` already shows what
-  the optimiser would fold away. Scope is the straight-line **integer** subset;
-  booleans, floats, control flow, and calls are out of range and cleanly rejected
-  (`emitX64` returns false) rather than miscompiled.
-- **Still ahead in this arc:** control flow (labels + conditional jumps) and
-  function calls/frames in the emitter; floats via the SSE registers; then either
-  an ARM64 second target (to separate the *shape* of code generation from one
-  ISA) or emitting object code/ELF directly instead of going through `cc`.
+  the optimiser would fold away. Scope was, at first, the *straight-line* integer
+  subset.
+- ~~**Control flow**~~ ✓ (step 70) — the IR grew three instructions —
+  `IR_LABEL`, `IR_JUMP`, `IR_JUMP_IF_FALSE` — and the lowering learned `if`,
+  `while`, and blocks, turning the once-straight-line IR into a real CFG. The
+  emitter compiles them to `cmp`/`setcc` (comparisons materialise a 0/1 bool),
+  `jmp`, and a `test; jz` conditional branch, so a `while` becomes a backward
+  jump and runs as native machine code. The register allocator needed **no
+  change**: the lowering keeps every temporary's live range *inside* one basic
+  block (a condition temp is consumed immediately by the branch; loop-carried
+  state lives in memory variables), so linear scan over the instruction stream is
+  still correct across jumps — a small design property with a big payoff. Two
+  honest guards keep the int-only backend faithful to the VM: a **boolean** value
+  (born from a comparison or `!`, tracked through variables by a fixpoint pass) is
+  never *printed* (the VM prints `true`/`false`, not `0`/`1`), and a branch
+  **condition must be boolean** — because cnano's truthiness makes `0` truthy, a
+  bare-integer condition would disagree with a zero-test, so it is rejected. The
+  IR optimiser (Arc 6) is now *gated* off when control flow is present: its
+  local passes assume a single straight-line block, and making them block-aware
+  needs the CFG + a data-flow framework (a future step).
+- **Still ahead in this arc:** function calls/frames in the emitter (multiple
+  functions, the call ABI); floats via the SSE registers; making the IR optimiser
+  block-aware; then either an ARM64 second target (to separate the *shape* of code
+  generation from one ISA) or emitting object code/ELF directly instead of `cc`.
 
 ### Other educational arcs ahead
 
