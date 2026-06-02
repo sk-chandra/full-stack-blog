@@ -150,11 +150,10 @@ static void makeConst(IRInstr *in, Value v) {
   in->var = NULL;
 }
 
-// Constant-propagate and fold, in one forward pass. Prints the IR before
-// ("lowered") and after ("optimised") so `--ir` shows the transformation.
-void optimizeIR(IRFunc *fn) {
-  printIR(fn, "lowered");
-
+// --- pass 1: constant propagation + folding (step 64b) ----------------------
+// One forward pass: track which temporaries hold known constants and which
+// constant each variable last had stored to it, then rewrite loads and fold ops.
+static void constPropFold(IRFunc *fn) {
   int n = fn->nextTemp;
   bool *known = n ? calloc(n, sizeof(bool)) : NULL;   // does temp t hold a constant?
   Value *val = n ? calloc(n, sizeof(Value)) : NULL;   // …and which one
@@ -224,6 +223,143 @@ void optimizeIR(IRFunc *fn) {
   free(known);
   free(val);
   free(vars);
+}
 
+// --- pass 2: common-subexpression elimination (step 65) ---------------------
+// Local value numbering. Each computed value gets an entry keyed by its FORM
+// (constant value, loaded variable, or op + operand temps). When a later
+// instruction has the same form, it is redundant: we redirect every later use to
+// the temp that first computed it (via `rep`) and mark the instruction dead.
+//
+// The soundness comes for free from the shape of the IR: a temporary is assigned
+// EXACTLY ONCE and never changes, so two instructions with identical operand
+// temps truly compute the same value. Only VARIABLES are mutable — so a `store`
+// invalidates any cached load of that variable, and (store-to-load forwarding)
+// records that a following `load` of it equals the stored temp.
+typedef enum { VN_CONST, VN_LOAD, VN_UNARY, VN_BINARY } VNKind;
+typedef struct {
+  VNKind kind;
+  bool valid;     // a store can invalidate a cached load
+  NodeOp op;      // VN_UNARY / VN_BINARY
+  Value value;    // VN_CONST
+  ObjString *var; // VN_LOAD
+  int a, b;       // operand temps (already canonicalised), -1 if unused
+  int temp;       // the temp that first held this value
+} VNEntry;
+
+// Follow the representative chain to a temp's canonical name.
+static int vnResolve(int *rep, int t) {
+  while (t >= 0 && rep[t] != t)
+    t = rep[t];
+  return t;
+}
+
+static void cse(IRFunc *fn) {
+  int n = fn->nextTemp;
+  int *rep = n ? malloc(sizeof(int) * n) : NULL;
+  for (int i = 0; i < n; i++)
+    rep[i] = i;
+  VNEntry *tab = NULL;
+  int cnt = 0, cap = 0;
+
+  for (int i = 0; i < fn->count; i++) {
+    IRInstr *in = &fn->code[i];
+    if (in->dead)
+      continue;
+    // Rewrite operands to their canonical temps first, so equal expressions
+    // become textually identical and later uses follow the survivor.
+    if (in->a >= 0) in->a = vnResolve(rep, in->a);
+    if (in->b >= 0) in->b = vnResolve(rep, in->b);
+
+    // Look for an existing entry with the same form.
+    int match = -1;
+    for (int k = 0; k < cnt && match < 0; k++) {
+      VNEntry *e = &tab[k];
+      if (!e->valid)
+        continue;
+      switch (in->op) {
+      case IR_CONST:
+        if (e->kind == VN_CONST && valuesEqual(e->value, in->constant)) match = e->temp;
+        break;
+      case IR_LOAD:
+        if (e->kind == VN_LOAD && e->var == in->var) match = e->temp;
+        break;
+      case IR_UNARY:
+        if (e->kind == VN_UNARY && e->op == in->nodeOp && e->a == in->a) match = e->temp;
+        break;
+      case IR_BINARY:
+        if (e->kind == VN_BINARY && e->op == in->nodeOp && e->a == in->a && e->b == in->b)
+          match = e->temp;
+        break;
+      default:
+        break; // stores/prints are effects: no value to number
+      }
+    }
+
+    if (in->op == IR_STORE) {
+      // A store kills any cached load of this variable, then publishes the new
+      // value so a following load of it reuses the stored temp.
+      for (int k = 0; k < cnt; k++)
+        if (tab[k].valid && tab[k].kind == VN_LOAD && tab[k].var == in->var)
+          tab[k].valid = false;
+      if (cnt + 1 > cap) { cap = cap < 8 ? 8 : cap * 2; tab = realloc(tab, sizeof(VNEntry) * cap); }
+      tab[cnt++] = (VNEntry){VN_LOAD, true, 0, NIL_VAL, in->var, in->a, -1, in->a};
+      continue;
+    }
+    if (in->op == IR_PRINT)
+      continue; // pure effect, operands already canonicalised
+
+    if (match >= 0) {
+      // Redundant: this temp is the same value as `match`.
+      rep[in->dest] = match;
+      in->dead = true;
+      continue;
+    }
+    // First time we have seen this value: record it.
+    if (cnt + 1 > cap) { cap = cap < 8 ? 8 : cap * 2; tab = realloc(tab, sizeof(VNEntry) * cap); }
+    VNEntry e = {VN_CONST, true, in->nodeOp, in->constant, in->var, in->a, in->b, in->dest};
+    e.kind = in->op == IR_CONST ? VN_CONST
+             : in->op == IR_LOAD ? VN_LOAD
+             : in->op == IR_UNARY ? VN_UNARY
+                                  : VN_BINARY;
+    tab[cnt++] = e;
+  }
+
+  free(rep);
+  free(tab);
+}
+
+// --- pass 3: dead-temp elimination (step 65) --------------------------------
+// A backward liveness sweep. Effects (stores, prints) are always kept and make
+// their operands live; a value-producing instruction is kept only if its temp is
+// live. One pass suffices because the code is straight-line — every temp is
+// defined before it is used, so by the time we reach a definition we have already
+// seen all of its uses. This also clears the now-dead constants left by folding.
+static void deadTempElim(IRFunc *fn) {
+  int n = fn->nextTemp;
+  bool *live = n ? calloc(n, sizeof(bool)) : NULL;
+  for (int i = fn->count - 1; i >= 0; i--) {
+    IRInstr *in = &fn->code[i];
+    if (in->dead)
+      continue;
+    bool keep = (in->op == IR_STORE || in->op == IR_PRINT) // observable effects
+                || (in->dest >= 0 && live[in->dest]);
+    if (!keep) {
+      in->dead = true;
+      continue;
+    }
+    if (in->a >= 0) live[in->a] = true;
+    if (in->b >= 0) live[in->b] = true;
+  }
+  free(live);
+}
+
+// Optimise the IR in place and show the result. Prints "lowered" (the raw
+// lowering), then runs the three passes, then prints "optimised".
+void optimizeIR(IRFunc *fn) {
+  printIR(fn, "lowered");
+  constPropFold(fn); // propagate + fold constants
+  cse(fn);           // share repeated subexpressions
+  deadTempElim(fn);  // drop temporaries nothing reads
   printIR(fn, "optimised");
 }

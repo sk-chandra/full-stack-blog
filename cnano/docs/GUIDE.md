@@ -1872,10 +1872,27 @@ walks.
   and after (`optimised`): `a = 2+3*4; b = a+a; print b` collapses to `print
   const 28`. (The now-dead `const` temporaries that fed the folded ops are left in
   place; the next step removes them.)
-- **CSE + dead-temp elimination** (step 65, next) run on this same IR — local
-  value-numbering to share repeated subexpressions, and a liveness sweep to delete
-  the temporaries nothing reads (including the dead consts left by folding). That
-  completes the payoff `--ir` is built to show.
+- ~~**CSE + dead-temp elimination**~~ ✓ (step 65) — two more passes on the same
+  IR. **CSE** is *local value numbering*: each computed value gets an entry keyed
+  by its form (a constant, a loaded variable, or op + operand *temps*), and a
+  later instruction with the same form is redundant — its uses are redirected to
+  the temp that first computed it. The soundness is a gift of the representation:
+  a temporary is assigned exactly once and never changes, so identical operand
+  temps genuinely denote the same value; only *variables* are mutable, so a
+  `store` invalidates the cached load of that variable (and, as store-to-load
+  forwarding, publishes the stored temp as its new value). **Dead-temp
+  elimination** is then a single backward liveness sweep — effects (`store`,
+  `print`) are always kept and make their operands live, a value instruction is
+  kept only if its temp is live — which removes the now-dead constants folding
+  left behind. The before/after is the whole lesson: `a = 2+3*4; b = a+a; print b`
+  lowers to twelve instructions and optimises to five; and `fn f(n){ a=n+n;
+  b=n+n; print a; print b }` computes `n+n` *once* and shares it across both
+  stores and both prints. Throughout, the soundness rule from 64b holds — a
+  divide-by-zero is never folded, and survives all three passes to fail at
+  runtime. This is exactly the machinery a register/SSA IR exists to enable, and
+  it closes the middle-end's central lesson: **the representation dictates which
+  optimisations are tractable.** (Wiring the optimised IR back to bytecode as the
+  execution backend is the natural next project.)
 
 ### Other educational arcs ahead
 

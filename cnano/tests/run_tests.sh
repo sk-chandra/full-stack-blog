@@ -756,6 +756,33 @@ case "$opt_section" in
   *)
     printf '  FAIL %-22s --ir wrongly folded /0:\n%s\n' "ir-nofold-div0" "$ir_dz"; fail=$((fail + 1)) ;;
 esac
+# --- IR CSE + dead-temp elimination (step 65) ---
+# The repeated `n + n` (n unknown) is computed ONCE and shared; the optimised IR
+# must contain exactly one `+`. (grep -c counts matching lines in the opt section.)
+printf 'fn f(n){ let a = n + n; let b = n + n; print a; print b; }' > "$tmp"
+ir_cse="$("$CNANO" --ir "$tmp" 2>&1)"
+plus_count="$(printf '%s\n' "${ir_cse##*f (optimised)}" | grep -c ' + ')"
+case "$plus_count" in
+  1) printf '  ok   %-22s --ir CSE shares n+n\n' "ir-cse"; pass=$((pass + 1)) ;;
+  *) printf '  FAIL %-22s --ir CSE expected 1 add, got %s:\n%s\n' "ir-cse" "$plus_count" "$ir_cse"; fail=$((fail + 1)) ;;
+esac
+# Dead-temp elimination drops the now-dead constant temporaries left by folding.
+# Lowered has three `const` temps (2,3,4); after folding+DCE only the two live
+# constants (14, 28) survive, and no `load`/`+` remains in the optimised IR.
+printf 'let a = 2 + 3 * 4; let b = a + a; print b;' > "$tmp"
+ir_dce="$("$CNANO" --ir "$tmp" 2>&1)"
+opt_dce="${ir_dce##*script> (optimised)}"
+const_count="$(printf '%s\n' "$opt_dce" | grep -c 'const')"
+case "$opt_dce" in
+  *load*|*" + "*)
+    printf '  FAIL %-22s --ir DCE left load/add behind:\n%s\n' "ir-dce" "$ir_dce"; fail=$((fail + 1)) ;;
+  *)
+    if [ "$const_count" -eq 2 ]; then
+      printf '  ok   %-22s --ir DCE drops dead temps\n' "ir-dce"; pass=$((pass + 1))
+    else
+      printf '  FAIL %-22s --ir DCE expected 2 consts, got %s:\n%s\n' "ir-dce" "$const_count" "$ir_dce"; fail=$((fail + 1))
+    fi ;;
+esac
 
 # --- garbage collector (step 10) ---
 # Churn: 5000 short-lived closures (+ their upvalues) are allocated and become
