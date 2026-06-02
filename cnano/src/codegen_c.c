@@ -221,6 +221,9 @@ static TypeKind annotationKind(Type *t, int line) {
   case TY_MAP:
     unsupported(line, "a map-typed value");
     return TY_ANY;
+  case TY_VAR:
+    unsupported(line, "a generic (type-variable) value — generics need the VM");
+    return TY_ANY;
   default:
     unsupported(line, "a function-typed value");
     return TY_ANY;

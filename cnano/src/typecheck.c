@@ -22,6 +22,10 @@
 static bool compatible(Type *a, Type *b) {
   if (a->kind == TY_ANY || b->kind == TY_ANY)
     return true;
+  // A generic type variable is opaque while a generic body is checked: like
+  // `any`, it is compatible with everything (call sites pin it down precisely).
+  if (a->kind == TY_VAR || b->kind == TY_VAR)
+    return true;
   // Unions: a value of a union type b fits where a is expected only if EVERY
   // member of b fits; a value fits a union target a if it fits SOME member.
   if (b->kind == TY_UNION) {
@@ -99,6 +103,11 @@ typedef struct {
   // joins its value's type into `inferredReturn` (NULL until the first one).
   bool inferringReturn;
   Type *inferredReturn;
+  // Generic type parameters of the function whose signature/body is being
+  // checked, so a `: T` annotation resolves to a type VARIABLE rather than an
+  // unknown struct name. NULL/0 outside a generic function.
+  ObjString **typeParams;
+  int typeParamCount;
   bool hadError;
 } Checker;
 
@@ -224,6 +233,12 @@ static Type *resolve(Type *t, int line) {
     return typeNullable(resolve(t->element, line));
   if (t->kind != TY_STRUCT || t->strct.fieldCount >= 0)
     return t; // not a reference (primitive, collection, or already resolved)
+  // A bare name that matches an in-scope generic type parameter is a type
+  // VARIABLE, not a struct reference. (Checked before the struct registry so a
+  // type parameter can even shadow a struct name.)
+  for (int i = 0; i < checker.typeParamCount; i++)
+    if (checker.typeParams[i] == t->strct.name)
+      return typeVar(t->strct.name);
   for (int i = 0; i < structCount; i++)
     if (structRegistry[i].name == t->strct.name)
       return structRegistry[i].type;
@@ -347,6 +362,120 @@ static Type *checkBinary(Node *node) {
   }
 }
 
+// --- generic instantiation: solve a function's type variables per call --------
+// A substitution maps each type-variable NAME to the concrete type it stands for
+// at this call site. Tiny and fixed-size: a function rarely has many.
+#define MAX_TYPE_VARS 16
+typedef struct {
+  ObjString *names[MAX_TYPE_VARS];
+  Type *types[MAX_TYPE_VARS];
+  int count;
+} Subst;
+
+// Does this type mention any type variable? (Gates the generic path so ordinary
+// calls behave exactly as before.)
+static bool hasTypeVar(Type *t) {
+  switch (t->kind) {
+  case TY_VAR:
+    return true;
+  case TY_ARRAY:
+  case TY_NULLABLE:
+    return hasTypeVar(t->element);
+  case TY_MAP:
+    return hasTypeVar(t->map.key) || hasTypeVar(t->map.value);
+  case TY_UNION:
+    for (int i = 0; i < t->uni.count; i++)
+      if (hasTypeVar(t->uni.members[i]))
+        return true;
+    return false;
+  case TY_FUNCTION:
+    for (int i = 0; i < t->fn.paramCount; i++)
+      if (hasTypeVar(t->fn.params[i]))
+        return true;
+    return hasTypeVar(t->fn.returnType);
+  default:
+    return false;
+  }
+}
+
+// Record that type variable `name` stands for `t`. If it is already bound (the
+// same variable used for several parameters), UNITE the two — so `pair<T>(1,"a")`
+// solves `T = int | str` rather than failing.
+static void bindVar(Subst *s, ObjString *name, Type *t) {
+  for (int i = 0; i < s->count; i++)
+    if (s->names[i] == name) {
+      s->types[i] = typeUnite(s->types[i], t);
+      return;
+    }
+  if (s->count < MAX_TYPE_VARS) {
+    s->names[s->count] = name;
+    s->types[s->count] = t;
+    s->count++;
+  }
+}
+
+// Match a declared parameter type (which may contain type variables) against an
+// actual argument type, binding the variables it discovers. A dynamic (`any`)
+// argument constrains nothing.
+static void unify(Type *param, Type *arg, Subst *s) {
+  if (param->kind == TY_VAR) {
+    bindVar(s, param->strct.name, arg);
+    return;
+  }
+  if (arg->kind == TY_ANY)
+    return;
+  switch (param->kind) {
+  case TY_ARRAY:
+    if (arg->kind == TY_ARRAY)
+      unify(param->element, arg->element, s);
+    break;
+  case TY_NULLABLE:
+    unify(param->element, arg->kind == TY_NULLABLE ? arg->element : arg, s);
+    break;
+  case TY_MAP:
+    if (arg->kind == TY_MAP) {
+      unify(param->map.key, arg->map.key, s);
+      unify(param->map.value, arg->map.value, s);
+    }
+    break;
+  case TY_FUNCTION:
+    if (arg->kind == TY_FUNCTION && param->fn.paramCount == arg->fn.paramCount) {
+      for (int i = 0; i < param->fn.paramCount; i++)
+        unify(param->fn.params[i], arg->fn.params[i], s);
+      unify(param->fn.returnType, arg->fn.returnType, s);
+    }
+    break;
+  default:
+    break;
+  }
+}
+
+// Replace every type variable in `t` with its solved type (or `any` if a variable
+// was never constrained — e.g. nested inside an unsupported position).
+static Type *substitute(Type *t, Subst *s) {
+  switch (t->kind) {
+  case TY_VAR:
+    for (int i = 0; i < s->count; i++)
+      if (s->names[i] == t->strct.name)
+        return s->types[i];
+    return typeAny();
+  case TY_ARRAY:
+    return typeArray(substitute(t->element, s));
+  case TY_NULLABLE:
+    return typeNullable(substitute(t->element, s));
+  case TY_MAP:
+    return typeMap(substitute(t->map.key, s), substitute(t->map.value, s));
+  case TY_UNION: {
+    Type *acc = substitute(t->uni.members[0], s);
+    for (int i = 1; i < t->uni.count; i++)
+      acc = typeUnite(acc, substitute(t->uni.members[i], s));
+    return acc;
+  }
+  default:
+    return t;
+  }
+}
+
 static Type *checkCall(Node *node) {
   Type *calleeType = checkExpr(node->as.call.callee);
   // Check the arguments regardless, so errors inside them are still reported.
@@ -373,6 +502,31 @@ static Type *checkCall(Node *node) {
              calleeType->fn.paramCount, argCount);
     typeError(node->line, msg);
     return calleeType->fn.returnType;
+  }
+
+  // GENERIC call: if the signature mentions type variables, solve them from the
+  // arguments, then check each argument against the SOLVED parameter type and
+  // return the SOLVED return type. (Type erasure: the VM does no extra work — a
+  // generic is purely a compile-time check, because cnano's values are already
+  // tagged at runtime. A monomorphising compiler would instead emit one
+  // specialised copy per instantiation; that trade-off is the lesson here.)
+  bool generic = hasTypeVar(calleeType->fn.returnType);
+  for (int i = 0; i < argCount && !generic; i++)
+    generic = hasTypeVar(calleeType->fn.params[i]);
+  if (generic) {
+    Subst s = {.count = 0};
+    for (int i = 0; i < argCount; i++)
+      unify(calleeType->fn.params[i], argTypes[i], &s);
+    for (int i = 0; i < argCount; i++) {
+      Type *expected = substitute(calleeType->fn.params[i], &s);
+      if (!compatible(expected, argTypes[i])) {
+        char msg[128];
+        snprintf(msg, sizeof(msg), "argument %d expects %s but got %s", i + 1,
+                 typeName(expected), typeName(argTypes[i]));
+        typeError(node->line, msg);
+      }
+    }
+    return substitute(calleeType->fn.returnType, &s);
   }
 
   // Argument-type checks, position by position (gradual: any matches anything).
@@ -473,6 +627,10 @@ static Type *checkExpr(Node *node) {
     // recursion-by-name. Its type is a real function type, so a direct call is
     // arity/return-checked like any other.
     Type *fnType = functionTypeOf(node);
+    ObjString **savedTP = checker.typeParams;
+    int savedTC = checker.typeParamCount;
+    checker.typeParams = node->as.fun.typeParams;
+    checker.typeParamCount = node->as.fun.typeParamCount;
     InferCtx ic = beginReturnCheck(node);
     beginScope();
     for (int i = 0; i < node->as.fun.paramCount; i++)
@@ -484,6 +642,8 @@ static Type *checkExpr(Node *node) {
       checkStatement(body->statements[i]);
     endScope();
     endReturnCheck(node, fnType, ic);
+    checker.typeParams = savedTP;
+    checker.typeParamCount = savedTC;
     return fnType;
   }
   case NODE_CALL:
@@ -669,9 +829,18 @@ static Type *functionTypeOf(Node *fun) {
     fprintf(stderr, "cnano: out of memory building function type\n");
     exit(70);
   }
+  // Bring this function's generic parameters into scope so `: T` in the signature
+  // resolves to a type variable. Saved/restored so nesting is safe.
+  ObjString **savedTP = checker.typeParams;
+  int savedTC = checker.typeParamCount;
+  checker.typeParams = fun->as.fun.typeParams;
+  checker.typeParamCount = fun->as.fun.typeParamCount;
   for (int i = 0; i < n; i++)
     params[i] = resolve(fun->as.fun.paramTypes[i], fun->line);
-  return typeFunction(params, n, resolve(fun->as.fun.returnType, fun->line));
+  Type *ret = resolve(fun->as.fun.returnType, fun->line);
+  checker.typeParams = savedTP;
+  checker.typeParamCount = savedTC;
+  return typeFunction(params, n, ret);
 }
 
 // Enter a function body. If it has no `: T` annotation, switch the checker into
@@ -725,6 +894,11 @@ static void checkFunction(Node *node) {
 
   // Check the body in a fresh scope, with parameters bound to their types and the
   // return type recorded (or inferred, if unannotated) for `return` handling.
+  // Generic parameters are in scope so `: T` resolves to a type variable.
+  ObjString **savedTP = checker.typeParams;
+  int savedTC = checker.typeParamCount;
+  checker.typeParams = node->as.fun.typeParams;
+  checker.typeParamCount = node->as.fun.typeParamCount;
   InferCtx ic = beginReturnCheck(node);
   beginScope();
   for (int i = 0; i < node->as.fun.paramCount; i++)
@@ -736,6 +910,8 @@ static void checkFunction(Node *node) {
     checkStatement(body->statements[i]);
   endScope();
   endReturnCheck(node, fnType, ic);
+  checker.typeParams = savedTP;
+  checker.typeParamCount = savedTC;
 }
 
 // Type-check a struct METHOD body, with `self` bound to the struct type so the
@@ -1098,6 +1274,8 @@ bool typecheckProgram(Program *program) {
   checker.currentReturnType = NULL;
   checker.inferringReturn = false;
   checker.inferredReturn = NULL;
+  checker.typeParams = NULL;
+  checker.typeParamCount = 0;
   checker.hadError = false;
   structCount = 0;
   enumCount = 0;

@@ -263,6 +263,8 @@ typedef struct Node {
     // omitted); body the block of statements.
     struct {
       ObjString *name;
+      ObjString **typeParams;  // generic type-parameter names (`<T, U>`), or NULL
+      int typeParamCount;      // 0 for a non-generic function
       ObjString **params;   // heap array of parameter names
       Type **paramTypes;    // parallel heap array of annotation Type* (typeAny default)
       int paramCount;

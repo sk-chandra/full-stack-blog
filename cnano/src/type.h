@@ -28,6 +28,9 @@ typedef enum {
   TY_ENUM,     // a user-defined enum type, by name (reuses Type.strct.name)
   TY_UNION,    // `A | B | ...` — one of several member types (see Type.uni)
   TY_FUNCTION, // a callable; carries param/return types (see Type.fn)
+  TY_VAR,      // a generic TYPE VARIABLE (`T`); name in strct.name. Behaves like
+               // `any` while checking a generic body; solved by unification at
+               // each call site, then erased (the VM is dynamically typed).
 } TypeKind;
 
 // A type. Primitive types (any/int/bool/str/nil) need only the `kind` tag and are
@@ -86,6 +89,10 @@ Type *typeStructRef(ObjString *name);
 // A nominal enum type, identified by name (reuses the `strct.name` slot). Like a
 // struct, two enum types are equal iff they share a name.
 Type *typeEnum(ObjString *name);
+
+// A generic type variable named `name` (e.g. `T`). Compatible with everything
+// like `any` while a generic body is checked; resolved per call by unification.
+Type *typeVar(ObjString *name);
 
 // Combine two types into a union (`a | b`), normalising: `any` absorbs, duplicate
 // members collapse, and a 1-member union degrades to that member.

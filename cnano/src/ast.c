@@ -291,6 +291,8 @@ Node *newFun(ObjString *name, ObjString **params, Type **paramTypes,
              int paramCount, Type *returnType, Program *body, int line) {
   Node *node = allocNode(NODE_FUN, line);
   node->as.fun.name = name;
+  node->as.fun.typeParams = NULL;  // set by the parser for a generic `fn f<T>(…)`
+  node->as.fun.typeParamCount = 0;
   node->as.fun.params = params;
   node->as.fun.paramTypes = paramTypes;
   node->as.fun.paramCount = paramCount;
@@ -450,6 +452,7 @@ void freeNode(Node *node) {
   case NODE_FUN:
     // name and the param ObjStrings are VM-owned (interned); free only the
     // params/paramTypes arrays, the body program, and its container.
+    free(node->as.fun.typeParams);
     free(node->as.fun.params);
     free(node->as.fun.paramTypes);
     freeProgram(node->as.fun.body);

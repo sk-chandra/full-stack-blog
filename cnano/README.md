@@ -15,13 +15,14 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (686 cases, incl. native + GC)
+make test       # run the end-to-end test suite (693 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
 
 # run a file
 ./build/cnano examples/types.cn               #  optional static type annotations
+./build/cnano examples/generics.cn            #  generics: fn id<T>(x: T): T (type-erased)
 ./build/cnano examples/closures.cn            #  counters, adders, an account
 ./build/cnano examples/arrays.cn              #  arrays: literals, indexing, methods
 ./build/cnano examples/maps.cn                #  maps: any-key dictionaries, methods
@@ -175,6 +176,13 @@ make run        # start the REPL
   (joining each `return`, plus `nil` if it can fall off the end), so its callers
   still get real checking. `cnano --types file` prints the inferred type of every
   top-level binding
+- **Generics** (parametric polymorphism): `fn id<T>(x: T): T { return x; }`. Type
+  variables are solved per call site by **unifying** the parameter types against
+  the argument types, so `id(42)` is typed `int` and `id("hi")` is typed `str` —
+  and the solved type is enforced (assigning `id(42)` to a `bool` is an error).
+  Because cnano's runtime values are already tagged, generics are pure
+  compile-time checking with **type erasure** (zero runtime cost) — the worked
+  contrast with a monomorphising compiler like C++/Rust
 - **Modules**: `import "path.cn";` at the top level pulls another file's
   declarations into the program. Paths resolve **relative to the importing file**
   (so a library's own imports work no matter who imports it), and each file is

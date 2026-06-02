@@ -1,0 +1,29 @@
+// Generics — parametric polymorphism, checked at compile time and then ERASED
+// (the VM runs the one function for every type, because values are tagged).
+//
+// A type parameter `<T>` after the name introduces a type variable. The checker
+// solves it per call by unifying the parameter types against the argument types,
+// then substitutes the solution into the return type — so each call is precisely
+// typed without writing a new function per type.
+
+// The identity function: returns its argument unchanged, for ANY type T.
+fn id<T>(x: T): T { return x; }
+
+// One type variable shared by two parameters and the result.
+fn pick<T>(useFirst: bool, a: T, b: T): T {
+  if (useFirst) { return a; }
+  return b;
+}
+
+// No return annotation needed: the return type is inferred as the variable T.
+fn echo<T>(x: T) { return x; }
+
+print id(42);            // T = int   -> 42
+print id("cnano");       // T = str   -> cnano
+print pick(true, 1, 2);  // T = int   -> 1
+print pick(false, "a", "b"); // T = str -> b
+print echo(3.14);        // T = float -> 3.14
+
+// T can itself be a whole container type, solved end to end.
+let xs = id([10, 20, 30]); // T = [int]
+print xs[2];               // -> 30

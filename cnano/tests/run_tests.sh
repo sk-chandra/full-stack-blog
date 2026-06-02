@@ -799,6 +799,22 @@ check_diag "inf-nil-union" 'fn maybe(n: int) { if (n > 0) { return n; } } let x:
 # A function that returns on every path keeps the precise (non-nil) type.
 check_prog "inf-allpaths"  'fn sign(n: int) { if (n < 0) { return -1; } else { return 1; } } let x: int = sign(5); print x;' "1"
 
+# --- generics: parametric polymorphism (step 67) ---
+# A generic identity function: the result type is the argument type, per call.
+check_prog "gen-id-int"   'fn id<T>(x: T): T { return x; } print id(42);' "42"
+check_prog "gen-id-str"   'fn id<T>(x: T): T { return x; } print id("hi");' "hi"
+# The SOLVED return type is enforced at the call site (int here, not the old any).
+check_diag "gen-enforced" 'fn id<T>(x: T): T { return x; } let b: bool = id(42); print b;' \
+  "is int but variable is declared bool"
+# One type variable shared across parameters; correct uses run.
+check_prog "gen-pick"     'fn pick<T>(c: bool, a: T, b: T): T { if (c) { return a; } return b; } print pick(false, 10, 20);' "20"
+# A generic body needs no annotation: the return type is inferred as the variable.
+check_prog "gen-inferred" 'fn id<T>(x: T) { return x; } print id(99);' "99"
+# T can itself be a container type (id over an array), solved end to end.
+check_prog "gen-array"    'fn id<T>(x: T): T { return x; } let xs = id([1,2,3]); print xs[1];' "2"
+# The native backend has no parametric polymorphism, so it REJECTS generics.
+check_native_err "gen-native-reject" 'fn id<T>(x: T): T { return x; } print id(5);'
+
 # --- the --types viewer (step 66) ---
 # Prints each top-level binding's inferred type, marking inferred returns.
 printf 'fn add(a: int, b: int) { return a + b; } fn maybe(n: int) { if (n>0) { return n; } } let s = "hi";' > "$tmp"

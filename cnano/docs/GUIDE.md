@@ -1921,9 +1921,31 @@ fewer annotations are needed without losing static checking.
   conservatively `T?` because `alwaysExits` doesn't yet read the exhaustiveness
   result. `cnano --types file` prints the inferred type of every top-level
   binding — inference made visible, like `--ir` and `--cfg`.
+- ~~**Generics (parametric polymorphism)**~~ ✓ (step 67) — `fn id<T>(x: T): T`.
+  A `<T, U>` list after the name introduces TYPE VARIABLES (a new `TY_VAR` kind);
+  the parser reads it (the `<` is unambiguous in declaration position), and the
+  checker brings those names into scope so a `: T` annotation `resolve`s to a
+  variable instead of an unknown struct. Inside the body a `TY_VAR` behaves like
+  `any` (compatible with everything), so a generic body checks once, opaquely.
+  The interesting work is at each **call site**: `checkCall` *unifies* the
+  declared parameter types against the actual argument types to build a
+  substitution (`T ↦ int`), checks the arguments against the *solved* parameters,
+  and returns the *solved* return type — so `id(42)` is `int`, `id("hi")` is
+  `str`, and assigning `id(42)` to a `bool` is a real error the old gradual `any`
+  would have missed. One variable shared by several parameters *unites* its
+  bindings (`pick<T>(c, 1, "a")` ⇒ `T = int | str`). The headline lesson is the
+  **erasure vs. monomorphisation** trade-off: because cnano's runtime values are
+  already TAGGED, a generic needs *zero* runtime work — the same compiled function
+  runs for every type, and generics are a pure compile-time check that is then
+  erased. A monomorphising compiler (C++ templates, Rust) instead stamps out one
+  specialised copy per instantiation: faster code, but code-size blow-up and no
+  separate compilation. (The `--native` backend, having no polymorphism, cleanly
+  *rejects* a generic rather than miscompiling it.) Generics compose with return
+  inference — an unannotated `fn id<T>(x: T)` is inferred `: T`. Scope note: a
+  type variable nested *inside* a parameter (`fn head<T>(xs: [T]): T`) isn't
+  solved yet (only top-level positions unify), a documented next increment.
 - **Still ahead in this arc:** parameter-type inference from call sites, and
-  **generics** (parametric polymorphism — `fn id<T>(x: T): T`, generic
-  containers) with monomorphisation or type-erasure as the worked trade-off.
+  generics over nested positions (`[T]`, `{K: V}` parameters) and generic structs.
 
 ### Other educational arcs ahead
 

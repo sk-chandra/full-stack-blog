@@ -110,6 +110,12 @@ Type *typeEnum(ObjString *name) {
   return t;
 }
 
+Type *typeVar(ObjString *name) {
+  Type *t = allocType(TY_VAR);
+  t->strct.name = name; // reuse the name slot; a type variable is identified by name
+  return t;
+}
+
 // Whether two union members are "the same" for dedup purposes.
 static bool sameMember(Type *a, Type *b) {
   if (a == b)
@@ -219,6 +225,8 @@ const char *typeName(const Type *type) {
     return type->strct.name->chars; // the declared struct name
   case TY_ENUM:
     return type->strct.name->chars; // the declared enum name (shares the slot)
+  case TY_VAR:
+    return type->strct.name->chars; // a generic type variable prints as its name
   case TY_ARRAY: {
     char *buf = nameRing[nameSlot++ % NAME_RING];
     snprintf(buf, NAME_LEN, "[%s]", typeName(type->element));

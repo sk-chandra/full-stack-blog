@@ -1387,6 +1387,25 @@ static Node *varDeclaration(bool isConst) {
 // `name` is the function's name — a synthetic "lambda" for anonymous functions.
 // The `=> expr` shorthand desugars to a body of `{ return expr; }`.
 static Node *finishFunction(ObjString *name, int line) {
+  // Optional generic type parameters: `fn id<T, U>(…)`. The `<` here is
+  // unambiguous — it follows a function name in declaration position, never an
+  // expression, so it cannot be the comparison operator.
+  ObjString **typeParams = NULL;
+  int typeParamCount = 0;
+  if (match(TOKEN_LESS)) {
+    do {
+      consume(TOKEN_IDENTIFIER, "Expect type-parameter name.");
+      typeParams = realloc(typeParams, sizeof(ObjString *) * (typeParamCount + 1));
+      if (typeParams == NULL) {
+        fprintf(stderr, "cnano: out of memory parsing type parameters\n");
+        exit(70);
+      }
+      typeParams[typeParamCount++] =
+          copyString(parser.previous.start, parser.previous.length);
+    } while (match(TOKEN_COMMA));
+    consume(TOKEN_GREATER, "Expect '>' after type parameters.");
+  }
+
   consume(TOKEN_LPAREN, "Expect '(' after a function's parameter list.");
   ObjString **params = NULL;
   Type **paramTypes = NULL;
@@ -1444,6 +1463,8 @@ static Node *finishFunction(ObjString *name, int line) {
   }
 
   Node *fn = newFun(name, params, paramTypes, paramCount, returnType, body, line);
+  fn->as.fun.typeParams = typeParams;
+  fn->as.fun.typeParamCount = typeParamCount;
   fn->as.fun.returnAnnotated = returnAnnotated;
   fn->as.fun.isGenerator = parser.fnSawYield;
   parser.fnSawYield = savedSawYield;
