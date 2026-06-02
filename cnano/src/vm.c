@@ -8,6 +8,7 @@
 #include "compiler.h"
 #include "cfg.h"
 #include "debug.h"
+#include "ir.h"
 #include "memory.h"
 #include "module.h"
 #include "object.h"
@@ -1296,6 +1297,48 @@ static void cfgForFunction(ObjFunction *fn) {
   for (int i = 0; i < fn->chunk.constants.count; i++)
     if (IS_FUNCTION(fn->chunk.constants.values[i]))
       cfgForFunction(AS_FUNCTION(fn->chunk.constants.values[i]));
+}
+
+// Compile FILE to three-address IR and print it (`--ir`). We deliberately do NOT
+// run the AST constant-folder first, so the IR optimiser has constants to fold
+// and the before/after is meaningful.
+InterpretResult dumpIRFile(const char *path) {
+  vm.gcEnabled = false;
+  Program program;
+  if (!loadModuleFile(path, &program)) {
+    freeTypes();
+    return INTERPRET_COMPILE_ERROR;
+  }
+  if (!typecheckProgram(&program)) {
+    freeProgram(&program);
+    freeTypes();
+    return INTERPRET_COMPILE_ERROR;
+  }
+  // The top-level straight-line code.
+  IRFunc *top = lowerToIR(&program, "<script>");
+  if (top != NULL) {
+    printIR(top, "lowered");
+    freeIR(top);
+  } else {
+    printf("== IR: <script> == (top level is not straight-line scalar code)\n\n");
+  }
+  // Each top-level function whose body is straight-line scalar code.
+  for (int i = 0; i < program.count; i++) {
+    Node *s = program.statements[i];
+    if (s->type != NODE_FUN)
+      continue;
+    const char *name = s->as.fun.name ? s->as.fun.name->chars : "fn";
+    IRFunc *fn = lowerToIR(s->as.fun.body, name);
+    if (fn != NULL) {
+      printIR(fn, "lowered");
+      freeIR(fn);
+    } else {
+      printf("== IR: %s == (not straight-line scalar code; skipped)\n\n", name);
+    }
+  }
+  freeProgram(&program);
+  freeTypes();
+  return INTERPRET_OK;
 }
 
 InterpretResult dumpCFGFile(const char *path) {

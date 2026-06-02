@@ -1,0 +1,11 @@
+// A straight-line scalar program, the input the IR demo is built for.
+// Run `cnano --ir examples/ir.cn` to see it lowered to three-address code,
+// then optimised (constant folding/propagation, CSE, dead-temp removal).
+//
+// `b` is `a + a` where `a` is a compile-time constant, and `c` recomputes the
+// same subexpression — so there is something for every pass to find.
+let a = 2 + 3 * 4;   // a folds to 14
+let b = a + a;       // propagates to 28
+let c = (a + a) + 1; // the (a + a) is a common subexpression with b's
+print b;
+print c;

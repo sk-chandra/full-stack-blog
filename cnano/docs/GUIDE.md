@@ -1841,6 +1841,29 @@ local folding + a peephole pass. This arc builds the missing machinery.
   a future **IR arc** (build a small three-address/SSA IR, optimise there, lower
   back to bytecode), the honest and proper home for them.
 
+### The three-address IR (Arc 6 continued, in progress)
+
+Acting on that finding, this sub-arc builds the missing representation: a small
+**three-address IR** where every value has a NAME. `ir.c` lowers a straight-line
+statement list into a flat list of `IRInstr`s, each of the form `dest = a op b`
+(plus loads, stores, and the `print` effect). The key difference from bytecode is
+that there is no operand stack — `t3 = t1 * t2` says exactly which values feed the
+multiply, so the value optimizations that fought the stack become simple list
+walks.
+
+- ~~**IR + lowering + viewer**~~ ✓ (step 64a) — `lowerToIR` recursively turns
+  expressions into temporaries (`NODE_BINARY` → emit `a`, emit `b`, `t = a op b`)
+  and statements into stores/effects. It handles only the straight-line scalar
+  subset and returns `NULL` on anything else (control flow, calls, collections),
+  because local optimisation of straight-line code is the whole lesson. `cnano
+  --ir file` lowers the top level and each top-level function and prints the
+  result — deliberately **without** running the AST folder first, so the IR
+  optimiser has real constants to fold and the before/after is visible.
+- **Constant propagation + folding** (step 64b, next) and **CSE + dead-temp
+  elimination** (step 65) run on this IR — the analyses that were intractable on
+  the stack become local value-numbering and a liveness sweep here. That is the
+  payoff `--ir` is built to show.
+
 ### Other educational arcs ahead
 
 These are grouped by the concept each teaches, to keep cnano a *complete map* of

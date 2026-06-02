@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (675 cases, incl. native + GC)
+make test       # run the end-to-end test suite (677 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -35,6 +35,7 @@ make run        # start the REPL
 # see the bytecode AND a step-by-step VM trace (the best way to learn)
 ./build/cnano --dump examples/variables.cn
 ./build/cnano --cfg examples/control_flow.cn   # control-flow graph (basic blocks)
+./build/cnano --ir examples/ir.cn              # three-address IR, before + after optimisation
 ./build/cnano --stats examples/showcase.cn     # profile: opcode/alloc/GC summary
 
 # compile the typed subset to a NATIVE executable (no interpreter), then run it
@@ -268,6 +269,7 @@ make run        # start the REPL
 | `src/peephole.{h,c}` | bytecode optimisation pass | delete dead pairs + remap jump offsets |
 | `src/cfg.{h,c}` | control-flow graph | basic blocks + edges over bytecode (`--cfg`); reachability |
 | `src/dce.{h,c}` | dead-block elimination | drop unreachable blocks; recompute spanning jumps |
+| `src/ir.{h,c}` | three-address IR | named temporaries; the home for value optimisations (`--ir`) |
 | `src/codegen_c.{h,c}` | native backend | AST → C source → `cc` → executable (AOT) |
 | `src/memory.{h,c}` | GC + allocator | mark-and-sweep, tri-colour worklist, weak intern table |
 | `src/value.{h,c}` | values + constant pool | tagged-union dynamic values |

@@ -715,6 +715,27 @@ check_diag "sug-member"  'enum Dir { North, South } print Dir.Norht;' "did you m
 # A name with no near match gets no (misleading) suggestion.
 check_diag "sug-none"    'print zzzzqqq;' "undefined variable 'zzzzqqq'"
 
+# --- three-address IR (step 64a) ---
+# Straight-line scalar code lowers to named temporaries: every value is a `t<N>`,
+# so `1 + 2 * 3` becomes a const/const/const, a multiply, then an add.
+printf 'let a = 2 + 3 * 4; let b = a + a; print b;' > "$tmp"
+ir_out="$("$CNANO" --ir "$tmp" 2>&1)"
+case "$ir_out" in
+  *"IR: <script>"*"t0 = const"*" * "*" + "*"store a = t"*"print t"*)
+    printf '  ok   %-22s --ir lowering ok\n' "ir-lower"; pass=$((pass + 1)) ;;
+  *)
+    printf '  FAIL %-22s --ir output unexpected:\n%s\n' "ir-lower" "$ir_out"; fail=$((fail + 1)) ;;
+esac
+# Code outside the straight-line scalar subset is reported, not miscompiled.
+printf 'fn f(n){ return n; } print f(3);' > "$tmp"
+ir_out2="$("$CNANO" --ir "$tmp" 2>&1)"
+case "$ir_out2" in
+  *"not straight-line"*)
+    printf '  ok   %-22s --ir rejects non-subset\n' "ir-reject"; pass=$((pass + 1)) ;;
+  *)
+    printf '  FAIL %-22s --ir should skip non-subset:\n%s\n' "ir-reject" "$ir_out2"; fail=$((fail + 1)) ;;
+esac
+
 # --- garbage collector (step 10) ---
 # Churn: 5000 short-lived closures (+ their upvalues) are allocated and become
 # garbage. Correct output here means the GC reclaims them without corrupting the

@@ -156,4 +156,8 @@ InterpretResult compileFileToC(const char *path, FILE *cFile);
 // Compile FILE and print the control-flow graph of every function (`--cfg`).
 InterpretResult dumpCFGFile(const char *path);
 
+// Lower FILE's straight-line code to three-address IR and print it, before and
+// after the IR optimiser (`--ir`).
+InterpretResult dumpIRFile(const char *path);
+
 #endif // CNANO_VM_H
