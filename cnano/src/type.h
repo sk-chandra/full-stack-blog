@@ -98,4 +98,9 @@ void freeTypes(void);
 // Human-readable name for error messages ("int", "[int]", "{str: int}", "fn").
 const char *typeName(const Type *type);
 
+// Could a `nil` legitimately have this type? True for any/nil/`T?` and a union
+// that includes nil. Used to decide whether a function may fall through to its
+// implicit `return nil` (the all-paths-return check).
+bool typeAcceptsNil(const Type *type);
+
 #endif // CNANO_TYPE_H

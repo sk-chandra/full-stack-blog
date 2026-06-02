@@ -1810,8 +1810,19 @@ local folding + a peephole pass. This arc builds the missing machinery.
   data-flow analogue of `--dump`. The instruction-length decoder is now shared
   (`instructionLength` in chunk.c) between the CFG and the peephole pass. This is
   the backbone every later analysis iterates over.
-- next: a data-flow framework + safe checks (unreachable code, all-paths-return),
-  then constant propagation, dead-code elimination, and value numbering / CSE.
+- ~~**Unreachable-code analysis**~~ ✓ (step 62) — a statement after a definite
+  control transfer (`return`/`throw`/`break`/`continue`, or an `if/else` whose
+  *both* branches exit) can never run, and now draws a (non-fatal) warning. Done
+  as a structural AST analysis with an `alwaysExits` predicate that deliberately
+  **under-approximates** — it answers true only when certain — so the warning
+  never fires on code that might actually run. A worked lesson in soundness: the
+  same step first tried all-paths-return on the bytecode CFG and *backed it out*,
+  because the CFG can't see that an exhaustive `match` or a `while(true)` never
+  falls through — so it false-positived on idiomatic, correct code. (All-paths-
+  return is left as future work: it needs the checker's exhaustiveness result and
+  constant-condition info threaded into the analysis.)
+- next: constant propagation, dead-code elimination, and value numbering / CSE,
+  all over the bytecode CFG.
 
 ### Other educational arcs ahead
 

@@ -693,7 +693,15 @@ case "$cfg_out" in
     printf '  FAIL %-22s --cfg missing unreachable block\n' "cfg-unreach"; fail=$((fail + 1)) ;;
 esac
 
-# --- "did you mean …?" suggestions (step 51) ---
+# --- unreachable-code analysis (step 62) ---
+# A statement after a definite control transfer warns (non-fatal: still runs).
+check_diag "unreach-return" 'fn f(): int { return 1; print "x"; } print f();' "unreachable code"
+check_diag "unreach-break"  'while (true) { break; print "x"; }' "unreachable code"
+check_prog "unreach-runs"   'fn f(){ return 7; let z = 9; } print f();' "7"
+# No false positive when both branches of an if exit but code follows neither.
+check_prog "unreach-none"   'fn f(n){ if (n>0) { return 1; } return 0; } print f(5);' "1"
+# A function ending in an exhaustive match (all arms return) must NOT warn/err.
+check_prog "unreach-adt"    'struct A{v:int} struct B{v:int} fn g(x: A|B): int { match (x) { is A => return x.v; is B => return x.v; } } print g(A(5));' "5"
 check_diag "sug-field"   'struct P { x: int, y: int } let p = P(1,2); print p.xx;' "did you mean 'x'?"
 check_diag "sug-global"  'let count = 5; print conut;' "did you mean 'count'?"
 check_diag "sug-type"    'enum Color { Red } let c: Colr = Color.Red; print c;' "did you mean 'Color'?"

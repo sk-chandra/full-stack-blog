@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (668 cases, incl. native + GC)
+make test       # run the end-to-end test suite (673 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -199,7 +199,9 @@ make run        # start the REPL
   `undefined variable 'conut' (did you mean 'count'?)`. Across **`import`ed
   files**, errors name the file they came from (`[lib/math.cn:2] Type error: …`),
   including each frame of a runtime stack trace; single-file programs keep the
-  familiar `[line N]`
+  familiar `[line N]`. The compiler also builds a **control-flow graph** of each
+  function (`--cfg` prints basic blocks + edges) and **warns on unreachable
+  code** (a statement after a definite `return`/`break`/`continue`/`throw`)
 - **Native compilation** (ahead-of-time): `cnano --native file.cn -o prog`
   compiles the **statically-typed, first-order subset** to C and invokes the
   system `cc`, producing a standalone native executable with no interpreter.

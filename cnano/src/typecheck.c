@@ -250,7 +250,8 @@ static Type *resolve(Type *t, int line) {
 
 static Type *checkExpr(Node *node);
 static void checkStatement(Node *node);
-static Type *functionTypeOf(Node *fun); // defined below; used for lambdas
+static Type *functionTypeOf(Node *fun);   // defined below; used for lambdas
+static void checkUnreachable(Program *body); // unreachable-code warning
 
 // Helper: an arithmetic operand must be int OR any. Returns false (and reports)
 // only when the operand is a KNOWN non-int — the gradual rule in action.
@@ -462,6 +463,7 @@ static Type *checkExpr(Node *node) {
       declareSymbol(node->as.fun.params[i],
                     resolve(node->as.fun.paramTypes[i], node->line));
     Program *body = node->as.fun.body;
+    checkUnreachable(body);
     for (int i = 0; i < body->count; i++)
       checkStatement(body->statements[i]);
     endScope();
@@ -671,6 +673,7 @@ static void checkFunction(Node *node) {
     declareSymbol(node->as.fun.params[i],
                   resolve(node->as.fun.paramTypes[i], node->line));
   Program *body = node->as.fun.body;
+  checkUnreachable(body);
   for (int i = 0; i < body->count; i++)
     checkStatement(body->statements[i]);
   endScope();
@@ -873,6 +876,44 @@ static void checkMatchExhaustive(Node *node) {
   }
 }
 
+// Does this statement DEFINITELY transfer control away (so a statement after it
+// in the same block can never run)? This deliberately UNDER-approximates — it
+// only says true when certain — so the unreachable-code warning never fires on
+// code that might actually run. `while`/`for`/`match` answer false (a loop may
+// run zero times; a match's totality is a separate, type-level fact).
+static bool alwaysExits(Node *node) {
+  switch (node->type) {
+  case NODE_RETURN:
+  case NODE_THROW:
+  case NODE_BREAK:
+  case NODE_CONTINUE:
+    return true;
+  case NODE_IF: // an if exits only if BOTH branches do (so it needs an else)
+    return node->as.ifStmt.otherwise != NULL &&
+           alwaysExits(node->as.ifStmt.then) &&
+           alwaysExits(node->as.ifStmt.otherwise);
+  case NODE_BLOCK: {
+    Program *b = node->as.block;
+    for (int i = 0; i < b->count; i++)
+      if (alwaysExits(b->statements[i]))
+        return true; // anything after this is already dead
+    return false;
+  }
+  default:
+    return false;
+  }
+}
+
+// Warn on the first statement that follows a definite control transfer in a
+// statement list — classic unreachable-code detection.
+static void checkUnreachable(Program *body) {
+  for (int i = 0; i + 1 < body->count; i++)
+    if (alwaysExits(body->statements[i])) {
+      typeWarn(body->statements[i + 1]->line, "unreachable code");
+      break; // one warning per list is enough
+    }
+}
+
 static void checkStatement(Node *node) {
   switch (node->type) {
   case NODE_PRINT:
@@ -898,6 +939,7 @@ static void checkStatement(Node *node) {
   case NODE_BLOCK: {
     beginScope();
     Program *b = node->as.block;
+    checkUnreachable(b);
     for (int i = 0; i < b->count; i++)
       checkStatement(b->statements[i]);
     endScope();
@@ -1052,6 +1094,7 @@ bool typecheckProgram(Program *program) {
   // PASS 2: check every statement. Top-level functions are already bound, so
   // checkFunction re-binding the same name just shadows harmlessly with an
   // equal type; its real job here is checking the body.
+  checkUnreachable(program); // unreachable code at the top level too
   for (int i = 0; i < program->count; i++)
     checkStatement(program->statements[i]);
 

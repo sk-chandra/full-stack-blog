@@ -188,6 +188,17 @@ void freeTypes(void) {
 static char nameRing[NAME_RING][NAME_LEN];
 static int nameSlot;
 
+bool typeAcceptsNil(const Type *type) {
+  if (type->kind == TY_ANY || type->kind == TY_NIL || type->kind == TY_NULLABLE)
+    return true;
+  if (type->kind == TY_UNION) {
+    for (int i = 0; i < type->uni.count; i++)
+      if (typeAcceptsNil(type->uni.members[i]))
+        return true;
+  }
+  return false;
+}
+
 const char *typeName(const Type *type) {
   switch (type->kind) {
   case TY_ANY:

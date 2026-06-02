@@ -18,6 +18,7 @@ typedef struct {
   int succ[CFG_MAX_SUCC];
   int succCount;        // 0 (a return/throw block), 1 (jump/fallthrough), or 2
   bool reachable;       // filled by a forward walk from the entry block
+  bool fallsOffEnd;     // control can run PAST the last instruction (no return)
 } BasicBlock;
 
 typedef struct {
@@ -30,6 +31,11 @@ typedef struct {
 // always block 0. Marks each block's `reachable` flag from the entry.
 CFG *buildCFG(Chunk *chunk);
 void freeCFG(CFG *cfg);
+
+// True if control can reach the END of the chunk — i.e. some REACHABLE block
+// runs off the last instruction without returning. Used to detect a function
+// that can fall through to its implicit `return nil` (all-paths-return check).
+bool cfgReachesEnd(CFG *cfg);
 
 // Print the CFG (blocks, their disassembled instructions, and successor edges)
 // to stdout — the `--cfg` learning aid, the data-flow analogue of `--dump`.

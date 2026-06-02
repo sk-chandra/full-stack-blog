@@ -42,9 +42,9 @@ CFG *buildCFG(Chunk *chunk) {
   if (cfg == NULL)
     return NULL;
   cfg->chunk = chunk;
-  if (n == 0) { // an empty chunk is one empty, reachable block
+  if (n == 0) { // an empty chunk: one reachable block that falls straight off end
     cfg->blocks = malloc(sizeof(BasicBlock));
-    cfg->blocks[0] = (BasicBlock){0, 0, {0, 0}, 0, true};
+    cfg->blocks[0] = (BasicBlock){0, 0, {-1, -1}, 0, true, true};
     cfg->count = 1;
     return cfg;
   }
@@ -80,25 +80,35 @@ CFG *buildCFG(Chunk *chunk) {
     int end = off + instructionLength(chunk, off);
     while (end < n && !leader[end])
       end += instructionLength(chunk, end);
-    cfg->blocks[b] = (BasicBlock){off, end, {-1, -1}, 0, false};
+    cfg->blocks[b] = (BasicBlock){off, end, {-1, -1}, 0, false, false};
     b++;
     off = end;
   }
 
-  // Pass 3: edges, from each block's last instruction.
+  // Pass 3: edges. Compute each block's successor OFFSETS from its last
+  // instruction, then map them to block indices — except an offset of `n` (past
+  // the last instruction) is not a block: it means control falls off the end.
   for (int i = 0; i < cfg->count; i++) {
     BasicBlock *blk = &cfg->blocks[i];
     int li = lastInstr(chunk, blk->start, blk->end);
     uint8_t op = chunk->code[li];
+    int soff[CFG_MAX_SUCC];
+    int sn = 0;
     if (op == OP_RETURN || op == OP_THROW) {
-      blk->succCount = 0; // exits the function — no successor
+      sn = 0; // exits the function
     } else if (op == OP_JUMP || op == OP_LOOP) {
-      blk->succ[blk->succCount++] = blockAt(cfg, jumpTarget(chunk, li)); // unconditional
+      soff[sn++] = jumpTarget(chunk, li);
     } else if (op == OP_JUMP_IF_FALSE || op == OP_BEGIN_TRY) {
-      blk->succ[blk->succCount++] = blockAt(cfg, blk->end);              // fall-through
-      blk->succ[blk->succCount++] = blockAt(cfg, jumpTarget(chunk, li)); // taken
-    } else if (blk->end < n) {
-      blk->succ[blk->succCount++] = blockAt(cfg, blk->end); // straight-line fall-through
+      soff[sn++] = blk->end;             // fall-through
+      soff[sn++] = jumpTarget(chunk, li); // taken
+    } else {
+      soff[sn++] = blk->end; // straight-line fall-through
+    }
+    for (int s = 0; s < sn; s++) {
+      if (soff[s] >= n)
+        blk->fallsOffEnd = true; // would run past the last instruction
+      else
+        blk->succ[blk->succCount++] = blockAt(cfg, soff[s]);
     }
   }
 
@@ -122,6 +132,13 @@ CFG *buildCFG(Chunk *chunk) {
   return cfg;
 }
 
+bool cfgReachesEnd(CFG *cfg) {
+  for (int i = 0; i < cfg->count; i++)
+    if (cfg->blocks[i].reachable && cfg->blocks[i].fallsOffEnd)
+      return true;
+  return false;
+}
+
 void freeCFG(CFG *cfg) {
   if (cfg == NULL)
     return;
@@ -136,13 +153,13 @@ void printCFG(CFG *cfg, const char *name) {
     BasicBlock *blk = &cfg->blocks[i];
     printf("B%d [%04d..%04d]%s", i, blk->start, blk->end,
            blk->reachable ? "" : "  (unreachable)");
-    if (blk->succCount > 0) {
-      printf("  ->");
-      for (int s = 0; s < blk->succCount; s++)
-        printf(" B%d", blk->succ[s]);
-    } else {
-      printf("  -> (exit)");
-    }
+    printf("  ->");
+    for (int s = 0; s < blk->succCount; s++)
+      printf(" B%d", blk->succ[s]);
+    if (blk->fallsOffEnd)
+      printf(" (end)");
+    if (blk->succCount == 0 && !blk->fallsOffEnd)
+      printf(" (exit)");
     printf("\n");
     for (int off = blk->start; off < blk->end;)
       off = disassembleInstruction(cfg->chunk, off);
