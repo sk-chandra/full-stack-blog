@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h> // clock() — timing each GC pause
 
 #include "memory.h"
 #include "object.h"
@@ -235,11 +236,16 @@ static void sweep(void) {
 }
 
 void collectGarbage(void) {
-  if (vm.collectStats)
-    vm.gcCount++;
+  // Instrument every collection: time it and record how much it reclaims. This
+  // is how you reason about a GC — pause time vs. memory recovered — and it makes
+  // the mark-sweep tradeoffs (see docs/GUIDE) concrete and measurable.
+  size_t before = vm.bytesAllocated;
+  if (before > vm.gcPeakLive)
+    vm.gcPeakLive = before;
+  clock_t start = clock();
+  vm.gcCount++;
 #ifdef DEBUG_LOG_GC
   printf("-- gc begin\n");
-  size_t before = vm.bytesAllocated;
 #endif
 
   markRoots();
@@ -254,8 +260,16 @@ void collectGarbage(void) {
   if (vm.nextGC < GC_MIN_NEXT)
     vm.nextGC = GC_MIN_NEXT;
 
+  size_t reclaimed = before - vm.bytesAllocated;
+  size_t micros = (size_t)((clock() - start) * 1000000 / CLOCKS_PER_SEC);
+  vm.gcReclaimed += reclaimed;
+  vm.gcMicros += micros;
+  if (vm.gcTrace)
+    fprintf(stderr,
+            "[gc] #%zu: %zu -> %zu bytes (reclaimed %zu) in %zu us; next at %zu\n",
+            vm.gcCount, before, vm.bytesAllocated, reclaimed, micros, vm.nextGC);
 #ifdef DEBUG_LOG_GC
-  printf("-- gc end: collected %zu bytes (now %zu), next at %zu\n",
-         before - vm.bytesAllocated, vm.bytesAllocated, vm.nextGC);
+  printf("-- gc end: collected %zu bytes (now %zu), next at %zu\n", reclaimed,
+         vm.bytesAllocated, vm.nextGC);
 #endif
 }

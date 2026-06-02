@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (664 cases, incl. native + GC)
+make test       # run the end-to-end test suite (666 cases, incl. native + GC)
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -214,7 +214,11 @@ make run        # start the REPL
   bounded memory instead of growing forever). Tri-colour marking with an explicit
   grey worklist, a self-tuning heap-growth threshold, and a **weak** string-intern
   table. `make gcstress` runs the whole suite collecting on *every* allocation
-  under ASan — the torture test for missed roots
+  under ASan — the torture test for missed roots. **Observable**:
+  `CNANO_GC_TRACE=1` logs each cycle and `--stats` reports cycles / bytes
+  reclaimed / pause time / peak heap. (Non-moving by design — the GUIDE explains
+  why cnano's raw-pointer roots rule out a copying collector without a bigger
+  redesign)
 - **Strings**: `"double-quoted"` literals, `+` concatenates them, and they are
   **interned** so equal strings compare in O(1) by pointer. **Interpolation**
   `"x = ${expr}"` embeds any expression (auto-converted with `str()`); the lexer

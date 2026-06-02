@@ -1093,6 +1093,48 @@ the program actually retains. Watching a 20 000-iteration closure-churn loop hol
 makes the payoff tangible: automatic memory management is not magic, it is
 reachability analysis run periodically over a well-defined root set.
 
+### 19.5 Observing the collector
+
+You can watch the collector work. `CNANO_GC_TRACE=1 cnano prog.cn` logs every
+cycle — `[gc] #3: 65565 -> 1789 bytes (reclaimed 63776) in 88 us; next at 65536`
+— and `cnano --stats prog.cn` reports totals: cycles, bytes reclaimed, total
+pause time, and the peak live heap. This is how you actually reason about a GC:
+the numbers expose the central tension — collect *more often* (lower peak memory,
+more total pause time) or *less often* (higher memory, fewer pauses). The
+threshold multiplier in `collectGarbage()` is exactly that dial.
+
+### 19.6 Why mark-and-sweep, and what it would take to move
+
+cnano uses a **non-moving** collector — objects keep their address for life — and
+that is not an accident; it is forced by the rest of the architecture:
+
+- **GC runs mid-allocation.** `reallocate()` may collect *while an opcode is
+  executing*, when C locals hold raw `Obj*` pointers. A non-moving collector can
+  free the unreachable ones and leave the survivors put, so those locals stay
+  valid.
+- **Roots are rooted by pushing to the value stack.** A native like `array.map`
+  keeps `ObjArray *out` in a C local and protects it with `push(OBJ_VAL(out))`.
+  That is correct *because objects don't move* — the push keeps it alive and the
+  C pointer stays good.
+
+A **copying / semispace** collector (bump-allocate into one half, then copy the
+live objects to the other half and swap) has real attractions — allocation is a
+pointer increment, and survivors come out compacted with no fragmentation. But it
+*moves objects*, which would invalidate every raw `Obj*` held in a C local across
+an allocation. Making it safe needs one of: **safepoints** (only collect between
+instructions, never mid-opcode) *plus* fixing up every interior pointer (a
+frame's `ip`, a generator's saved window…), or a **handle layer** that adds a
+level of indirection to every object reference so the collector can update one
+table instead of chasing C locals, or **precise stack maps**. Each is a pervasive
+redesign. A **generational** collector (collect the young often, the old rarely)
+adds a write barrier and a remembered set on top — also doable, also non-trivial.
+
+The lesson is the meta-point: *your GC algorithm is constrained by how the rest of
+the runtime holds references.* clox (and cnano) pick mark-and-sweep precisely
+because raw-pointer, push-to-root code is simple to write and a non-moving
+collector lets it stay correct. Choosing a fancier collector is really choosing a
+different reference discipline for the entire VM.
+
 ---
 
 ## 20. Case study: a structured type system
@@ -1806,8 +1848,16 @@ how a language works rather than a pile of features.
   infinite generators work because you simply stop pulling. The lesson:
   continuations/coroutines as a *VM* capability, suspension as saved execution
   state).
-- **GC variants (stretch):** a copying/semispace collector beside the mark-sweep
-  one, compared through the same gcstress suite.
+- **GC variants (stretch — DONE as a study):** step 60 added GC **observability
+  and tuning** (`CNANO_GC_TRACE` logs every cycle; `--stats` reports cycles, bytes
+  reclaimed, total pause time and peak live heap) plus a written **design
+  comparison** (§19.5–19.6). The headline finding is itself the lesson: a true
+  copying/semispace collector is *not* safely droppable onto cnano, because the VM
+  holds raw `Obj*` in C locals across allocations (rooted by pushing to the value
+  stack) — a non-moving collector is what makes that idiom correct. A moving GC
+  would need safepoints + interior-pointer fixups, a handle layer, or precise
+  stack maps. So Arc 5 is delivered as the meta-lesson — *your GC choice is
+  dictated by your reference discipline* — rather than an unsafe rewrite.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
 (free online). cnano's bytecode/VM design intentionally follows the same lineage

@@ -45,6 +45,10 @@ void initVM(void) {
   vm.globalsGen = 1; // 1, so a freshly calloc'd cache slot (gen 0) never matches
   vm.resuming = NULL;
   vm.didYield = false;
+  vm.gcReclaimed = 0;
+  vm.gcMicros = 0;
+  vm.gcPeakLive = 0;
+  vm.gcTrace = getenv("CNANO_GC_TRACE") != NULL; // log each collection if set
 
   initTable(&vm.globals);
   initTable(&vm.strings);
@@ -345,7 +349,9 @@ void printVmStats(void) {
   fprintf(stderr, "instructions executed : %zu\n", vm.instrCount);
   fprintf(stderr, "heap allocations      : %zu (%zu bytes)\n", vm.allocCount,
           vm.allocBytes);
-  fprintf(stderr, "GC cycles             : %zu\n", vm.gcCount);
+  fprintf(stderr, "GC cycles             : %zu (reclaimed %zu bytes, %zu us total)\n",
+          vm.gcCount, vm.gcReclaimed, vm.gcMicros);
+  fprintf(stderr, "peak live heap        : %zu bytes\n", vm.gcPeakLive);
 
   // Opcode histogram, most-executed first (a simple selection sort over the 256
   // slots — we only print the non-zero ones).

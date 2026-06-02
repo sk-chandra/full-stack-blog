@@ -86,6 +86,11 @@ typedef struct {
   size_t allocCount;    // distinct heap allocations
   size_t allocBytes;    // total bytes handed out by the allocator
   size_t gcCount;       // garbage-collection cycles
+  // --- garbage-collector instrumentation ---
+  size_t gcReclaimed;   // total bytes reclaimed across all collections
+  size_t gcMicros;      // total time spent collecting (microseconds)
+  size_t gcPeakLive;    // high-water mark of live bytes
+  bool gcTrace;         // log every collection (set by the CNANO_GC_TRACE env var)
 } VM;
 
 // Print the profiling summary gathered during a `collectStats` run.

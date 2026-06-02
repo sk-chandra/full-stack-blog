@@ -658,6 +658,24 @@ case "$stats_out" in
     fail=$((fail + 1)) ;;
 esac
 
+# --- GC instrumentation (step 60) ---
+# CNANO_GC_TRACE logs each collection; --stats reports GC cycles + peak heap.
+printf 'let n=0; for (let i in 0..30000){ let s=[i]; n+=s.len(); } print n;' > "$tmp"
+gc_out="$(CNANO_GC_TRACE=1 "$CNANO" "$tmp" 2>&1)"
+case "$gc_out" in
+  *"[gc] #"*"reclaimed"*)
+    printf '  ok   %-22s GC trace ok\n' "gc-trace"; pass=$((pass + 1)) ;;
+  *)
+    printf '  FAIL %-22s GC trace missing:\n%s\n' "gc-trace" "$gc_out"; fail=$((fail + 1)) ;;
+esac
+gc_stats="$("$CNANO" --stats "$tmp" 2>&1)"
+case "$gc_stats" in
+  *"GC cycles"*"peak live heap"*)
+    printf '  ok   %-22s GC stats ok\n' "gc-stats"; pass=$((pass + 1)) ;;
+  *)
+    printf '  FAIL %-22s GC stats missing:\n%s\n' "gc-stats" "$gc_stats"; fail=$((fail + 1)) ;;
+esac
+
 # --- "did you mean …?" suggestions (step 51) ---
 check_diag "sug-field"   'struct P { x: int, y: int } let p = P(1,2); print p.xx;' "did you mean 'x'?"
 check_diag "sug-global"  'let count = 5; print conut;' "did you mean 'count'?"
