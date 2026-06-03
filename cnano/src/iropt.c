@@ -151,9 +151,13 @@ static void makeConst(IRInstr *in, Value v) {
   in->var = NULL;
 }
 
-// --- pass 1: constant propagation + folding (step 64b) ----------------------
-// One forward pass: track which temporaries hold known constants and which
-// constant each variable last had stored to it, then rewrite loads and fold ops.
+// --- pass 1: constant propagation + folding (step 64b; block-local in step 73)
+// One forward pass. Folding and TEMP propagation are always safe (a temp is
+// assigned once and never crosses a basic block). VARIABLE propagation is only
+// valid within a basic block, so we drop all variable knowledge at a block
+// boundary (a label is a merge point — the value could come from either
+// predecessor) and at a call (which may reassign globals). That conservative
+// reset is what makes the pass sound in the presence of control flow.
 static void constPropFold(IRFunc *fn) {
   int n = fn->nextTemp;
   bool *known = n ? calloc(n, sizeof(bool)) : NULL;   // does temp t hold a constant?
@@ -188,7 +192,7 @@ static void constPropFold(IRFunc *fn) {
         vc = &vars[varCount++];
         vc->var = in->var;
       }
-      // The last store wins (straight-line code): record or clear its constant.
+      // The last store wins (within this block): record or clear its constant.
       if (in->a >= 0 && known[in->a]) { vc->known = true; vc->val = val[in->a]; }
       else vc->known = false;
       break;
@@ -216,8 +220,17 @@ static void constPropFold(IRFunc *fn) {
       }
       break;
     }
+    case IR_CALL:
+      if (in->dest >= 0) known[in->dest] = false; // result is not a known constant
+      varCount = 0; // a call may reassign globals — drop variable knowledge
+      break;
+    case IR_LABEL:
+    case IR_JUMP:
+    case IR_JUMP_IF_FALSE:
+    case IR_RETURN:
+      varCount = 0; // basic-block boundary: no variable's value is guaranteed
+      break;
     case IR_PRINT:
-    default: // control-flow ops never reach here (guarded by hasControlFlow)
       break;
     }
   }
@@ -268,10 +281,25 @@ static void cse(IRFunc *fn) {
     IRInstr *in = &fn->code[i];
     if (in->dead)
       continue;
+    // A label is a merge point: values numbered in one predecessor can't be
+    // assumed here, so the value table resets at every basic-block boundary.
+    if (in->op == IR_LABEL) { cnt = 0; continue; }
     // Rewrite operands to their canonical temps first, so equal expressions
     // become textually identical and later uses follow the survivor.
     if (in->a >= 0) in->a = vnResolve(rep, in->a);
     if (in->b >= 0) in->b = vnResolve(rep, in->b);
+    if (in->op == IR_CALL)
+      for (int k = 0; k < in->callArgCount; k++)
+        in->callArgs[k] = vnResolve(rep, in->callArgs[k]);
+
+    // A call has side effects and may change globals: never share two calls, and
+    // drop the value table (cached loads could now be stale). A branch/return
+    // ends the block, so it resets too.
+    if (in->op == IR_CALL || in->op == IR_RETURN || in->op == IR_JUMP ||
+        in->op == IR_JUMP_IF_FALSE) {
+      cnt = 0;
+      continue;
+    }
 
     // Look for an existing entry with the same form.
     int match = -1;
@@ -331,12 +359,14 @@ static void cse(IRFunc *fn) {
   free(tab);
 }
 
-// --- pass 3: dead-temp elimination (step 65) --------------------------------
-// A backward liveness sweep. Effects (stores, prints) are always kept and make
-// their operands live; a value-producing instruction is kept only if its temp is
-// live. One pass suffices because the code is straight-line — every temp is
-// defined before it is used, so by the time we reach a definition we have already
-// seen all of its uses. This also clears the now-dead constants left by folding.
+// --- pass 3: dead-temp elimination (step 65; control-flow-aware in step 73) --
+// A backward liveness sweep. EFFECTS (stores, prints, calls, returns, branches,
+// labels) are always kept and make their operands live; a value-producing
+// instruction is kept only if its temp is live. One pass suffices because a temp
+// is defined once and never crosses a basic block (loop-carried state lives in
+// variables), so all of a temp's uses are seen before its definition going
+// backward. This also clears the now-dead constants left by folding. NB: operand
+// liveness is op-specific — a label/jump carries a label id in `a`, NOT a temp.
 static void deadTempElim(IRFunc *fn) {
   int n = fn->nextTemp;
   bool *live = n ? calloc(n, sizeof(bool)) : NULL;
@@ -344,43 +374,43 @@ static void deadTempElim(IRFunc *fn) {
     IRInstr *in = &fn->code[i];
     if (in->dead)
       continue;
-    bool keep = (in->op == IR_STORE || in->op == IR_PRINT) // observable effects
-                || (in->dest >= 0 && live[in->dest]);
-    if (!keep) {
+    bool effect = in->op == IR_STORE || in->op == IR_PRINT || in->op == IR_CALL ||
+                  in->op == IR_RETURN || in->op == IR_JUMP ||
+                  in->op == IR_JUMP_IF_FALSE || in->op == IR_LABEL;
+    if (!effect && !(in->dest >= 0 && live[in->dest])) {
       in->dead = true;
       continue;
     }
-    if (in->a >= 0) live[in->a] = true;
-    if (in->b >= 0) live[in->b] = true;
+    switch (in->op) {
+    case IR_STORE:
+    case IR_PRINT:
+    case IR_UNARY:
+    case IR_JUMP_IF_FALSE:
+      if (in->a >= 0) live[in->a] = true;
+      break;
+    case IR_RETURN:
+      if (in->a >= 0) live[in->a] = true;
+      break;
+    case IR_BINARY:
+      if (in->a >= 0) live[in->a] = true;
+      if (in->b >= 0) live[in->b] = true;
+      break;
+    case IR_CALL:
+      for (int k = 0; k < in->callArgCount; k++) live[in->callArgs[k]] = true;
+      break;
+    default: // IR_CONST, IR_LOAD, IR_LABEL, IR_JUMP: no temp operands
+      break;
+    }
   }
   free(live);
 }
 
-// These three passes are all LOCAL — they assume one straight-line basic block
-// (the most-recent store dominates every load, every value flows forward once).
-// Branches break those assumptions (a load could come from either side of a
-// merge; a backward jump re-runs code), so when the IR contains control flow we
-// must NOT run them. Making them block-aware is a future step (it needs the CFG
-// + a dominator/data-flow framework).
-static bool hasControlFlow(IRFunc *fn) {
-  for (int i = 0; i < fn->count; i++) {
-    IROp op = fn->code[i].op;
-    // Branches break the single-block assumption; a CALL has side effects (so CSE
-    // must never share two of them); a RETURN is an early control transfer.
-    if (op == IR_LABEL || op == IR_JUMP || op == IR_JUMP_IF_FALSE ||
-        op == IR_CALL || op == IR_RETURN)
-      return true;
-  }
-  return false;
-}
-
-// Run the optimisation passes in place, without printing — for backends (the
-// x86-64 emitter) that want the optimised IR but not the --ir commentary.
+// Run the optimisation passes in place, without printing. The passes are
+// BASIC-BLOCK-LOCAL: each resets its facts at block boundaries (labels) and at
+// calls, so they are sound on any IR — straight-line, loops, or functions.
 void optimizeIRPasses(IRFunc *fn) {
-  if (hasControlFlow(fn))
-    return; // the local passes are unsound across branches
-  constPropFold(fn); // propagate + fold constants
-  cse(fn);           // share repeated subexpressions
+  constPropFold(fn); // propagate + fold constants (within each block)
+  cse(fn);           // share repeated subexpressions (within each block)
   deadTempElim(fn);  // drop temporaries nothing reads
 }
 
@@ -388,11 +418,6 @@ void optimizeIRPasses(IRFunc *fn) {
 // lowering), then runs the three passes, then prints "optimised".
 void optimizeIR(IRFunc *fn) {
   printIR(fn, "lowered");
-  if (hasControlFlow(fn)) {
-    printf("(optimiser skipped: the local passes need straight-line code; this "
-           "function has control flow)\n\n");
-    return;
-  }
   optimizeIRPasses(fn);
   printIR(fn, "optimised");
 }

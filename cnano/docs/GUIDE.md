@@ -1996,10 +1996,9 @@ jobs at the heart of a code generator. This arc emits machine code directly.
   (born from a comparison or `!`, tracked through variables by a fixpoint pass) is
   never *printed* (the VM prints `true`/`false`, not `0`/`1`), and a branch
   **condition must be boolean** — because cnano's truthiness makes `0` truthy, a
-  bare-integer condition would disagree with a zero-test, so it is rejected. The
-  IR optimiser (Arc 6) is now *gated* off when control flow is present: its
-  local passes assume a single straight-line block, and making them block-aware
-  needs the CFG + a data-flow framework (a future step).
+  bare-integer condition would disagree with a zero-test, so it is rejected. (At
+  this step the IR optimiser was *gated off* on control flow — see step 73, which
+  lifts that.)
 - ~~**Functions, parameters, calls, recursion**~~ ✓ (step 72) — the capstone of
   the native backend. The IR gained `IR_CALL` and `IR_RETURN`, and lowering grew a
   *module* (`lowerModule`): the top-level code becomes `main`, and each function
@@ -2020,10 +2019,26 @@ jobs at the heart of a code generator. This arc emits machine code directly.
   while still rejecting it from a `print` (which would show `0`/`1`, not
   `true`/`false`). Out-of-subset features — closures, floats, >6 parameters,
   unknown callees — get the whole module rejected up front (never half-emitted).
-- **Still ahead in this arc:** floats via the SSE registers; making the IR
-  optimiser block-aware (CFG + data-flow); then either an ARM64 second target (to
-  separate the *shape* of code generation from one ISA) or emitting object
-  code/ELF directly instead of going through `cc`.
+- ~~**A basic-block-aware optimiser**~~ ✓ (step 73) — the Arc-6 value passes used
+  to bail entirely once the IR had a branch, a call, or a return (they assume a
+  single straight-line block). This step makes them **block-local** instead, the
+  classic sound-but-simple middle ground between no optimisation and a full
+  data-flow framework: folding and temp-level reasoning are always safe (a temp is
+  assigned once and never crosses a block), while *variable* facts are dropped at
+  every basic-block boundary — a **label** is a merge point, so a variable's value
+  could come from either predecessor — and at every **call**, which may reassign a
+  global. Constant propagation and value-numbering reset their tables at those
+  points; dead-temp elimination became op-aware (effects like calls, returns, and
+  branches are always kept, and a label's operand is a label id, not a temp). The
+  result: `--ir` now optimises loops and functions, folding a constant computed
+  inside a loop body while *correctly* refusing to propagate a variable across the
+  loop's back-edge or across a call. The lesson is exactly where local optimisation
+  stops: a loop-invariant load isn't hoisted, because that needs global
+  (whole-CFG) data-flow — the natural next increment.
+- **Still ahead in this arc:** floats via the SSE registers; *global* (whole-CFG)
+  data-flow so loop-invariant code can be hoisted; then either an ARM64 second
+  target (to separate the *shape* of code generation from one ISA) or emitting
+  object code/ELF directly instead of going through `cc`.
 
 ### Other educational arcs ahead
 

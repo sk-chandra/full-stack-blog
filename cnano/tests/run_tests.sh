@@ -826,6 +826,31 @@ case "$opt_dce" in
       printf '  FAIL %-22s --ir DCE expected 2 consts, got %s:\n%s\n' "ir-dce" "$const_count" "$ir_dce"; fail=$((fail + 1))
     fi ;;
 esac
+# --- block-local optimisation across control flow (step 73) ---
+# The optimiser now runs on loops/functions: a constant computed INSIDE a loop
+# body folds (4*5 -> 20) -- and the old "optimiser skipped" note is gone.
+printf 'let i = 0; while (i < 3) { let k = 4 * 5; print k; i = i + 1; }' > "$tmp"
+ir_loop="$("$CNANO" --ir "$tmp" 2>&1)"
+opt_loop="${ir_loop##*script> (optimised)}"
+case "$ir_loop" in
+  *"optimiser skipped"*)
+    printf '  FAIL %-22s --ir still skips control flow:\n%s\n' "ir-blocklocal" "$ir_loop"; fail=$((fail + 1)) ;;
+  *)
+    case "$opt_loop" in
+      *"const 20"*) printf '  ok   %-22s --ir folds inside a loop\n' "ir-blocklocal"; pass=$((pass + 1)) ;;
+      *) printf '  FAIL %-22s --ir did not fold 4*5 in loop:\n%s\n' "ir-blocklocal" "$ir_loop"; fail=$((fail + 1)) ;;
+    esac ;;
+esac
+# Soundness: across a CALL (which may reassign globals) a variable's constant must
+# NOT propagate. `g` is set to 7, then a call, then read: the read must stay a
+# load, not fold to 7.
+printf 'fn touch() { return 0; } let g = 7; touch(); print g;' > "$tmp"
+ir_call="$("$CNANO" --ir "$tmp" 2>&1)"
+opt_call="${ir_call##*script> (optimised)}"
+case "$opt_call" in
+  *"load g"*) printf '  ok   %-22s --ir keeps load across a call\n' "ir-call-clobber"; pass=$((pass + 1)) ;;
+  *) printf '  FAIL %-22s --ir wrongly propagated across a call:\n%s\n' "ir-call-clobber" "$ir_call"; fail=$((fail + 1)) ;;
+esac
 
 # --- return-type inference (step 66) ---
 # An unannotated function's return type is inferred from its body and ENFORCED at
