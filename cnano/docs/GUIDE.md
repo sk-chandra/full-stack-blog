@@ -2040,6 +2040,30 @@ jobs at the heart of a code generator. This arc emits machine code directly.
   target (to separate the *shape* of code generation from one ISA) or emitting
   object code/ELF directly instead of going through `cc`.
 
+### Maturity & tooling (Arc 9, in progress)
+
+A real language is judged not only by what it accepts but by how it behaves on
+what it *rejects*. This arc hardens cnano as an artifact.
+
+- ~~**A fuzzer**~~ ✓ (step 74) — `tools/fuzzgen.c` generates hostile programs
+  (token salad, deep nesting, mutated snippets) deterministically from a seed, and
+  `tools/fuzz.sh` runs thousands of them through the non-executing compiler paths
+  (`--emit-c`/`--ir`/`--asm`, so each fully lexes, parses, and type-checks) under
+  AddressSanitizer, asserting the process only ever **errors cleanly** — never
+  segfaults, aborts, or trips ASan (`make fuzz`). The invariant being tested is a
+  real contract: *a compiler must reject bad input with a diagnostic, not crash.*
+  It immediately earned its keep. cnano's recursive-descent parser reports a
+  syntax error by returning `NULL` up the call chain (and only ever compiles when
+  the whole parse succeeded), but two spots **dereferenced that NULL** before the
+  error surfaced: an assignment target (`* = 1;` — a token that can't start an
+  expression, followed by `=`) and a `match` subject (`match (*) { … }`). Both
+  were one-line guards (propagate the NULL instead of reading `node->type`), now
+  pinned by regression tests that assert a *clean* exit 65 rather than merely a
+  non-zero one — because a crash is also non-zero, the usual "expect an error"
+  check would have hidden exactly this bug.
+- **Still ahead in this arc:** a written grammar/specification; a `cnano`-authored
+  standard prelude (steps toward self-hosting); and a stepping debugger.
+
 ### Other educational arcs ahead
 
 These are grouped by the concept each teaches, to keep cnano a *complete map* of

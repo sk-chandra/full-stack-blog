@@ -15,7 +15,8 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (721 cases, incl. native + GC)
+make test       # run the end-to-end test suite (725 cases, incl. native + GC)
+make fuzz       # generate hostile inputs and assert the compiler never crashes
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
 make run        # start the REPL
@@ -309,6 +310,7 @@ make run        # start the REPL
 | `src/vm.{h,c}` | executes bytecode | call frames; upvalue capture/closing; type checks |
 | `src/debug.{h,c}` | disassembler | seeing what your compiler produced |
 | `src/main.c` | CLI / REPL | wiring it together |
+| `tools/fuzzgen.c`, `tools/fuzz.sh` | fuzzer | generate hostile inputs; assert the compiler errors cleanly, never crashes (`make fuzz`, under ASan) |
 
 ## Learning path
 

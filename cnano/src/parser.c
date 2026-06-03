@@ -238,6 +238,11 @@ static Node *assignment(void) {
   // l-value *bases* even though they are never valid assignment targets. A plain
   // `x` still comes back as a NODE_VAR_GET, so assignment targets are unaffected.
   Node *node = ternary();
+  // A parse error below returns NULL (primary() reports it and advances). Don't
+  // dereference it as an assignment target — propagate the NULL so the statement
+  // loop resynchronises. (We only ever compile when the whole parse succeeded.)
+  if (node == NULL)
+    return NULL;
 
   // Compound assignment `target OP= rhs` desugars to `target = target OP rhs`.
   // We build it here so it works for both variable and index targets, reusing
@@ -1161,6 +1166,8 @@ static Node *matchStatement(void) {
   Node *subject = expression();
   consume(TOKEN_RPAREN, "Expect ')' after the match subject.");
   consume(TOKEN_LBRACE, "Expect '{' to begin the match arms.");
+  if (subject == NULL)
+    return NULL; // a parse error in the subject; resynchronise rather than deref
 
   // If the subject is already a plain variable, we test that variable directly.
   // This matters for `is TYPE =>` arms: the narrowing logic keys off the *name*

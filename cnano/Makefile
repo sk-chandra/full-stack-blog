@@ -19,7 +19,7 @@ BUILD   := build
 SOURCES := $(wildcard $(SRC_DIR)/*.c)
 TARGET  := $(BUILD)/cnano
 
-.PHONY: all run test bench debug gcstress clean
+.PHONY: all run test bench debug gcstress fuzz clean
 
 all: $(TARGET)
 
@@ -51,6 +51,15 @@ bench: all
 gcstress: | $(BUILD)
 	$(CC) $(DBGFLAGS) -DDEBUG_STRESS_GC $(SOURCES) -o $(BUILD)/cnano-gcstress $(LDLIBS)
 	./tests/run_tests.sh ./$(BUILD)/cnano-gcstress
+
+# FUZZ: generate thousands of hostile programs and assert the compiler never
+# crashes (only ever errors cleanly). Built with sanitizers so memory bugs and UB
+# on weird inputs are caught. FUZZ_N controls the iteration count.
+FUZZ_N ?= 2000
+fuzz: | $(BUILD)
+	$(CC) $(DBGFLAGS) $(SOURCES) -o $(BUILD)/cnano-debug $(LDLIBS)
+	$(CC) $(CFLAGS) tools/fuzzgen.c -o $(BUILD)/fuzzgen
+	./tools/fuzz.sh ./$(BUILD)/cnano-debug ./$(BUILD)/fuzzgen $(FUZZ_N)
 
 clean:
 	rm -rf $(BUILD)

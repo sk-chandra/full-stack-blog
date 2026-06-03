@@ -99,6 +99,21 @@ check_prog_err() {
   fi
 }
 
+# check_clean_error NAME PROGRAM — expect a CLEAN compile error (exit 65), not a
+# crash. Unlike check_prog_err (any non-zero), this fails on a segfault/abort/ASan
+# exit, so it is the right tool for parser-robustness regressions.
+check_clean_error() {
+  local name="$1" prog="$2"
+  printf '%s' "$prog" > "$tmp"
+  "$CNANO" "$tmp" >/dev/null 2>&1
+  local code=$?
+  if [ "$code" -eq 65 ]; then
+    printf '  ok   %-22s -> clean compile error\n' "$name"; pass=$((pass + 1))
+  else
+    printf '  FAIL %-22s : expected clean error (65), got exit %s\n' "$name" "$code"; fail=$((fail + 1))
+  fi
+}
+
 # check_native NAME PROGRAM EXPECTED — compile PROGRAM to a NATIVE binary via the
 # C backend, run it, and compare output. Proves the --native path produces a real
 # executable whose behaviour matches the VM. Skipped if no C compiler is found.
@@ -390,6 +405,13 @@ check_prog_err "missing-semicolon" "print 1"
 check_prog_err "expr-no-semicolon" "1 + 2"
 check_prog_err "print-no-value"    "print ;"
 check_prog_err "bare-semicolon"    ";"
+# Parser robustness (step 74, found by the fuzzer): a token that can't start an
+# expression returns NULL up the chain; a following '=' / compound-assign / match
+# subject must NOT be dereferenced as a node. These must error cleanly, not crash.
+check_clean_error "asn-null-lhs"   "* = 1;"
+check_clean_error "asn-null-brace" "} = 1;"
+check_clean_error "asn-null-cmpd"  "+ += 2;"
+check_clean_error "match-null-subj" "match (*) { _ => print 1; }"
 
 # --- global variables (step 3) ---
 check_prog "let-and-read"     "let x = 10; print x;"              "10"
