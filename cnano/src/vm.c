@@ -5,6 +5,7 @@
 
 #include "builtins.h"
 #include "codegen_c.h"
+#include "codegen_elf.h"
 #include "codegen_x64.h"
 #include "compiler.h"
 #include "cfg.h"
@@ -1350,6 +1351,41 @@ InterpretResult dumpIRFile(const char *path) {
 
 // `--asm`: lower the top-level straight-line integer code to IR, optimise it,
 // and emit x86-64 assembly to stdout (which `cc` can assemble into a binary).
+// `--elf FILE -o OUT`: compile FILE's integer subset straight to a native ELF
+// executable — no assembler, no linker, no libc (see codegen_elf.h).
+InterpretResult compileElfFile(const char *path, const char *outPath) {
+  vm.gcEnabled = false;
+  Program program;
+  if (!loadModuleFile(path, &program)) {
+    freeTypes();
+    return INTERPRET_COMPILE_ERROR;
+  }
+  if (!typecheckProgram(&program)) {
+    freeProgram(&program);
+    freeTypes();
+    return INTERPRET_COMPILE_ERROR;
+  }
+  IRModule *mod = lowerModule(&program);
+  InterpretResult result = INTERPRET_OK;
+  if (mod == NULL) {
+    fprintf(stderr, "cnano: the ELF backend only supports integer functions and "
+                    "straight-line/loop code (no closures or collections).\n");
+    result = INTERPRET_COMPILE_ERROR;
+  } else {
+    if (!emitElfExecutable(mod, outPath)) {
+      fprintf(stderr, "cnano: the ELF backend only supports the integer/bool "
+                      "subset (no floats; ≤6 args; known callees).\n");
+      result = INTERPRET_COMPILE_ERROR;
+    } else {
+      fprintf(stderr, "cnano: wrote native executable \"%s\".\n", outPath);
+    }
+    freeModule(mod);
+  }
+  freeProgram(&program);
+  freeTypes();
+  return result;
+}
+
 InterpretResult dumpAsmFile(const char *path) {
   vm.gcEnabled = false;
   Program program;

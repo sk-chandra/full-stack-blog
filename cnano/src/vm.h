@@ -168,4 +168,8 @@ InterpretResult dumpTypesFile(const char *path);
 // written to stdout (`--asm`). The real machine-code back end.
 InterpretResult dumpAsmFile(const char *path);
 
+// Compile FILE's integer subset directly to a native ELF executable at
+// `outPath` (`--elf FILE -o OUT`) — no assembler, no linker, no libc.
+InterpretResult compileElfFile(const char *path, const char *outPath);
+
 #endif // CNANO_VM_H

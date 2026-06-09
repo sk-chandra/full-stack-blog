@@ -212,6 +212,38 @@ check_asm_err() {
   fi
 }
 
+# check_elf NAME PROGRAM EXPECTED — compile PROGRAM straight to an ELF
+# executable (--elf: cnano as its own assembler and linker, no cc at all), run
+# it, and compare output. No toolchain needed, so never skipped.
+check_elf() {
+  local name="$1" prog="$2" expected="$3"
+  printf '%s' "$prog" > "$tmp"
+  local bin="${tmp}.elf"
+  if ! "$CNANO" --elf "$tmp" -o "$bin" >/dev/null 2>&1; then
+    printf '  FAIL %-22s : --elf emission failed\n' "$name"; fail=$((fail + 1)); return
+  fi
+  local got; got="$("$bin" 2>/dev/null)"
+  local code=$?
+  rm -f "$bin"
+  if [ "$got" = "$expected" ] && [ "$code" -eq 0 ]; then
+    printf '  ok   %-22s (elf) ok\n' "$name"; pass=$((pass + 1))
+  else
+    printf '  FAIL %-22s elf: expected [%s] got [%s] (exit %s)\n' "$name" "$expected" "$got" "$code"; fail=$((fail + 1))
+  fi
+}
+
+# check_elf_err NAME PROGRAM — expect the ELF backend to reject the program.
+check_elf_err() {
+  local name="$1" prog="$2"
+  printf '%s' "$prog" > "$tmp"
+  if "$CNANO" --elf "$tmp" -o "${tmp}.elf" >/dev/null 2>&1; then
+    rm -f "${tmp}.elf"
+    printf '  FAIL %-22s : elf expected rejection, but it emitted\n' "$name"; fail=$((fail + 1))
+  else
+    printf '  ok   %-22s -> elf rejected (as expected)\n' "$name"; pass=$((pass + 1))
+  fi
+}
+
 # check_module NAME ENTRY_REL EXPECTED FILE1 BODY1 [FILE2 BODY2 ...] — write a set
 # of files into a fresh temp directory (relative paths preserved, subdirs created)
 # and run ENTRY_REL on the VM, comparing stdout. Exercises `import` resolution.
@@ -1052,6 +1084,22 @@ check_asm "asm-not-bool"   'fn f(n) { if (!(n > 0)) { return 1; } return 2; } pr
 check_asm_err "asm-rej-mixedvar" 'let x = 1; x = 2.5; print x;'
 check_asm_err "asm-rej-notint"   'let n = 0; if (!n) { print 1; }'
 check_asm_err "asm-rej-mixedeq"  'print 1 == 1.0;'
+
+# --- direct ELF emission (step 80): cnano as its own assembler + linker ---
+# These binaries are built with NO cc, NO as, NO ld, NO libc — cnano encodes the
+# machine bytes and writes the ELF headers itself; print is a raw write syscall.
+check_elf "elf-arith"   'print 2 + 3 * 4; print -7; print 100 / 7; print 100 % 7;' "$(printf '14\n-7\n14\n2')"
+check_elf "elf-loop"    'let s = 0; let i = 1; while (i < 11) { s = s + i; i = i + 1; } print s;' "55"
+check_elf "elf-if"      'let n = 7; if (n % 2 == 0) { print 0; } else { print 1; }' "1"
+check_elf "elf-fn"      'fn add(a, b) { return a + b; } print add(40, 2);' "42"
+check_elf "elf-fib"     'fn fib(n) { if (n < 2) { return n; } return fib(n-1) + fib(n-2); } print fib(20);' "6765"
+check_elf "elf-bool"    'fn isEven(n) { return n % 2 == 0; } print isEven(10); print isEven(7); print !(3 < 1);' "$(printf 'true\nfalse\ntrue')"
+check_elf "elf-bits"    'print (1 << 40) + 7; print 12 & 10; print ~5;' "$(printf '1099511627783\n8\n-6')"
+# The INT64_MIN edge: negation can't represent it, but the unsigned-magnitude
+# decimal conversion still prints it exactly.
+check_elf "elf-i64min"  'print 0 - 9223372036854775807 - 1;' "-9223372036854775808"
+check_elf_err "elf-rej-float" 'print 1.5;'
+check_elf_err "elf-rej-coll"  'let a = [1]; print a[0];'
 # cnano's truthiness makes 0 truthy, so branching on a bare int is rejected
 # (a zero-test would disagree with the VM).
 check_asm_err "asm-rej-intcond"   'let n = 0; while (n) { print 1; }'

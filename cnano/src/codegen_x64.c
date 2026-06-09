@@ -37,6 +37,7 @@
 
 #include "codegen_x64.h"
 #include "object.h" // ObjString->chars
+#include "tclass.h" // the shared int/bool/float classification (step 78/80)
 
 // The five callee-saved general registers we allocate (int/bool) IR temps into.
 #define NUM_REGS 5
@@ -54,29 +55,6 @@ static const char *kArgRegs[6] = {"%rdi", "%rsi", "%rdx", "%rcx", "%r8", "%r9"};
 static const char *kXmmArgs[8] = {"%xmm0", "%xmm1", "%xmm2", "%xmm3",
                                   "%xmm4", "%xmm5", "%xmm6", "%xmm7"};
 
-// --- the type-class lattice --------------------------------------------------
-// UNKNOWN is the starting point; INT/BOOL/FLOAT are the usable classes; CONFLICT
-// means two classes met (an int on one path, a float on another) — the machine
-// can't represent that without a runtime tag, so the module is rejected.
-typedef enum { TC_UNKNOWN = 0, TC_INT, TC_BOOL, TC_FLOAT, TC_CONFLICT } TClass;
-
-// Join `c` into `*slot`; returns true if the slot changed.
-static bool joinClass(TClass *slot, TClass c) {
-  if (c == TC_UNKNOWN || *slot == c || *slot == TC_CONFLICT)
-    return false;
-  *slot = (*slot == TC_UNKNOWN) ? c : TC_CONFLICT;
-  return true;
-}
-
-// Everything the classifier learned about one function.
-typedef struct {
-  ObjString **vars; // the variables (params first), each owning a stack slot
-  int varCount;
-  TClass *varClass;  // per variable
-  TClass *tempClass; // per temporary
-  TClass retClass;   // join of every `return` value's class
-} FnInfo;
-
 // Does instruction `in` read temporary in a / in b? (Defines which operands form
 // the live ranges, and which to load when emitting.) IR_JUMP_IF_FALSE reads its
 // condition temp `a`; IR_RETURN reads its value `a`; IR_CALL reads its callArgs
@@ -88,22 +66,6 @@ static bool readsA(const IRInstr *in) {
 }
 static bool readsB(const IRInstr *in) { return in->op == IR_BINARY; }
 
-// The index of the function named `name` within the module, or -1 (external).
-static int findFuncIndex(IRModule *m, ObjString *name) {
-  for (int k = 0; k < m->count; k++)
-    if (strcmp(m->funcs[k]->name, name->chars) == 0)
-      return k;
-  return -1;
-}
-
-static bool isComparison(NodeOp op) {
-  return op == OP_NODE_EQUAL || op == OP_NODE_LESS || op == OP_NODE_GREATER;
-}
-static bool isArith(NodeOp op) {
-  return op == OP_NODE_ADD || op == OP_NODE_SUB || op == OP_NODE_MUL ||
-         op == OP_NODE_DIV;
-}
-
 // The rbp-relative byte offset of variable `name`'s stack slot (variables follow
 // the reserved register-save slots).
 static int varOffset(ObjString *name, ObjString **vars, int varCount) {
@@ -113,13 +75,6 @@ static int varOffset(ObjString *name, ObjString **vars, int varCount) {
   return 0;
 }
 
-static int varIndex(ObjString *name, FnInfo *info) {
-  for (int v = 0; v < info->varCount; v++)
-    if (info->vars[v] == name)
-      return v;
-  return -1;
-}
-
 // Write the assembly operand for a temp's location into `buf` (e.g. "%rbx" or
 // "-48(%rbp)"). Spill slots follow the register-save slots and the variables.
 static void tempOperand(Loc l, int varCount, char *buf, size_t n) {
@@ -127,109 +82,6 @@ static void tempOperand(Loc l, int varCount, char *buf, size_t n) {
     snprintf(buf, n, "%s", kRegNames[l.idx]);
   else
     snprintf(buf, n, "-%d(%%rbp)", (NUM_REGS + varCount + l.idx + 1) * 8);
-}
-
-// Collect the distinct variables that need a stack slot: the function's
-// PARAMETERS first (so argument registers can be spilled into them in order),
-// then every variable loaded or stored in the body.
-static ObjString **collectVars(IRFunc *fn, int *outCount) {
-  ObjString **vars = NULL;
-  int count = 0, cap = 0;
-  for (int p = 0; p < fn->paramCount; p++) {
-    if (count + 1 > cap) { cap = cap < 8 ? 8 : cap * 2; vars = realloc(vars, sizeof(ObjString *) * cap); }
-    vars[count++] = fn->params[p];
-  }
-  for (int i = 0; i < fn->count; i++) {
-    IRInstr *in = &fn->code[i];
-    if (in->dead || (in->op != IR_LOAD && in->op != IR_STORE))
-      continue;
-    bool seen = false;
-    for (int v = 0; v < count; v++)
-      if (vars[v] == in->var) { seen = true; break; }
-    if (!seen) {
-      if (count + 1 > cap) { cap = cap < 8 ? 8 : cap * 2; vars = realloc(vars, sizeof(ObjString *) * cap); }
-      vars[count++] = in->var;
-    }
-  }
-  *outCount = count;
-  return vars;
-}
-
-// One classification sweep over `fn`, flowing classes forward (and across the
-// module: call arguments into the callee's parameters, callee returns into call
-// results). Returns true if anything changed — the module driver iterates to a
-// fixpoint, which handles loops, mutual recursion, and any declaration order.
-static bool classifySweep(IRModule *m, int fi, FnInfo *infos) {
-  IRFunc *fn = m->funcs[fi];
-  FnInfo *info = &infos[fi];
-  bool changed = false;
-  for (int i = 0; i < fn->count; i++) {
-    IRInstr *in = &fn->code[i];
-    if (in->dead)
-      continue;
-    TClass out = TC_UNKNOWN;
-    switch (in->op) {
-    case IR_CONST:
-      out = IS_BOOL(in->constant) ? TC_BOOL
-            : IS_FLOAT(in->constant) ? TC_FLOAT
-            : IS_INT(in->constant) ? TC_INT
-                                   : TC_CONFLICT; // nil: unrepresentable
-      break;
-    case IR_LOAD: {
-      int v = varIndex(in->var, info);
-      if (v >= 0)
-        out = info->varClass[v];
-      break;
-    }
-    case IR_STORE: {
-      int v = varIndex(in->var, info);
-      if (v >= 0)
-        changed |= joinClass(&info->varClass[v], info->tempClass[in->a]);
-      continue;
-    }
-    case IR_UNARY:
-      out = in->nodeOp == OP_NODE_NOT      ? TC_BOOL
-            : in->nodeOp == OP_NODE_BITNOT ? TC_INT
-                                           : info->tempClass[in->a]; // negate
-      break;
-    case IR_BINARY:
-      if (isComparison(in->nodeOp))
-        out = TC_BOOL;
-      else if (isArith(in->nodeOp)) {
-        TClass a = info->tempClass[in->a], b = info->tempClass[in->b];
-        // Mixed int/float arithmetic promotes to float, mirroring the VM.
-        out = (a == TC_FLOAT || b == TC_FLOAT) ? TC_FLOAT
-              : (a == TC_INT && b == TC_INT)   ? TC_INT
-                                               : TC_UNKNOWN; // wait for operands
-      } else
-        out = TC_INT; // %, bitwise, shifts: integer-only (checked later)
-      break;
-    case IR_CALL: {
-      int ci = findFuncIndex(m, in->var);
-      if (ci >= 0) {
-        out = infos[ci].retClass;
-        // Flow each argument's class into the callee's parameter variable.
-        IRFunc *callee = m->funcs[ci];
-        for (int k = 0; k < in->callArgCount && k < callee->paramCount; k++) {
-          int pv = varIndex(callee->params[k], &infos[ci]);
-          if (pv >= 0)
-            changed |=
-                joinClass(&infos[ci].varClass[pv], info->tempClass[in->callArgs[k]]);
-        }
-      }
-      break;
-    }
-    case IR_RETURN:
-      if (in->a >= 0)
-        changed |= joinClass(&info->retClass, info->tempClass[in->a]);
-      continue;
-    default:
-      continue; // print/label/jump produce no value
-    }
-    if (in->dest >= 0)
-      changed |= joinClass(&info->tempClass[in->dest], out);
-  }
-  return changed;
 }
 
 // Can this function be compiled faithfully? Anything the machine code would get
@@ -279,7 +131,7 @@ static bool functionSupported(IRFunc *fn, IRModule *m, FnInfo *info) {
       } else if (in->nodeOp == OP_NODE_LESS || in->nodeOp == OP_NODE_GREATER) {
         if (a == TC_BOOL || b == TC_BOOL)
           return false; // numeric comparison only
-      } else if (isArith(in->nodeOp)) {
+      } else if (tcIsArith(in->nodeOp)) {
         if (a == TC_BOOL || b == TC_BOOL)
           return false;
       } else { // %, bitwise, shifts: the VM requires integers
@@ -397,7 +249,7 @@ static void emitFunction(IRModule *m, int fi, FnInfo *infos, bool isMain,
     int gp = 0, xp = 0;
     for (int p = 0; p < fn->paramCount; p++) {
       int off = varOffset(fn->params[p], vars, varCount);
-      if (info->varClass[varIndex(fn->params[p], info)] == TC_FLOAT)
+      if (info->varClass[varIndexIn(fn->params[p], info)] == TC_FLOAT)
         fprintf(out, "  movsd %s, -%d(%%rbp)\n", kXmmArgs[xp++], off);
       else
         fprintf(out, "  movq %s, -%d(%%rbp)\n", kArgRegs[gp++], off);
@@ -462,7 +314,7 @@ static void emitFunction(IRModule *m, int fi, FnInfo *infos, bool isMain,
     case IR_BINARY: {
       bool floatOp =
           info->tempClass[in->a] == TC_FLOAT || info->tempClass[in->b] == TC_FLOAT;
-      if (floatOp && isArith(in->nodeOp)) {
+      if (floatOp && tcIsArith(in->nodeOp)) {
         loadXmm(out, info, loc, varCount, in->a, "%xmm0");
         loadXmm(out, info, loc, varCount, in->b, "%xmm1");
         const char *op = in->nodeOp == OP_NODE_ADD   ? "addsd"
@@ -472,7 +324,7 @@ static void emitFunction(IRModule *m, int fi, FnInfo *infos, bool isMain,
         fprintf(out, "  %s %%xmm1, %%xmm0\n  movsd %%xmm0, %s\n", op, bd);
         break;
       }
-      if (floatOp && isComparison(in->nodeOp)) {
+      if (floatOp && tcIsComparison(in->nodeOp)) {
         loadXmm(out, info, loc, varCount, in->a, "%xmm0");
         loadXmm(out, info, loc, varCount, in->b, "%xmm1");
         // ucomisd sets CF/ZF/PF; an UNORDERED result (nan) sets all three, so:
@@ -634,21 +486,7 @@ static void emitFloatPrinter(FILE *out) {
 bool emitX64Module(IRModule *m, FILE *out) {
   // Classify every temp/variable/return in the module to a FIXPOINT (classes
   // flow through stores, across calls into parameters, and back out of returns).
-  FnInfo *infos = calloc(m->count, sizeof(FnInfo));
-  for (int f = 0; f < m->count; f++) {
-    infos[f].vars = collectVars(m->funcs[f], &infos[f].varCount);
-    infos[f].varClass = calloc(infos[f].varCount > 0 ? infos[f].varCount : 1,
-                               sizeof(TClass));
-    int nt = m->funcs[f]->nextTemp;
-    infos[f].tempClass = calloc(nt > 0 ? nt : 1, sizeof(TClass));
-    infos[f].retClass = TC_UNKNOWN;
-  }
-  bool changed = true;
-  while (changed) {
-    changed = false;
-    for (int f = 0; f < m->count; f++)
-      changed |= classifySweep(m, f, infos);
-  }
+  FnInfo *infos = moduleClassify(m);
 
   // Reject the whole module up front if any function is out of subset.
   bool ok = true;
@@ -680,11 +518,6 @@ bool emitX64Module(IRModule *m, FILE *out) {
     fprintf(out, "  .section .note.GNU-stack,\"\",@progbits\n");
   }
 
-  for (int f = 0; f < m->count; f++) {
-    free(infos[f].vars);
-    free(infos[f].varClass);
-    free(infos[f].tempClass);
-  }
-  free(infos);
+  freeModuleClasses(m, infos);
   return ok;
 }

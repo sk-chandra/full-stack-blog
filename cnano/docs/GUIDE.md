@@ -2079,9 +2079,39 @@ jobs at the heart of a code generator. This arc emits machine code directly.
   "label" in jumps — an untyped int field meaning two things is a bug waiting
   for a pass that forgets which), corrupting the loop's exit branch in the
   display; now pinned by a regression test.
-- **Still ahead in this arc:** an ARM64 second target (to separate the *shape*
-  of code generation from one ISA), or emitting object code/ELF directly instead
-  of going through `cc`.
+- ~~**Direct ELF emission**~~ ✓ (step 80) — `cnano --elf file.cn -o prog`
+  produces a runnable Linux binary with **no assembler, no linker, and no
+  libc**. Three layers, each a tool you normally take on faith:
+  - **Encoding** (the assembler's job): `codegen_elf.c` appends the actual
+    x86-64 instruction *bytes* — REX.W prefixes, ModRM bytes, displacement and
+    immediate fields. Each tiny helper (`movImm64`, `aluRR`, `grpF7`…) is one
+    instruction form, exactly what an assembler's opcode tables hold.
+  - **Linking**: jumps, branches and calls are emitted with placeholder rel32
+    offsets and patched once targets are known — the *same* backpatching the
+    bytecode compiler has used for its jumps since the control-flow chapter,
+    now at the machine level. And because we lay out the whole address space
+    ourselves (code at `0x400000`, data at `0x600000`), data references are
+    plain absolute addresses: **no relocations exist anywhere**, which is the
+    cleanest possible demonstration of what relocations are *for*.
+  - **The file format** (the loader's contract): an ELF64 header and two
+    `PT_LOAD` program headers — R+X for the code, R+W for the data, whose
+    `memsz > filesz` tail of zero-fill is precisely how `.bss` works. There are
+    *no sections at all*: section headers exist for tools, and the loader never
+    reads them.
+  No libc means no `printf`: `print` converts the integer to decimal by hand
+  (building digits backward in a scratch buffer; `neg` on INT64_MIN leaves the
+  right unsigned magnitude, so the classic edge case costs nothing) and issues
+  a raw `write(2)` syscall; the program ends with `exit(2)`. Code generation
+  itself is deliberately the simplest possible — every temp in a stack slot, no
+  register allocation, since that lesson lives in `--asm`; the shared
+  type-class analysis (now factored into `tclass.c`) keeps it honest, and
+  floats are rejected (their printing *is* libc's `%g`). An **ARM64 second
+  target** was considered and skipped honestly: this container has no aarch64
+  toolchain or qemu, and an untestable backend would break the rule every
+  backend here has obeyed — its output is verified by *running it* against the
+  VM.
+
+  With this, Arc 8's planned items are all delivered or honestly closed.
 
 ### Maturity & tooling (Arc 9, in progress)
 

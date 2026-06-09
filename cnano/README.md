@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (759 cases, incl. native + GC)
+make test       # run the end-to-end test suite (769 cases, incl. native + GC)
 make fuzz       # generate hostile inputs and assert the compiler never crashes
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
@@ -47,6 +47,8 @@ make run        # start the REPL
 ./build/cnano --native examples/native.cn -o /tmp/demo && /tmp/demo
 ./build/cnano --emit-c examples/native.cn      # or just inspect the generated C
 ./build/cnano --asm examples/asm.cn            # x86-64 asm from the IR (regalloc + instr selection)
+./build/cnano --elf examples/elf.cn -o /tmp/e && /tmp/e   # ...or a native ELF binary made
+                                               # with NO cc/as/ld/libc at all (int subset)
 
 # REPL (statements end with ';'; output only via `print`)
 ./build/cnano
@@ -251,6 +253,14 @@ make run        # start the REPL
   follow the **System V calling convention** (`rdi`/`rsi`/… and `xmm0`/…, results
   in `rax`/`xmm0`), and `print` output matches the VM byte-for-byte — including
   `3.0`, `nan`/`inf`, and `true`/`false` — via an emitted format helper
+- **Direct ELF emission**: `cnano --elf file.cn -o prog` produces a runnable
+  Linux binary with **no assembler, no linker, and no libc**: cnano encodes the
+  x86-64 machine **bytes** itself (REX/ModRM/rel32, with the same backpatching
+  its bytecode compiler uses for jumps), writes the ELF header and the two
+  `PT_LOAD` program headers itself, and prints through raw `write` syscalls —
+  hand-rolled integer-to-decimal conversion included. Where `--asm` teaches
+  instruction *selection* and register allocation, this teaches instruction
+  *encoding* and what an executable file actually is (integer/bool subset)
 - **A stepping debugger**: `cnano --debug file.cn` pauses on the first line and
   takes commands — `s`tep (into calls), `n`ext (over them), `c`ontinue, `b LINE`
   breakpoints, `p NAME`, `vars`, `bt`. Printing a local by name works because the
@@ -315,6 +325,8 @@ make run        # start the REPL
 | `src/iropt.c` | IR optimiser | constant propagation + folding, CSE (value numbering), dead-temp elimination |
 | `src/codegen_c.{h,c}` | native (C) backend | AST → C source → `cc` → executable (AOT) |
 | `src/codegen_x64.{h,c}` | x86-64 backend | IR → assembly; linear-scan register allocation + spilling (`--asm`) |
+| `src/tclass.{h,c}` | type-class analysis | int/bool/float per temp/var/return, module-wide fixpoint (shared by the native backends) |
+| `src/codegen_elf.{h,c}` | direct ELF backend | IR → machine-code **bytes** → an ELF executable, with no cc/as/ld/libc (`--elf`) |
 | `src/memory.{h,c}` | GC + allocator | mark-and-sweep, tri-colour worklist, weak intern table |
 | `src/value.{h,c}` | values + constant pool | tagged-union dynamic values |
 | `src/object.{h,c}` | heap objects: strings, functions, natives, arrays, maps, closures, upvalues | object model, interning, value-keyed map table |

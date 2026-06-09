@@ -1,0 +1,32 @@
+// A program for the DIRECT ELF backend:
+//
+//   cnano --elf examples/elf.cn -o demo && ./demo
+//
+// The binary that comes out was made with no assembler, no linker, and no libc:
+// cnano encoded the x86-64 machine bytes itself (REX/ModRM/rel32, with the same
+// backpatching its bytecode compiler uses for jumps), wrote the ELF header and
+// the two PT_LOAD program headers itself, and prints through raw write(2)
+// syscalls — integer-to-decimal conversion included. `readelf -l demo` shows
+// the two segments; there are no sections at all, because the LOADER never
+// needs them. Scope is the integer/bool subset (floats need libc's %g — use
+// --asm or --native for those).
+
+fn gcd(a, b) {
+  while (b != 0) {
+    let t = b;
+    b = a % b;
+    a = t;
+  }
+  return a;
+}
+
+fn fib(n) {
+  if (n < 2) { return n; }
+  return fib(n - 1) + fib(n - 2);
+}
+
+print gcd(252, 105);      // 21
+print fib(20);            // 6765
+print (1 << 40) + 7;      // 1099511627783
+print -42;                // negative numbers print via the hand-rolled converter
+print 3 < 5;              // true — booleans print as words, like the VM

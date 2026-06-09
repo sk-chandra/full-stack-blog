@@ -121,6 +121,11 @@ int main(int argc, const char *argv[]) {
   } else if (argc == 5 && strcmp(argv[1], "--native") == 0 &&
              strcmp(argv[3], "-o") == 0) {
     compileNative(argv[2], argv[4]);
+  } else if (argc == 5 && strcmp(argv[1], "--elf") == 0 &&
+             strcmp(argv[3], "-o") == 0) {
+    // Direct ELF emission: cnano is its own assembler AND linker here.
+    if (compileElfFile(argv[2], argv[4]) != INTERPRET_OK)
+      exit(65);
   } else {
     fprintf(stderr,
             "Usage:\n"
@@ -134,7 +139,8 @@ int main(int argc, const char *argv[]) {
             "  cnano --asm path          emit x86-64 assembly for straight-line integer code\n"
             "  cnano --debug path        run under the stepping debugger (s/n/c/b/p)\n"
             "  cnano --stats path        run, then print a profiling summary\n"
-            "  cnano --native path -o X  compile to a native executable X\n");
+            "  cnano --native path -o X  compile to a native executable X (via cc)\n"
+            "  cnano --elf path -o X     emit a native ELF executable directly (no cc)\n");
     freeVM();
     exit(64); // 64 = EX_USAGE
   }

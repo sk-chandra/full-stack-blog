@@ -228,6 +228,7 @@ type, which is *inferred* from its body when unannotated.
 | Bytecode VM | `cnano file.cn` | the full language |
 | C backend (AOT) | `cnano --native file.cn -o bin` | typed first-order scalars (int/float/bool/str), control flow, functions |
 | x86-64 backend | `cnano --asm file.cn` | int/bool/float scalars, control flow, functions (≤ 6 params; no mixed-class values) |
+| direct ELF backend | `cnano --elf file.cn -o bin` | int/bool scalars, control flow, functions (no cc/as/ld/libc; floats need `--asm`/`--native`) |
 
 The narrower backends **reject** out-of-subset programs with a diagnostic
 rather than miscompiling them; the VM always runs the whole language.
