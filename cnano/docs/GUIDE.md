@@ -2263,7 +2263,7 @@ how a language works rather than a pile of features.
   stack maps. So Arc 5 is delivered as the meta-lesson — *your GC choice is
   dictated by your reference discipline* — rather than an unsafe rewrite.
 
-### Where the project stands (step 80)
+### Where the project stands (step 81)
 
 Every planned arc is delivered or honestly closed. cnano is a complete map of
 how a language works, end to end:
