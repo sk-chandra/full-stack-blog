@@ -994,10 +994,27 @@ check_asm "asm-if"      'let n=7; if (n % 2 == 0) { print 0; } else { print 1; }
 check_asm "asm-for"     'let f=1; for (let k=1; k<6; k=k+1) { f=f*k; } print f;' "120"
 check_asm "asm-nested"  'let m=0; let j=0; while (j<5) { if (j>m) { m=j; } j=j+1; } print m;' "4"
 check_asm "asm-true"    'if (true) { print 42; } else { print 0; }' "42"
-# Out-of-subset programs are cleanly rejected, not miscompiled.
-check_asm_err "asm-rej-float" 'let x = 1.5; print x;'
-check_asm_err "asm-rej-printbool" 'print 1 < 2;'
-check_asm_err "asm-rej-boolvar"   'let b = 3 < 4; print b;'
+# Floats (step 78): SSE arithmetic, and `print` matching the VM's formatFloat
+# exactly (".0" appended to whole values; nan/inf spelled by hand).
+check_asm "asm-float"      'let pi = 3.14159; let r = 2.0; print pi * r * r;' "12.5664"
+check_asm "asm-float-fmt"  'print 3.0; print 10.0 / 4.0; print 0.1 + 0.2;' "$(printf '3.0\n2.5\n0.3')"
+check_asm "asm-float-ieee" 'print 7.0 / 0.0; print -7.0 / 0.0; print 0.0 / 0.0;' "$(printf 'inf\n-inf\nnan')"
+check_asm "asm-float-mix"  'print 2.5 + 1; print 1 < 1.5; print 1.5 > 2.0;' "$(printf '3.5\ntrue\nfalse')"
+check_asm "asm-float-fn"   'fn mean(a, b) { return (a + b) / 2.0; } print mean(2.0, 5.0);' "3.5"
+check_asm "asm-float-loop" 'fn growth(p, r, n) { let acc = p; let i = 0; while (i < n) { acc = acc * r; i = i + 1; } return acc; } print growth(100.0, 2.0, 3);' "800.0"
+check_asm "asm-float-neg"  'fn absF(x) { if (x < 0.0) { return -x; } return x; } print absF(-2.5);' "2.5"
+# nan comparisons are false, like the VM (ucomisd's unordered flags, screened).
+check_asm "asm-float-nan"  'let n = 0.0 / 0.0; print n == n; print n < 1.0; print n > 1.0;' "$(printf 'false\nfalse\nfalse')"
+# Booleans print as words, exactly like the VM (never the 0/1 underneath).
+check_asm "asm-print-bool" 'print 1 < 2; let b = 3 == 4; print b;' "$(printf 'true\nfalse')"
+# Logical ! flips the BOOLEAN, not the bits (a notq here once returned -2, truthy).
+check_asm "asm-not-bool"   'fn f(n) { if (!(n > 0)) { return 1; } return 2; } print f(5); print f(-5);' "$(printf '2\n1')"
+# Still out of subset, still rejected: a variable that is an int on one path and
+# a float on another (needs a runtime tag), ! on an int (0 is truthy), and ==
+# across classes (the VM says false for int==float; we don't fake it).
+check_asm_err "asm-rej-mixedvar" 'let x = 1; x = 2.5; print x;'
+check_asm_err "asm-rej-notint"   'let n = 0; if (!n) { print 1; }'
+check_asm_err "asm-rej-mixedeq"  'print 1 == 1.0;'
 # cnano's truthiness makes 0 truthy, so branching on a bare int is rejected
 # (a zero-test would disagree with the VM).
 check_asm_err "asm-rej-intcond"   'let n = 0; while (n) { print 1; }'

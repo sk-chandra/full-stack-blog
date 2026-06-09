@@ -38,3 +38,14 @@ fn fib(n) {
   return fib(n - 1) + fib(n - 2);
 }
 print fib(15);            // 610
+
+// Floats compile to SSE2 scalar instructions (addsd / mulsd / ucomisd), held in
+// memory slots (the ABI has no callee-saved xmm registers). Printing matches
+// the VM exactly — 3.0 prints as "3.0", division by zero as "inf"/"nan".
+fn area(radius) {
+  return 3.14159 * radius * radius;
+}
+print area(2.0);          // 12.5664
+print 10.0 / 4.0;         // 2.5
+print 1.0 / 0.0;          // inf
+print 2.0 > 1.5;          // true (booleans print as words)

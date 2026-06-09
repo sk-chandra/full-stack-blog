@@ -2035,10 +2035,34 @@ jobs at the heart of a code generator. This arc emits machine code directly.
   loop's back-edge or across a call. The lesson is exactly where local optimisation
   stops: a loop-invariant load isn't hoisted, because that needs global
   (whole-CFG) data-flow — the natural next increment.
-- **Still ahead in this arc:** floats via the SSE registers; *global* (whole-CFG)
-  data-flow so loop-invariant code can be hoisted; then either an ARM64 second
-  target (to separate the *shape* of code generation from one ISA) or emitting
-  object code/ELF directly instead of going through `cc`.
+- ~~**Floats via SSE + a type-class analysis**~~ ✓ (step 78) — the backend now
+  compiles ints, bools, *and floats*. The enabling insight: cnano values are
+  dynamically *tagged*, but machine code is not — an integer add, a float add,
+  and a boolean test are different instructions on different registers. So a
+  module-wide **fixpoint classifies every temp, variable, and function return**
+  as INT, BOOL, or FLOAT, flowing classes through stores→loads, call
+  arguments→parameters, and returns→call results; a value that would need a
+  runtime tag (an int on one path, a float on another) is rejected, never
+  miscompiled. Floats use the **SSE2 scalar** instructions (`addsd`/`mulsd`/
+  `cvtsi2sdq` for the VM's int→float promotion) and live in **memory slots, not
+  registers** — the System V ABI has no callee-saved xmm registers, so a float
+  held in xmm would die across every `call printf`; that asymmetry with the int
+  story is itself the lesson. Comparisons use `ucomisd`, whose **unordered**
+  (nan) flag pattern needs care: `a > b` is `seta` (CF screens nan), `a < b` is
+  the *swapped* `seta`, and `==` is `sete` AND `setnp` — so nan compares false
+  everywhere, exactly like the VM. `print` had to match the VM byte-for-byte:
+  an emitted assembly helper reproduces `formatFloat` (classify nan/inf in the
+  integer domain, `snprintf("%g")`, then scan-and-append `".0"` so `3.0` never
+  prints as `3`), and booleans print as the words `true`/`false`. **The
+  classification also fixed a real miscompile found while building it:** logical
+  `!` on a bool was emitted as bitwise `notq`, turning `true` (1) into `-2` —
+  still truthy — so `!(n > 0)` took the wrong branch; with classes it is `xorq
+  $1` on a BOOL and rejected on anything else (cnano's `0` is truthy, so a
+  zero-test would lie).
+- **Still ahead in this arc:** *global* (whole-CFG) data-flow so loop-invariant
+  code can be hoisted; then either an ARM64 second target (to separate the
+  *shape* of code generation from one ISA) or emitting object code/ELF directly
+  instead of going through `cc`.
 
 ### Maturity & tooling (Arc 9, in progress)
 

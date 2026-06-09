@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (746 cases, incl. native + GC)
+make test       # run the end-to-end test suite (756 cases, incl. native + GC)
 make fuzz       # generate hostile inputs and assert the compiler never crashes
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
@@ -237,18 +237,20 @@ make run        # start the REPL
   The VM still runs the full dynamic language; anything outside the scalar
   subset (collections, structs, closures, nullable/union, `nil`) is cleanly
   rejected rather than miscompiled
-- **x86-64 assembly backend**: `cnano --asm file.cn` compiles **integer** code —
-  `if`/`while` **control flow** and **functions** (parameters, `return`, recursion
-  and mutual recursion) — through the three-address IR all the way to real machine
-  code, doing the two jobs a back end must: **instruction selection** (each IR op →
-  one or two x86-64 instructions; comparisons → `cmp`/`setcc`, branches →
-  `jmp`/`jz`, so a loop is a backward jump) and **register allocation** by **linear
-  scan** over the temporaries' live ranges, spilling to the stack when more than
-  the five callee-saved registers are live at once. Functions follow the **System
-  V calling convention** (args in `rdi`/`rsi`/…, result in `rax`), so `fib` runs on
-  the hardware call stack. The emitted assembly assembles and links with `cc` into
-  a standalone binary whose output matches the VM — the IR's payoff as a
-  *code-generation* substrate, not just an optimisation one
+- **x86-64 assembly backend**: `cnano --asm file.cn` compiles scalar code —
+  **ints, bools and floats**, `if`/`while` **control flow**, and **functions**
+  (parameters, `return`, recursion and mutual recursion) — through the
+  three-address IR all the way to real machine code, doing the jobs a back end
+  must: **instruction selection** (comparisons → `cmp`/`setcc`, branches →
+  `jmp`/`jz`, float arithmetic → the SSE2 `addsd`/`ucomisd` family), **register
+  allocation** by **linear scan** with spilling (int temps in the five
+  callee-saved registers; float temps in memory — the ABI has no callee-saved
+  xmm), and a module-wide **type-class analysis** (int/bool/float per temp,
+  variable, and function return — flowing through calls — since machine code has
+  no runtime tags; mixed-class values are rejected, never miscompiled). Functions
+  follow the **System V calling convention** (`rdi`/`rsi`/… and `xmm0`/…, results
+  in `rax`/`xmm0`), and `print` output matches the VM byte-for-byte — including
+  `3.0`, `nan`/`inf`, and `true`/`false` — via an emitted format helper
 - **A stepping debugger**: `cnano --debug file.cn` pauses on the first line and
   takes commands — `s`tep (into calls), `n`ext (over them), `c`ontinue, `b LINE`
   breakpoints, `p NAME`, `vars`, `bt`. Printing a local by name works because the
