@@ -938,6 +938,43 @@ case "$opt_call" in
   *"load g"*) printf '  ok   %-22s --ir keeps load across a call\n' "ir-call-clobber"; pass=$((pass + 1)) ;;
   *) printf '  FAIL %-22s --ir wrongly propagated across a call:\n%s\n' "ir-call-clobber" "$ir_call"; fail=$((fail + 1)) ;;
 esac
+# --- loop-invariant code motion (step 79) ---
+# `a * b` never changes inside the loop, so it must move ABOVE the L0 header
+# (computed once), while the loop-carried `load i`/`load s` stay inside.
+printf 'fn w(a, b, n) { let s = 0; let i = 0; while (i < n) { s = s + a * b; i = i + 1; } return s; } print w(3, 4, 5);' > "$tmp"
+ir_licm="$("$CNANO" --ir "$tmp" 2>&1)"
+opt_w="$(printf '%s\n' "$ir_licm" | sed -n '/w (optimised)/,$p')"
+pre_loop="$(printf '%s\n' "$opt_w" | sed -n '1,/L0:/p')"
+in_loop="$(printf '%s\n' "$opt_w" | sed -n '/L0:/,/goto L0/p')"
+case "$pre_loop" in
+  *" * "*)
+    case "$in_loop" in
+      *" * "*) printf '  FAIL %-22s mul still inside the loop too:\n%s\n' "ir-licm" "$ir_licm"; fail=$((fail + 1)) ;;
+      *) printf '  ok   %-22s --ir hoists a*b out of the loop\n' "ir-licm"; pass=$((pass + 1)) ;;
+    esac ;;
+  *) printf '  FAIL %-22s a*b was not hoisted:\n%s\n' "ir-licm" "$ir_licm"; fail=$((fail + 1)) ;;
+esac
+# Speculation safety: an invariant DIVISION is NOT hoisted (it can fault, and the
+# loop may run zero times) — it must remain between L0 and the back-edge.
+printf 'fn f(d, n) { let s = 0; let i = 0; while (i < n) { s = s + 100 / d; i = i + 1; } return s; } print f(5, 3);' > "$tmp"
+ir_div="$("$CNANO" --ir "$tmp" 2>&1)"
+div_pre="$(printf '%s\n' "$ir_div" | sed -n '/f (optimised)/,/L0:/p')"
+div_in="$(printf '%s\n' "$ir_div" | sed -n '/f (optimised)/,$p' | sed -n '/L0:/,/goto L0/p')"
+case "$div_pre" in
+  *" / "*) printf '  FAIL %-22s division was hoisted (unsafe):\n%s\n' "ir-licm-div" "$ir_div"; fail=$((fail + 1)) ;;
+  *)
+    case "$div_in" in
+      *" / "*) printf '  ok   %-22s --ir keeps / inside the loop\n' "ir-licm-div"; pass=$((pass + 1)) ;;
+      *) printf '  FAIL %-22s division vanished:\n%s\n' "ir-licm-div" "$ir_div"; fail=$((fail + 1)) ;;
+    esac ;;
+esac
+# Regression (found by LICM's --ir output): CSE must never run a LABEL id in a
+# jump through the temp-representative table — the loop's exit branch must still
+# target L1, not L0.
+case "$ir_licm" in
+  *"goto L1"*) printf '  ok   %-22s branch labels survive CSE\n' "ir-label-int"; pass=$((pass + 1)) ;;
+  *) printf '  FAIL %-22s exit branch label corrupted:\n%s\n' "ir-label-int" "$ir_licm"; fail=$((fail + 1)) ;;
+esac
 
 # --- return-type inference (step 66) ---
 # An unannotated function's return type is inferred from its body and ENFORCED at

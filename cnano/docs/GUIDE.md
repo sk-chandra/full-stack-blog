@@ -2059,10 +2059,29 @@ jobs at the heart of a code generator. This arc emits machine code directly.
   still truthy — so `!(n > 0)` took the wrong branch; with classes it is `xorq
   $1` on a BOOL and rejected on anything else (cnano's `0` is truthy, so a
   zero-test would lie).
-- **Still ahead in this arc:** *global* (whole-CFG) data-flow so loop-invariant
-  code can be hoisted; then either an ARM64 second target (to separate the
-  *shape* of code generation from one ISA) or emitting object code/ELF directly
-  instead of going through `cc`.
+- ~~**Loop-invariant code motion**~~ ✓ (step 79) — the first *whole-CFG*
+  optimisation: work that computes the same value on every iteration moves OUT of
+  the loop and runs once. Loops are found **by shape**: the lowering emits every
+  loop as `Lstart: … goto Lstart`, so a backward jump marks one — the structured-
+  lowering dividend (an arbitrary/irreducible CFG would need real dominator
+  analysis). An instruction is invariant if it is a constant, a load of a
+  variable with **no store and no call** in the loop, or a pure op whose operands
+  come from outside the loop or from already-invariant instructions —
+  *transitive*, so the set grows to a fixpoint; and hoisting cascades, so an
+  invariant in a nested loop climbs out of *both*. The two correctness rules are
+  the lesson: **speculation safety** — `/` and `%` can fault, and hoisting one
+  out of a loop that may run *zero* times would make a correct program crash, so
+  they never move (real compilers model "can this trap?" for exactly this) — and
+  the side-effect fence (a call may reassign any global, so loads don't cross
+  it). Building it also flushed out a latent step-73 bug that its own `--ir`
+  output made visible: CSE was running **jump label ids** through the
+  temp-representative table (`a`/`b` mean "temp" in most instructions but
+  "label" in jumps — an untyped int field meaning two things is a bug waiting
+  for a pass that forgets which), corrupting the loop's exit branch in the
+  display; now pinned by a regression test.
+- **Still ahead in this arc:** an ARM64 second target (to separate the *shape*
+  of code generation from one ISA), or emitting object code/ELF directly instead
+  of going through `cc`.
 
 ### Maturity & tooling (Arc 9, in progress)
 

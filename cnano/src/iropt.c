@@ -283,23 +283,34 @@ static void cse(IRFunc *fn) {
       continue;
     // A label is a merge point: values numbered in one predecessor can't be
     // assumed here, so the value table resets at every basic-block boundary.
-    if (in->op == IR_LABEL) { cnt = 0; continue; }
+    // A JUMP resets too — and its `a` is a LABEL id, NOT a temp, so it must
+    // never go through the representative table (a hard-won lesson: an untyped
+    // int field meaning two different things is a bug waiting for a pass that
+    // forgets which one it is holding).
+    if (in->op == IR_LABEL || in->op == IR_JUMP) { cnt = 0; continue; }
+    if (in->op == IR_JUMP_IF_FALSE) {
+      in->a = vnResolve(rep, in->a); // the condition IS a temp; `b` is a label
+      cnt = 0;
+      continue;
+    }
+    if (in->op == IR_RETURN) {
+      if (in->a >= 0)
+        in->a = vnResolve(rep, in->a);
+      cnt = 0;
+      continue;
+    }
+    if (in->op == IR_CALL) {
+      // A call has side effects and may change globals: never share two calls,
+      // and drop the value table (cached loads could now be stale).
+      for (int k = 0; k < in->callArgCount; k++)
+        in->callArgs[k] = vnResolve(rep, in->callArgs[k]);
+      cnt = 0;
+      continue;
+    }
     // Rewrite operands to their canonical temps first, so equal expressions
     // become textually identical and later uses follow the survivor.
     if (in->a >= 0) in->a = vnResolve(rep, in->a);
     if (in->b >= 0) in->b = vnResolve(rep, in->b);
-    if (in->op == IR_CALL)
-      for (int k = 0; k < in->callArgCount; k++)
-        in->callArgs[k] = vnResolve(rep, in->callArgs[k]);
-
-    // A call has side effects and may change globals: never share two calls, and
-    // drop the value table (cached loads could now be stale). A branch/return
-    // ends the block, so it resets too.
-    if (in->op == IR_CALL || in->op == IR_RETURN || in->op == IR_JUMP ||
-        in->op == IR_JUMP_IF_FALSE) {
-      cnt = 0;
-      continue;
-    }
 
     // Look for an existing entry with the same form.
     int match = -1;
@@ -405,11 +416,135 @@ static void deadTempElim(IRFunc *fn) {
   free(live);
 }
 
-// Run the optimisation passes in place, without printing. The passes are
-// BASIC-BLOCK-LOCAL: each resets its facts at block boundaries (labels) and at
-// calls, so they are sound on any IR — straight-line, loops, or functions.
+// --- pass 4: loop-invariant code motion (step 79) ----------------------------
+// The first WHOLE-CFG optimisation: move work that computes the same value on
+// every iteration OUT of the loop, so it runs once. Loops are found by shape —
+// the lowering emits every loop as `Lstart: … goto Lstart`, so a backward jump
+// marks one (this is the structured-lowering dividend; irreducible CFGs would
+// need real dominator analysis). Inside a loop, an instruction is INVARIANT if:
+//   - it is a constant; or
+//   - it loads a variable with NO store in the loop and NO call in the loop
+//     (a call may reassign any global); or
+//   - it is a pure op whose operands are defined outside the loop or by
+//     already-invariant instructions (transitive, so we iterate to a fixpoint).
+// Two ops are deliberately NOT hoisted even when invariant: `/` and `%`, which
+// can FAULT (divide by zero) — hoisting one out of a loop that may run zero
+// times would make a program fail that should not (speculation safety, the same
+// reason real compilers model "can this instruction trap?").
+//
+// One hoist per call; the driver loops, so an instruction hoisted out of an
+// inner loop lands in the outer loop's body and can be hoisted again (the
+// classic cascade). NB: hoisting makes a temp's definition cross block
+// boundaries, which is fine for `--ir` display and the local passes (defs still
+// precede uses), but is why the x86-64 backend consumes the UNOPTIMISED IR.
+static bool licmOnce(IRFunc *fn) {
+  for (int j = 0; j < fn->count; j++) {
+    if (fn->code[j].dead || fn->code[j].op != IR_JUMP)
+      continue;
+    int s = -1; // the matching label BEFORE the jump = a loop header
+    for (int k = 0; k < j; k++)
+      if (!fn->code[k].dead && fn->code[k].op == IR_LABEL &&
+          fn->code[k].a == fn->code[j].a) {
+        s = k;
+        break;
+      }
+    if (s < 0)
+      continue; // a forward jump (if/else), not a loop
+
+    // Facts about the loop body (s..j): temps defined in it, variables stored
+    // in it, and whether it calls anything.
+    int n = fn->nextTemp;
+    bool *defIn = calloc(n > 0 ? n : 1, sizeof(bool));
+    bool hasCall = false;
+    for (int k = s; k <= j; k++) {
+      IRInstr *in = &fn->code[k];
+      if (in->dead)
+        continue;
+      if (in->dest >= 0)
+        defIn[in->dest] = true;
+      if (in->op == IR_CALL)
+        hasCall = true;
+    }
+
+    // Grow the invariant set to a fixpoint (invariance is transitive).
+    bool *inv = calloc(fn->count, sizeof(bool));
+    int found = 0;
+    bool grew = true;
+    while (grew) {
+      grew = false;
+      for (int k = s + 1; k < j; k++) {
+        IRInstr *in = &fn->code[k];
+        if (in->dead || inv[k] || in->dest < 0)
+          continue;
+        bool cand = false;
+        if (in->op == IR_CONST) {
+          cand = true;
+        } else if (in->op == IR_LOAD) {
+          cand = !hasCall;
+          for (int q = s; q <= j && cand; q++)
+            if (!fn->code[q].dead && fn->code[q].op == IR_STORE &&
+                fn->code[q].var == in->var)
+              cand = false;
+        } else if (in->op == IR_UNARY || in->op == IR_BINARY) {
+          if (in->op == IR_BINARY &&
+              (in->nodeOp == OP_NODE_DIV || in->nodeOp == OP_NODE_MOD)) {
+            cand = false; // can fault: never speculate
+          } else {
+            cand = true;
+            int ops[2] = {in->a, in->b};
+            for (int q = 0; q < 2 && cand; q++) {
+              int t = ops[q];
+              if (t < 0 || !defIn[t])
+                continue; // defined before the loop: fine
+              bool defInv = false; // defined in the loop: by an invariant instr?
+              for (int w = s + 1; w < j && !defInv; w++)
+                if (!fn->code[w].dead && inv[w] && fn->code[w].dest == t)
+                  defInv = true;
+              cand = defInv;
+            }
+          }
+        }
+        if (cand) {
+          inv[k] = true;
+          grew = true;
+          found++;
+        }
+      }
+    }
+
+    if (found > 0) {
+      // Rebuild the list with the invariant instructions moved to just BEFORE
+      // the loop header, preserving their relative order (defs before uses).
+      IRInstr *nc = malloc(sizeof(IRInstr) * fn->count);
+      int w = 0;
+      for (int k = 0; k < s; k++)
+        nc[w++] = fn->code[k];
+      for (int k = s + 1; k < j; k++)
+        if (inv[k])
+          nc[w++] = fn->code[k];
+      for (int k = s; k < fn->count; k++)
+        if (!(k > s && k < j && inv[k]))
+          nc[w++] = fn->code[k];
+      free(fn->code);
+      fn->code = nc;
+      fn->capacity = fn->count;
+      free(defIn);
+      free(inv);
+      return true; // indices shifted: let the driver rescan
+    }
+    free(defIn);
+    free(inv);
+  }
+  return false;
+}
+
+// Run the optimisation passes in place, without printing. The local passes are
+// BASIC-BLOCK-LOCAL (facts reset at labels and calls); LICM is the whole-CFG
+// pass layered on top.
 void optimizeIRPasses(IRFunc *fn) {
   constPropFold(fn); // propagate + fold constants (within each block)
+  while (licmOnce(fn)) // hoist loop-invariant work (cascading outward)
+    ;
   cse(fn);           // share repeated subexpressions (within each block)
   deadTempElim(fn);  // drop temporaries nothing reads
 }
