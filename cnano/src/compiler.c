@@ -31,6 +31,8 @@ typedef struct {
                    // but not yet initialised" (see declareLocal/markInitialized)
   bool isCaptured; // does a nested closure capture this local? If so, when it
                    // leaves scope we must CLOSE it (move to heap) not just pop it.
+  int debugIndex;  // this local's record in the chunk's debug-info table, so
+                   // endScope can close its live range; -1 = no record
 } Local;
 
 // One captured variable, from the compiler's point of view. `isLocal` says
@@ -122,6 +124,10 @@ static void initCompilerState(CompilerState *state, FunctionType type) {
                     ? copyString("self", 4)
                     : NULL;
   local->isCaptured = false;
+  local->debugIndex = -1;
+  // Methods get a debug record for `self`, so the debugger can print it.
+  if (local->name != NULL)
+    local->debugIndex = chunkAddLocalDebug(currentChunk(), local->name, 0, 0);
 }
 
 // --- scope management ------------------------------------------------------
@@ -317,10 +323,15 @@ static void endScope(int line) {
   current->scopeDepth--;
   while (current->localCount > 0 &&
          current->locals[current->localCount - 1].depth > current->scopeDepth) {
-    if (current->locals[current->localCount - 1].isCaptured)
+    Local *local = &current->locals[current->localCount - 1];
+    if (local->isCaptured)
       emitByte(OP_CLOSE_UPVALUE, line);
     else
       emitByte(OP_POP, line);
+    // Close the local's debug live range: it is no longer in scope past here.
+    if (local->debugIndex >= 0)
+      currentChunk()->debugLocals[local->debugIndex].endOffset =
+          currentChunk()->count;
     current->localCount--;
   }
 }
@@ -337,6 +348,7 @@ static void addLocal(ObjString *name, int line) {
   local->name = name;
   local->depth = -1;
   local->isCaptured = false; // becomes true if a nested closure captures it
+  local->debugIndex = -1;    // assigned when the local is marked initialised
 }
 
 // Declare a local for `let` inside a scope. Besides adding it, we forbid
@@ -357,8 +369,15 @@ static void declareLocal(ObjString *name, int line) {
 
 // Mark the most-recently-declared local as initialised (depth set to the current
 // scope), making it visible to later code. Called AFTER its initialiser compiles.
+// This is also the moment the local becomes DEBUGGABLE: we record its name, slot
+// and starting code offset in the chunk's debug-info table (endScope closes the
+// range). Recording at initialisation — not declaration — means the debugger
+// never shows a variable whose slot still holds initialiser scratch.
 static void markInitialized(void) {
-  current->locals[current->localCount - 1].depth = current->scopeDepth;
+  Local *local = &current->locals[current->localCount - 1];
+  local->depth = current->scopeDepth;
+  local->debugIndex = chunkAddLocalDebug(
+      currentChunk(), local->name, current->localCount - 1, currentChunk()->count);
 }
 
 // Blocks make statement compilation recursive (a block contains statements),

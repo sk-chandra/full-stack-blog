@@ -11,14 +11,37 @@ void initChunk(Chunk *chunk) {
   chunk->lines = NULL;
   initValueArray(&chunk->constants);
   chunk->globalCache = NULL; // allocated lazily on the first global read
+  chunk->debugLocals = NULL;
+  chunk->debugLocalCount = 0;
+  chunk->debugLocalCapacity = 0;
 }
 
 void freeChunk(Chunk *chunk) {
   free(chunk->code);
   free(chunk->lines);
   free(chunk->globalCache); // plain malloc'd, not GC-managed
+  free(chunk->debugLocals);
   freeValueArray(&chunk->constants);
   initChunk(chunk);
+}
+
+int chunkAddLocalDebug(Chunk *chunk, ObjString *name, int slot, int start) {
+  if (chunk->debugLocalCount + 1 > chunk->debugLocalCapacity) {
+    chunk->debugLocalCapacity =
+        chunk->debugLocalCapacity < 8 ? 8 : chunk->debugLocalCapacity * 2;
+    chunk->debugLocals = realloc(chunk->debugLocals,
+                                 sizeof(LocalDebug) * chunk->debugLocalCapacity);
+    if (chunk->debugLocals == NULL) {
+      fprintf(stderr, "cnano: out of memory recording debug info\n");
+      exit(70);
+    }
+  }
+  LocalDebug *d = &chunk->debugLocals[chunk->debugLocalCount];
+  d->name = name;
+  d->slot = slot;
+  d->startOffset = start;
+  d->endOffset = -1; // still open; closed by the compiler at end of scope
+  return chunk->debugLocalCount++;
 }
 
 void writeChunk(Chunk *chunk, uint8_t byte, int line) {

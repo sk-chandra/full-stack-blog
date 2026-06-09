@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (738 cases, incl. native + GC)
+make test       # run the end-to-end test suite (746 cases, incl. native + GC)
 make fuzz       # generate hostile inputs and assert the compiler never crashes
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
@@ -37,6 +37,7 @@ make run        # start the REPL
 
 # see the bytecode AND a step-by-step VM trace (the best way to learn)
 ./build/cnano --dump examples/variables.cn
+./build/cnano --debug examples/closures.cn     # stepping debugger: s/n/c, b LINE, p NAME, bt
 ./build/cnano --cfg examples/control_flow.cn   # control-flow graph (basic blocks)
 ./build/cnano --ir examples/ir.cn              # three-address IR, before + after optimisation
 ./build/cnano --types examples/showcase.cn     # inferred type of each top-level binding
@@ -248,6 +249,12 @@ make run        # start the REPL
   the hardware call stack. The emitted assembly assembles and links with `cc` into
   a standalone binary whose output matches the VM — the IR's payoff as a
   *code-generation* substrate, not just an optimisation one
+- **A stepping debugger**: `cnano --debug file.cn` pauses on the first line and
+  takes commands — `s`tep (into calls), `n`ext (over them), `c`ontinue, `b LINE`
+  breakpoints, `p NAME`, `vars`, `bt`. Printing a local by name works because the
+  compiler now emits **debug information** (a name → stack-slot table with
+  bytecode live ranges — DWARF in miniature); without it, compiled code knows
+  locals only as slot numbers
 - **Garbage collection**: a **mark-and-sweep** tracing collector reclaims dead
   heap objects *while the program runs* (an allocation-churning loop stays at
   bounded memory instead of growing forever). Tri-colour marking with an explicit
@@ -315,6 +322,7 @@ make run        # start the REPL
 | `src/compiler.{h,c}` | AST → per-function bytecode | scopes, slots, jumps, upvalue resolution |
 | `src/vm.{h,c}` | executes bytecode | call frames; upvalue capture/closing; type checks |
 | `src/debug.{h,c}` | disassembler | seeing what your compiler produced |
+| `src/debugger.{h,c}` | stepping debugger | breakpoints, step into/over, `p NAME` via compiler-emitted debug info (`--debug`) |
 | `src/main.c` | CLI / REPL | wiring it together |
 | `tools/fuzzgen.c`, `tools/fuzz.sh` | fuzzer | generate hostile inputs; assert the compiler errors cleanly, never crashes (`make fuzz`, under ASan) |
 | `std/prelude.cn` | the standard prelude | a library written **in cnano** — `range`, comparator `sortBy`, `gcd`, `ipow`, predicates, padding |

@@ -150,6 +150,10 @@ static void blackenObject(Obj *object) {
     ObjFunction *function = (ObjFunction *)object;
     markObject((Obj *)function->name);
     markArray(&function->chunk.constants);
+    // Debug info holds local-variable NAMES (interned strings) that may appear
+    // nowhere else — the whole point is that the bytecode itself dropped them.
+    for (int i = 0; i < function->chunk.debugLocalCount; i++)
+      markObject((Obj *)function->chunk.debugLocals[i].name);
     break;
   }
   case OBJ_CLOSURE: {

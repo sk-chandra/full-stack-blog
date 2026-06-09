@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "debugger.h"
 #include "vm.h"
 
 static void runFile(const char *path, bool trace) {
@@ -106,6 +107,12 @@ int main(int argc, const char *argv[]) {
   } else if (argc == 3 && strcmp(argv[1], "--asm") == 0) {
     if (dumpAsmFile(argv[2]) != INTERPRET_OK)
       exit(65);
+  } else if (argc == 3 && strcmp(argv[1], "--debug") == 0) {
+    // Run under the stepping debugger: pause on the first line, then take
+    // commands (step/continue/breakpoints/print) from stdin.
+    debuggerStart(argv[2]);
+    runFile(argv[2], false);
+    debuggerEnd();
   } else if (argc == 3 && strcmp(argv[1], "--stats") == 0) {
     // Profile a run: tally instructions/allocations/GC, then print a summary.
     vm.collectStats = true;
@@ -125,6 +132,7 @@ int main(int argc, const char *argv[]) {
             "  cnano --ir path           lower straight-line code to IR and print it\n"
             "  cnano --types path        print the inferred type of each top-level binding\n"
             "  cnano --asm path          emit x86-64 assembly for straight-line integer code\n"
+            "  cnano --debug path        run under the stepping debugger (s/n/c/b/p)\n"
             "  cnano --stats path        run, then print a profiling summary\n"
             "  cnano --native path -o X  compile to a native executable X\n");
     freeVM();

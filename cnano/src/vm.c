@@ -9,6 +9,7 @@
 #include "compiler.h"
 #include "cfg.h"
 #include "debug.h"
+#include "debugger.h"
 #include "ir.h"
 #include "memory.h"
 #include "module.h"
@@ -458,6 +459,8 @@ static InterpretResult run(bool trace, int stopFrame) {
       Chunk *ch = &frame->closure->function->chunk;
       disassembleInstruction(ch, (int)(frame->ip - ch->code));
     }
+    if (debugger.active) // one predictable branch, like collectStats below
+      debuggerHook(frame);
 
     uint8_t instruction = READ_BYTE();
     if (vm.collectStats) { // a single predictable branch; off in the common case

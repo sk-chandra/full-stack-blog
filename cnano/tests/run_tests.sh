@@ -114,6 +114,22 @@ check_clean_error() {
   fi
 }
 
+# check_dbg NAME PROGRAM COMMANDS PATTERN — run PROGRAM under the stepping
+# debugger (--debug) feeding COMMANDS (\n-separated) on stdin, and assert the
+# combined session output matches the shell glob PATTERN (use * between the
+# substrings that must appear in order).
+check_dbg() {
+  local name="$1" prog="$2" cmds="$3" pattern="$4"
+  printf '%s' "$prog" > "$tmp"
+  local out; out="$(printf '%b' "$cmds" | "$CNANO" --debug "$tmp" 2>&1)"
+  case "$out" in
+    $pattern)
+      printf '  ok   %-22s (debugger) ok\n' "$name"; pass=$((pass + 1)) ;;
+    *)
+      printf '  FAIL %-22s debugger output mismatch:\n%s\n' "$name" "$out"; fail=$((fail + 1)) ;;
+  esac
+}
+
 # check_native NAME PROGRAM EXPECTED — compile PROGRAM to a NATIVE binary via the
 # C backend, run it, and compare output. Proves the --native path produces a real
 # executable whose behaviour matches the VM. Skipped if no C compiler is found.
@@ -419,6 +435,48 @@ check_clean_error "match-null-subj" "match (*) { _ => print 1; }"
 check_clean_error "spec-dot-not-float" 'print 1.;'
 # ...and `?:` is right-associative: a ? b : c ? d : e == a ? b : (c ? d : e).
 check_prog "spec-ternary-rassoc" 'print false ? "a" : true ? "b" : "c";' "b"
+
+# --- the stepping debugger (step 77) ---
+dbg_prog='let total = 0;
+fn addTo(n) {
+  let doubled = n * 2;
+  total = total + doubled;
+  return total;
+}
+addTo(5);
+print total;'
+# Pauses on the first line; with no commands (EOF) it continues to completion.
+check_dbg "dbg-first-stop" "$dbg_prog" "" '*stopped at line 1*10*'
+# A breakpoint inside a function; print a parameter, a local (via the compiler's
+# debug-info table — names the bytecode itself discarded), and a global.
+check_dbg "dbg-break-print" "$dbg_prog" 'b 4\nc\np n\np doubled\np total\nc\n' \
+  '*breakpoint at line 4*n = 5*doubled = 10*total = 0*10*'
+# The backtrace shows the paused frame and its caller.
+check_dbg "dbg-backtrace" "$dbg_prog" 'b 3\nc\nbt\nc\n' \
+  '*#0 addTo*#1 <script>*'
+# vars lists every local in scope at the pause.
+check_dbg "dbg-vars" "$dbg_prog" 'b 4\nc\nvars\nc\n' '*n = 5*doubled = 10*'
+dbg_step='fn twice(x) {
+  return x * 2;
+}
+let a = twice(4);
+let b = a + 1;
+print b;'
+# `n` steps OVER the call: 1 -> 4 -> 5 (no re-pause at 4 when the callee
+# returns), and `a` is then assigned.
+check_dbg "dbg-step-over" "$dbg_step" 'n\nn\nn\np a\nc\n' \
+  '*stopped at line 1*stopped at line 4*stopped at line 5*a = 8*'
+# `s` steps INTO the call: line 4 -> line 2, where the parameter is in scope.
+check_dbg "dbg-step-into" "$dbg_step" 's\ns\np x\nc\n' \
+  '*stopped at line 4*stopped at line 2*x = 4*'
+# A breakpoint in a loop re-fires on every iteration.
+check_dbg "dbg-loop-bp" 'let i = 0;
+while (i < 2) {
+  i = i + 1;
+}
+print i;' 'b 3\nc\np i\nc\np i\nc\n' '*i = 0*i = 1*2*'
+# An unknown name reports cleanly instead of crashing.
+check_dbg "dbg-unknown-var" "$dbg_prog" 'p zzz\nc\n' "*no variable named 'zzz'*"
 
 # --- global variables (step 3) ---
 check_prog "let-and-read"     "let x = 10; print x;"              "10"

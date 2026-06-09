@@ -11,6 +11,11 @@
 #include "common.h"
 #include "value.h"
 
+// Forward declaration (full type in object.h): the debug-info table below names
+// locals with interned strings, but chunk.h must not include object.h (object.h
+// includes chunk.h — the usual cycle-break, same as value.h's `Obj`).
+typedef struct ObjString ObjString;
+
 // The instruction set. Every opcode is one byte. Some are followed by operand
 // bytes embedded in the stream (only OP_CONSTANT here, which takes a 1-byte
 // index). This is a *stack machine*: arithmetic ops take their inputs from the
@@ -157,6 +162,19 @@ typedef struct {
   int index;     // the globals-table bucket index for this name
 } GlobalCacheSlot;
 
+// DEBUG INFORMATION (step 77): one record per local variable, mapping its NAME
+// to its stack SLOT and the bytecode range over which it is in scope. The
+// compiler normally discards names entirely — locals become bare slot numbers —
+// so a debugger can't answer "print x" without this table. It is the same idea
+// (in miniature) as DWARF in a native binary: metadata the compiler emits purely
+// so tools can map the running program back to the source.
+typedef struct {
+  ObjString *name; // the variable's source name (interned; GC-marked via the chunk)
+  int slot;        // frame-relative stack slot
+  int startOffset; // first code offset where the local is in scope
+  int endOffset;   // one PAST the last in-scope offset; -1 = to end of function
+} LocalDebug;
+
 typedef struct {
   int count;          // number of bytes used
   int capacity;       // number of bytes allocated
@@ -167,6 +185,10 @@ typedef struct {
   // OP_GET_GLOBAL). NULL until the first global read in this chunk. Plain malloc,
   // not GC-managed; freed by freeChunk.
   GlobalCacheSlot *globalCache;
+  // Local-variable debug info for the stepping debugger (see LocalDebug above).
+  LocalDebug *debugLocals;
+  int debugLocalCount;
+  int debugLocalCapacity;
 } Chunk;
 
 void initChunk(Chunk *chunk);
@@ -175,6 +197,10 @@ void freeChunk(Chunk *chunk);
 void writeChunk(Chunk *chunk, uint8_t byte, int line);
 // Add a constant to the pool and return its index, for use as an OP_CONSTANT operand.
 int addConstant(Chunk *chunk, Value value);
+
+// Record that local `name` occupies `slot` starting at code offset `start`
+// (endOffset is filled in when its scope closes). Returns the record's index.
+int chunkAddLocalDebug(Chunk *chunk, ObjString *name, int slot, int start);
 
 // The byte length of the instruction beginning at `offset` (1 for operand-less
 // ops, 2 for one-byte-operand ops, 3 for jumps/INVOKE, 4 for CONSTANT_LONG, and

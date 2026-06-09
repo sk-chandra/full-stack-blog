@@ -2092,7 +2092,30 @@ what it *rejects*. This arc hardens cnano as an artifact.
   against the implementation* before being written down — which is the real
   lesson: a spec is a set of testable promises, not prose. Two of those probes
   became conformance tests (`1.` errors cleanly; `?:` is right-associative).
-- **Still ahead in this arc:** a stepping debugger.
+- ~~**A stepping debugger**~~ ✓ (step 77) — `cnano --debug file.cn`
+  (`debugger.c`): pause on the first line, then `s`tep / `n`ext / `c`ontinue,
+  `b LINE` breakpoints, `p NAME`, `vars`, `bt`. Two ideas carry the whole thing:
+  - **Stepping is watching the line table change.** The chunk already maps every
+    instruction back to its source line (kept for error messages); a hook in the
+    dispatch loop — one predictable branch, the same pattern as `--stats` —
+    watches that line *change*, which is what "step one line" means at the
+    machine level. `next` vs `step` is one extra comparison: pause only at the
+    current call depth or shallower, versus at any depth. (And a classic
+    subtlety, found by testing: after a call *within* a line returns, the line
+    "changes" back to the call line — `next` must not re-pause on the line it was
+    issued from in the same frame, or stepping over `let a = f(4);` stops twice.)
+  - **`p name` needs DEBUG INFORMATION.** Compiled code refers to locals only by
+    stack slot — the *names are gone*, deliberately discarded by the compiler.
+    So the compiler now emits a per-function `LocalDebug` table (name → slot over
+    a bytecode `[start, end)` range, recorded when a local is marked initialised
+    and closed at end of scope), which the debugger searches innermost-first at
+    the paused offset. This is DWARF in miniature — metadata produced at compile
+    time purely so tools can map the running program back to the source — and
+    the GC must mark those names, since the whole point is that they appear
+    nowhere else. Globals need no table (they are already name-keyed).
+
+  With this, Arc 9's planned items — fuzzer, spec, prelude, debugger — are all
+  delivered.
 
 ### Other educational arcs ahead
 
