@@ -2061,8 +2061,27 @@ what it *rejects*. This arc hardens cnano as an artifact.
   pinned by regression tests that assert a *clean* exit 65 rather than merely a
   non-zero one — because a crash is also non-zero, the usual "expect an error"
   check would have hidden exactly this bug.
-- **Still ahead in this arc:** a written grammar/specification; a `cnano`-authored
-  standard prelude (steps toward self-hosting); and a stepping debugger.
+- ~~**A standard prelude written in cnano**~~ ✓ (step 75) — `std/prelude.cn`, the
+  self-hosting milestone: the language is now expressive enough to implement its
+  own library, and `import` makes shipping it trivial (no new machinery at all —
+  the prelude is just a module). What it contains is chosen to *complement* the C
+  builtins, not duplicate them: `range`/`rangeBy` (loop fuel), **`sortBy` with a
+  custom comparator** — the builtin `.sort()` has none, and the insertion sort
+  inside is the classic teaching algorithm — Euclid's `gcd` (+ `lcm`),
+  **exponentiation by squaring** (`ipow`, O(log n) multiplies, following the
+  exponent's binary digits), the predicate family `any`/`all`/`countIf`/
+  `findIndex` (taking lambdas *or* named functions as first-class values),
+  `unique`, generic `first<T>`/`last<T>` (Arc 7 at work: `first(["a"])` is a
+  `str`, statically), and string padding/`capitalize`/`reverseStr`. Every layer
+  built this session gets exercised at once — closures, generics, the module
+  system, the GC (array/string churn under `gcstress`) — and the golden tests
+  import the *shipped file* by absolute path, so the artifact itself is tested,
+  not a copy. The lesson: a standard library is the point where a language stops
+  being a demo and starts being a *tool* — and "which half lives in C vs. in the
+  language itself" is a real design axis (CPython, for instance, keeps moving
+  code across that line).
+- **Still ahead in this arc:** a written grammar/specification; a stepping
+  debugger.
 
 ### Other educational arcs ahead
 

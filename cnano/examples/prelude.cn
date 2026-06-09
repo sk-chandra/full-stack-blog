@@ -1,0 +1,30 @@
+// The standard prelude in action. The prelude is written in cnano itself
+// (std/prelude.cn) — proof the language can implement its own library.
+import "../std/prelude.cn";
+
+// Integer helpers: Euclid's gcd, exponentiation by squaring.
+print gcd(54, 24);                 // 6
+print lcm(4, 6);                   // 12
+print ipow(2, 20);                 // 1048576
+print clamp(99, 0, 10);            // 10
+
+// range() makes loop fuel; sortBy() takes a CUSTOM comparator (builtin .sort()
+// has none) — here, descending.
+print range(1, 6).join(" ");                          // 1 2 3 4 5
+print sortBy([3, 1, 4, 1, 5, 9, 2, 6], fn(a, b) => a > b).join(" "); // 9 6 5 4 3 2 1 1
+
+// Predicates compose with lambdas — or with named functions like isEven.
+print countIf(range(1, 101), isEven);                 // 50
+print any([1, 3, 5], fn(x) => x % 2 == 0);            // false
+print all(range(1, 10), fn(x) => x < 100);            // true
+
+// Generic helpers keep their element type (Arc 7): first() of a [str] is a str.
+print first(["alpha", "beta"]).upper();               // ALPHA
+
+// String formatting: a right-aligned table column.
+let scores = [3, 47, 512];
+let i = 0;
+while (i < scores.len()) {
+  print padLeft(str(scores[i]), 5, " ") + " pts";
+  i = i + 1;
+}

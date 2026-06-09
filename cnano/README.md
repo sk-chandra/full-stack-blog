@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (725 cases, incl. native + GC)
+make test       # run the end-to-end test suite (736 cases, incl. native + GC)
 make fuzz       # generate hostile inputs and assert the compiler never crashes
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
@@ -24,6 +24,7 @@ make run        # start the REPL
 # run a file
 ./build/cnano examples/types.cn               #  optional static type annotations
 ./build/cnano examples/generics.cn            #  generics: fn id<T>(x: T): T (type-erased)
+./build/cnano examples/prelude.cn             #  the std prelude — a library written IN cnano
 ./build/cnano examples/closures.cn            #  counters, adders, an account
 ./build/cnano examples/arrays.cn              #  arrays: literals, indexing, methods
 ./build/cnano examples/maps.cn                #  maps: any-key dictionaries, methods
@@ -191,6 +192,11 @@ make run        # start the REPL
   included **at most once**, so diamonds and cycles are safe. Imports are resolved
   by a pass that splices every file into one program *before* type-checking, so a
   type error anywhere — across file boundaries — is still caught up front
+- **A standard prelude written in cnano** (`std/prelude.cn`): the language is
+  expressive enough to implement its own library — `range`, a comparator
+  `sortBy` (insertion sort), Euclid's `gcd`, exponentiation-by-squaring `ipow`,
+  `any`/`all`/`countIf` predicates, generic `first<T>`/`last<T>`, and string
+  padding — all running on the same VM as your code. `import "std/prelude.cn";`
 - **Optimisation**: an AST **constant-folding** pass evaluates constant
   subexpressions at compile time (`2 + 3 * 4` → `14`, `"a" + "b"` → `"ab"`) and
   collapses **constant-condition** `?:`/`and`/`or` to the branch that would run
@@ -311,6 +317,7 @@ make run        # start the REPL
 | `src/debug.{h,c}` | disassembler | seeing what your compiler produced |
 | `src/main.c` | CLI / REPL | wiring it together |
 | `tools/fuzzgen.c`, `tools/fuzz.sh` | fuzzer | generate hostile inputs; assert the compiler errors cleanly, never crashes (`make fuzz`, under ASan) |
+| `std/prelude.cn` | the standard prelude | a library written **in cnano** — `range`, comparator `sortBy`, `gcd`, `ipow`, predicates, padding |
 
 ## Learning path
 

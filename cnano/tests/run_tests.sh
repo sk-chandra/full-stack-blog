@@ -1339,6 +1339,25 @@ check_module_diag "mod-pos-root" "main.cn" "main.cn:1" \
   "main.cn" 'import "x.cn"; let z: int = "no";' \
   "x.cn" 'fn unused(): int { return 0; }'
 
+# --- the standard prelude, written in cnano itself (step 75) ---
+# These import the REAL std/prelude.cn (by absolute path), so they test the
+# shipped file, not a copy — the self-hosting milestone exercised end to end.
+PRELUDE="$(cd "$(dirname "$0")/../std" && pwd)/prelude.cn"
+check_prog "pre-gcd"     "import \"$PRELUDE\"; print gcd(54, 24);" "6"
+check_prog "pre-lcm"     "import \"$PRELUDE\"; print lcm(4, 6);" "12"
+check_prog "pre-ipow"    "import \"$PRELUDE\"; print ipow(3, 13);" "1594323"
+check_prog "pre-clamp"   "import \"$PRELUDE\"; print clamp(99, 0, 10); print clamp(-1, 0, 10);" "$(printf '10\n0')"
+check_prog "pre-range"   "import \"$PRELUDE\"; print range(2, 7).join(\",\"); print rangeBy(10, 0, -3).join(\",\");" "$(printf '2,3,4,5,6\n10,7,4,1')"
+# sortBy: a DESCENDING comparator — the builtin .sort() can't express this.
+check_prog "pre-sortby"  "import \"$PRELUDE\"; print sortBy([3,1,4,1,5,9], fn(a, b) => a > b).join(\",\");" "9,5,4,3,1,1"
+# A named function (isEven) used as a first-class predicate.
+check_prog "pre-countif" "import \"$PRELUDE\"; print countIf(range(1, 101), isEven);" "50"
+check_prog "pre-anyall"  "import \"$PRELUDE\"; print any([1,3,5], isEven); print all([2,4,6], isEven);" "$(printf 'false\ntrue')"
+check_prog "pre-unique"  "import \"$PRELUDE\"; print unique([1,2,1,3,2]).join(\",\");" "1,2,3"
+# The generic first<T>/last<T> keep their element type (a [str] yields a str).
+check_prog "pre-generic" "import \"$PRELUDE\"; print first([10,20]) + 1; print last([\"a\",\"b\"]).upper();" "$(printf '11\nB')"
+check_prog "pre-strings" "import \"$PRELUDE\"; print padLeft(\"7\", 4, \"0\"); print capitalize(\"hello\"); print reverseStr(\"cnano\");" "$(printf '0007\nHello\nonanc')"
+
 # --- string escape sequences (step 34) ---
 check_prog "esc-newline"   'print "a\nb";' "$(printf 'a\nb')"
 check_prog "esc-tab-len"   'print "x\ty".len();' "3"
