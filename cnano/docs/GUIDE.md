@@ -1523,7 +1523,7 @@ ordered so each builds on the last.
     threshold, and a weak string-intern table; reclaims dead objects while the
     program runs (`make gcstress` collects on every allocation under ASan).
 
-### The memory + data-structures arc (in progress)
+### The memory + data-structures arc (complete)
 
 With the collector in place, cnano is growing real aggregate data on top of it:
 
@@ -1549,7 +1549,7 @@ With the collector in place, cnano is growing real aggregate data on top of it:
 garbage collector, a structured type system, builtin functions and methods, and
 both array and map collections — typed or dynamic, all GC-managed.
 
-### The ergonomics, objects & errors arc (steps 15–29, in progress)
+### The ergonomics, objects & errors arc (steps 15–29, complete)
 
 With a complete core language, the next arc makes cnano practical to *use*, lets
 programs define their own types, and makes failure recoverable.
@@ -1797,7 +1797,7 @@ programs define their own types, and makes failure recoverable.
     renderer just needs the buffer origin (`lexerSource()`) to find the line and
     column; EOF and lexer-error tokens degrade to a line without a caret.
 
-### The optimising middle-end (Arc 6, in progress)
+### The optimising middle-end (Arc 6, complete)
 
 The biggest gap in cnano's education was the *middle-end* — real compilers go
 front-end → IR → optimise → back-end, and cnano went AST → bytecode with only
@@ -1841,7 +1841,7 @@ local folding + a peephole pass. This arc builds the missing machinery.
   a future **IR arc** (build a small three-address/SSA IR, optimise there, lower
   back to bytecode), the honest and proper home for them.
 
-### The three-address IR (Arc 6 continued, in progress)
+### The three-address IR (Arc 6 continued, complete)
 
 Acting on that finding, this sub-arc builds the missing representation: a small
 **three-address IR** where every value has a NAME. `ir.c` lowers a straight-line
@@ -1953,7 +1953,7 @@ fewer annotations are needed without losing static checking.
 - **Still ahead in this arc:** parameter-type inference from call sites, and
   generic structs (`struct Box<T> { value: T }`).
 
-### A real machine-code back end (Arc 8, in progress)
+### A real machine-code back end (Arc 8, complete)
 
 Until now cnano's "native" path transpiled to C and let `cc` do instruction
 selection and register allocation. That teaches AOT compilation but hides the two
@@ -2113,7 +2113,7 @@ jobs at the heart of a code generator. This arc emits machine code directly.
 
   With this, Arc 8's planned items are all delivered or honestly closed.
 
-### Maturity & tooling (Arc 9, in progress)
+### Maturity & tooling (Arc 9, complete)
 
 A real language is judged not only by what it accepts but by how it behaves on
 what it *rejects*. This arc hardens cnano as an artifact.
@@ -2262,6 +2262,34 @@ how a language works rather than a pile of features.
   would need safepoints + interior-pointer fixups, a handle layer, or precise
   stack maps. So Arc 5 is delivered as the meta-lesson — *your GC choice is
   dictated by your reference discipline* — rather than an unsafe rewrite.
+
+### Where the project stands (step 80)
+
+Every planned arc is delivered or honestly closed. cnano is a complete map of
+how a language works, end to end:
+
+- **Front end:** lexer with interpolation, recursive-descent parser with a
+  written EBNF spec (`docs/SPEC.md`), modules, diagnostics with carets,
+  "did you mean?", and per-file positions.
+- **Semantics:** a gradual, structured type system — unions, nullables,
+  narrowing, nominal structs/enums, ADTs with exhaustive `match`, generics by
+  unification + erasure, return-type inference.
+- **Middle end:** AST folding, a bytecode peephole + dead-block elimination over
+  a CFG, and a three-address IR with constant propagation, CSE, dead-code
+  elimination, and loop-invariant code motion.
+- **Runtimes:** a bytecode VM (closures, generators, TCO, try/catch, a
+  mark-sweep GC with stress harness and instrumentation, inline caches) — and
+  three native back ends: C transpilation (`--native`), x86-64 assembly with
+  linear-scan register allocation and SSE floats (`--asm`), and direct ELF
+  emission with no toolchain at all (`--elf`).
+- **Tooling:** a disassembler, VM tracer, profiler, CFG/IR/type viewers, a
+  stepping debugger backed by compiler-emitted debug info, a fuzzer, and a
+  standard prelude written in cnano itself.
+
+What remains is the open-ended kind: finishing Arc 7 (parameter inference,
+generic structs), an ARM64 target when a toolchain is available, wiring the
+optimised IR back into execution, self-hosting more of the toolchain. The map
+has no more *blank* regions — only places to go deeper.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
 (free online). cnano's bytecode/VM design intentionally follows the same lineage

@@ -1,4 +1,6 @@
-// iropt.c — constant propagation + folding on the three-address IR (step 64b).
+// iropt.c — the IR optimiser: constant propagation + folding (step 64b), CSE
+// and dead-temp elimination (step 65), made basic-block-local (step 73), plus
+// loop-invariant code motion (step 79).
 //
 // This is the payoff of having an IR. On stack bytecode these analyses fought
 // the operand stack (see the GUIDE's middle-end chapter); here every value has a

@@ -2,11 +2,13 @@
 //
 // This is the representation cnano's bytecode lacks: every value has a NAME (a
 // temporary `t0, t1, …`), so the classic optimizations — constant propagation,
-// common-subexpression elimination, dead-code elimination — become simple walks
-// instead of fighting the operand stack (see the GUIDE's middle-end chapter for
-// why stack bytecode resists them). It is a teaching/analysis layer: `cnano --ir`
-// lowers straight-line code to IR and shows it before and after optimisation.
-// (Wiring it in as the execution backend is the natural next project.)
+// common-subexpression elimination, dead-code elimination, loop-invariant code
+// motion — become simple walks instead of fighting the operand stack (see the
+// GUIDE's middle-end chapter for why stack bytecode resists them). It grew from
+// a straight-line teaching layer (step 64) into a real compilation substrate:
+// labels/branches (step 70), calls/returns and whole-program modules (step 72),
+// consumed by the x86-64 assembly backend (`--asm`) and the direct-ELF backend
+// (`--elf`). `cnano --ir` shows any function before and after optimisation.
 #ifndef CNANO_IR_H
 #define CNANO_IR_H
 
