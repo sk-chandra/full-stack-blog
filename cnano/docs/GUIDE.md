@@ -2080,8 +2080,19 @@ what it *rejects*. This arc hardens cnano as an artifact.
   being a demo and starts being a *tool* — and "which half lives in C vs. in the
   language itself" is a real design axis (CPython, for instance, keeps moving
   code across that line).
-- **Still ahead in this arc:** a written grammar/specification; a stepping
-  debugger.
+- ~~**A written specification**~~ ✓ (step 76) — `docs/SPEC.md`. Until now the
+  grammar lived *implicitly* in the recursive-descent code; the spec makes it an
+  artifact: the lexical rules (including what is **not** a token — `1.` is a
+  member access, not a float), the full EBNF for declarations and statements, the
+  14-level expression precedence ladder exactly as the parser nests it
+  (assignment → ternary → `or` → `and` → `|` → `^` → `&` → equality/`is` →
+  comparison → shift → term → factor → unary → postfix → primary), the type
+  grammar, the semantics highlights (truthiness, int/float promotion, narrowing,
+  evaluation order), and the per-backend subset matrix. Each claim was *probed
+  against the implementation* before being written down — which is the real
+  lesson: a spec is a set of testable promises, not prose. Two of those probes
+  became conformance tests (`1.` errors cleanly; `?:` is right-associative).
+- **Still ahead in this arc:** a stepping debugger.
 
 ### Other educational arcs ahead
 

@@ -15,7 +15,7 @@ used by production language implementations like CPython, Lua, and the JVM.
 
 ```bash
 make            # build  -> build/cnano
-make test       # run the end-to-end test suite (736 cases, incl. native + GC)
+make test       # run the end-to-end test suite (738 cases, incl. native + GC)
 make fuzz       # generate hostile inputs and assert the compiler never crashes
 make gcstress   # run the suite collecting on every allocation, under ASan
 make bench      # run the self-timing benchmark suite
@@ -325,6 +325,11 @@ Read **[`docs/GUIDE.md`](docs/GUIDE.md)** — it walks through every stage, the
 design trade-offs behind each decision, and a roadmap of what to build next
 (variables, statements, control flow, functions, a type system, native code
 generation). It is written to be read top-to-bottom alongside the source.
+
+The language itself is specified in **[`docs/SPEC.md`](docs/SPEC.md)**: the full
+EBNF grammar (lexical rules, every statement form, the 14-level expression
+precedence ladder, the type grammar), the semantics highlights (truthiness,
+promotion, narrowing), and the per-backend subset matrix.
 
 ## Why C, why a stack VM, why bytecode?
 

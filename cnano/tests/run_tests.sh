@@ -413,6 +413,13 @@ check_clean_error "asn-null-brace" "} = 1;"
 check_clean_error "asn-null-cmpd"  "+ += 2;"
 check_clean_error "match-null-subj" "match (*) { _ => print 1; }"
 
+# --- spec conformance (step 76) ---
+# Corners pinned by docs/SPEC.md. `1.` is NOT a float literal (the dot is a
+# member access, so this is a clean parse error)...
+check_clean_error "spec-dot-not-float" 'print 1.;'
+# ...and `?:` is right-associative: a ? b : c ? d : e == a ? b : (c ? d : e).
+check_prog "spec-ternary-rassoc" 'print false ? "a" : true ? "b" : "c";' "b"
+
 # --- global variables (step 3) ---
 check_prog "let-and-read"     "let x = 10; print x;"              "10"
 check_prog "var-in-expr"      "let x = 3; print x * x + 1;"       "10"
