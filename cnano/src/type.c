@@ -104,6 +104,27 @@ Type *typeStructRef(ObjString *name) {
   return t;
 }
 
+Type *typeStructInstance(Type *base, Type **typeArgs, int argCount) {
+  Type *t = allocType(TY_STRUCT);
+  t->strct.name = base->strct.name;
+  t->strct.fieldNames = base->strct.fieldNames; // share the base's field arrays
+  t->strct.fieldTypes = base->strct.fieldTypes;
+  t->strct.fieldCount = base->strct.fieldCount;
+  t->strct.typeParams = base->strct.typeParams; // share the param NAMES
+  t->strct.typeParamCount = base->strct.typeParamCount;
+  if (argCount > 0) {
+    t->strct.typeArgs = malloc(sizeof(Type *) * argCount); // owned; freeTypes frees
+    if (t->strct.typeArgs == NULL) {
+      fprintf(stderr, "cnano: out of memory instantiating a generic struct\n");
+      exit(70);
+    }
+    for (int i = 0; i < argCount; i++)
+      t->strct.typeArgs[i] = typeArgs[i];
+    t->strct.typeArgCount = argCount;
+  }
+  return t;
+}
+
 Type *typeEnum(ObjString *name) {
   Type *t = allocType(TY_ENUM);
   t->strct.name = name; // reuse the nominal-name slot; enums have no fields
@@ -173,6 +194,8 @@ void freeTypes(void) {
     free(arena[i]->fn.params); // NULL for non-function types — free(NULL) is ok
     if (arena[i]->kind == TY_UNION)
       free(arena[i]->uni.members);
+    if (arena[i]->kind == TY_STRUCT)
+      free(arena[i]->strct.typeArgs); // owned per-instance arg list (NULL ok)
     free(arena[i]);
   }
   free(arena);
@@ -221,8 +244,21 @@ const char *typeName(const Type *type) {
     return "nil";
   case TY_FUNCTION:
     return "fn";
-  case TY_STRUCT:
-    return type->strct.name->chars; // the declared struct name
+  case TY_STRUCT: {
+    if (type->strct.typeArgCount == 0)
+      return type->strct.name->chars; // a plain (or non-generic) struct
+    // An instantiation prints with its arguments: `Box<int>`, `Pair<int, str>`.
+    char local[NAME_LEN];
+    int off = snprintf(local, NAME_LEN, "%s<", type->strct.name->chars);
+    for (int i = 0; i < type->strct.typeArgCount && off < NAME_LEN - 1; i++)
+      off += snprintf(local + off, NAME_LEN - off, "%s%s", i ? ", " : "",
+                      typeName(type->strct.typeArgs[i]));
+    if (off < NAME_LEN - 1)
+      snprintf(local + off, NAME_LEN - off, ">");
+    char *buf = nameRing[nameSlot++ % NAME_RING];
+    snprintf(buf, NAME_LEN, "%s", local);
+    return buf;
+  }
   case TY_ENUM:
     return type->strct.name->chars; // the declared enum name (shares the slot)
   case TY_VAR:

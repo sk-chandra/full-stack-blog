@@ -55,6 +55,14 @@ typedef struct Type {
     ObjString **fieldNames;   // borrowed from the AST declaration
     struct Type **fieldTypes; // parallel; borrowed from the AST
     int fieldCount;           // -1 means an UNRESOLVED reference (just a name)
+    // Generics (step 82). `typeParams` are the declared `<T, U>` names on the
+    // base struct type (borrowed from the AST). `typeArgs` is an INSTANTIATION —
+    // `Box<int>` is the base `Box` with typeArgs = [int] — parallel to
+    // `typeParams`. Both NULL/0 for a non-generic struct or a bare reference.
+    ObjString **typeParams;
+    int typeParamCount;
+    struct Type **typeArgs;
+    int typeArgCount;
   } strct; // valid only when kind == TY_STRUCT
   struct {
     struct Type **members; // the alternatives (heap array, arena-owned)
@@ -85,6 +93,11 @@ Type *typeStruct(ObjString *name, ObjString **fieldNames, Type **fieldTypes,
 // An unresolved struct reference — just a name, as produced by a `: Name`
 // annotation before the checker has matched it to a declaration.
 Type *typeStructRef(ObjString *name);
+
+// A fresh struct type that is `base` instantiated with `typeArgs` (e.g.
+// `Box<int>`). Shares base's name and field arrays; carries its own type-arg
+// list (owned, freed by freeTypes). `argCount` may be 0 (a bare reference).
+Type *typeStructInstance(Type *base, Type **typeArgs, int argCount);
 
 // A nominal enum type, identified by name (reuses the `strct.name` slot). Like a
 // struct, two enum types are equal iff they share a name.

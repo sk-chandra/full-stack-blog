@@ -222,6 +222,8 @@ Node *newStructDecl(ObjString *name, ObjString **fieldNames, Type **fieldTypes,
   node->as.structDecl.fieldCount = fieldCount;
   node->as.structDecl.methods = NULL; // filled in by the parser
   node->as.structDecl.methodCount = 0;
+  node->as.structDecl.typeParams = NULL; // set by the parser for `struct B<T>`
+  node->as.structDecl.typeParamCount = 0;
   return node;
 }
 
@@ -441,6 +443,7 @@ void freeNode(Node *node) {
     // method declaration nodes.
     free(node->as.structDecl.fieldNames);
     free(node->as.structDecl.fieldTypes);
+    free(node->as.structDecl.typeParams); // names are interned; just the array
     for (int i = 0; i < node->as.structDecl.methodCount; i++)
       freeNode(node->as.structDecl.methods[i]);
     free(node->as.structDecl.methods);

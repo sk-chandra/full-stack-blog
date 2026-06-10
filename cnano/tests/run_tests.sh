@@ -1045,6 +1045,22 @@ check_prog "gen-map"      'fn pairUp<K, V>(k: K, v: V): {K: V} { return {k: v}; 
 # The native backend has no parametric polymorphism, so it REJECTS generics.
 check_native_err "gen-native-reject" 'fn id<T>(x: T): T { return x; } print id(5);'
 
+# --- generic structs (step 82) ---
+# A field typed by a parameter takes the constructor argument's type, per use.
+check_prog "gst-box-int"  'struct Box<T> { value: T } let b = Box(42); print b.value + 1;' "43"
+check_prog "gst-box-str"  'struct Box<T> { value: T } let b = Box("hi"); print b.value.upper();' "HI"
+# Two parameters, both solved from the constructor.
+check_prog "gst-pair"     'struct Pair<K, V> { key: K, val: V } let p = Pair("age", 30); print p.key; print p.val * 2;' "$(printf 'age\n60')"
+# The solved field type is ENFORCED: a str field used as a number is an error.
+check_diag "gst-enforce"  'struct Box<T> { value: T } let b = Box("hi"); print b.value + 1;' "must be str"
+# Explicit type-argument annotation, and its rejection of the wrong instantiation.
+check_prog "gst-annot"    'struct Box<T> { value: T } let b: Box<int> = Box(5); print b.value;' "5"
+check_diag "gst-annot-bad" 'struct Box<T> { value: T } let b: Box<int> = Box("x"); print 1;' "Box<str> but variable is declared Box<int>"
+# A generic FUNCTION over a generic struct: T flows through the Box<T> parameter.
+check_prog "gst-fn"       'struct Box<T> { value: T } fn unwrap<T>(b: Box<T>): T { return b.value; } print unwrap(Box(99)) + 1;' "100"
+# A generic struct METHOD returning a parameter-typed field.
+check_prog "gst-method"   'struct Box<T> { value: T  fn get(): T { return self.value; } } let b = Box(7); print b.get() + 1;' "8"
+
 # --- x86-64 assembly backend (step 69) ---
 # Emit real machine code from the IR, assemble it, run it, and check it agrees
 # with the VM. Covers instruction selection, the printf calling convention, and

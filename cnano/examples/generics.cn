@@ -37,3 +37,20 @@ print head([5, 6, 7]);     // T = int   -> 5
 let ages = pairUp("sam", 30); // K = str, V = int  -> {str: int}
 print ages["sam"];         // -> 30
 
+
+// Generic STRUCTS work the same way: a field typed by a parameter takes the
+// constructor argument's type, solved per construction and then erased.
+struct Box<T> { value: T }
+struct Pair<K, V> { key: K, val: V }
+
+let bi = Box(42);          // Box<int>
+let bs = Box("boxed");     // Box<str>
+print bi.value + 1;        // 43   — value is int
+print bs.value.upper();    // BOXED — value is str
+
+let p = Pair("port", 8080);
+print p.key + " = " + str(p.val);   // port = 8080
+
+// A generic function can take a generic struct — T flows through Box<T>.
+fn unwrap<T>(b: Box<T>): T { return b.value; }
+print unwrap(Box(99)) + 1; // 100

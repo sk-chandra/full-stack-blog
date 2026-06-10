@@ -249,6 +249,8 @@ typedef struct Node {
       int fieldCount;
       struct Node **methods; // NODE_FUN declarations inside the struct body
       int methodCount;
+      ObjString **typeParams; // generic `<T, U>` names, or NULL (step 82)
+      int typeParamCount;
     } structDecl;
     // NODE_ENUM: an `enum Name { A, B, C }` declaration. Just a name and the
     // ordered list of (interned) member names — enums carry no data of their own.

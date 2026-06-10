@@ -1345,7 +1345,26 @@ static Type *parseTypeBase(void) {
     // Any other identifier names a (user-defined) struct type. We can't resolve
     // it here — the parser doesn't know the declarations — so we record it as an
     // unresolved reference; the type checker matches it to a `struct` by name.
-    return typeStructRef(copyString(s, len));
+    Type *ref = typeStructRef(copyString(s, len));
+    // Optional generic arguments: `Box<int>`, `Pair<int, str>` (step 82). One
+    // level only — nested `Box<Box<int>>` would lex the `>>` as a shift; use a
+    // collection (`Box<[int]>`) to nest for now.
+    if (match(TOKEN_LESS)) {
+      Type **args = NULL;
+      int argc = 0;
+      do {
+        args = realloc(args, sizeof(Type *) * (argc + 1));
+        if (args == NULL) {
+          fprintf(stderr, "cnano: out of memory parsing type arguments\n");
+          exit(70);
+        }
+        args[argc++] = parseType();
+      } while (match(TOKEN_COMMA));
+      consume(TOKEN_GREATER, "Expect '>' after type arguments.");
+      ref->strct.typeArgs = args; // the checker resolves these against the decl
+      ref->strct.typeArgCount = argc;
+    }
+    return ref;
   }
   errorAt(&parser.current, "Expect a type after ':'.");
   return typeAny();
@@ -1492,6 +1511,25 @@ static Node *structDeclaration(void) {
   int line = parser.previous.line; // the 'struct'
   consume(TOKEN_IDENTIFIER, "Expect a struct name after 'struct'.");
   ObjString *name = copyString(parser.previous.start, parser.previous.length);
+
+  // Optional generic type parameters: `struct Box<T> { … }` (step 82). The `<`
+  // is unambiguous in declaration position, just as on a function.
+  ObjString **typeParams = NULL;
+  int typeParamCount = 0;
+  if (match(TOKEN_LESS)) {
+    do {
+      consume(TOKEN_IDENTIFIER, "Expect type-parameter name.");
+      typeParams = realloc(typeParams, sizeof(ObjString *) * (typeParamCount + 1));
+      if (typeParams == NULL) {
+        fprintf(stderr, "cnano: out of memory parsing type parameters\n");
+        exit(70);
+      }
+      typeParams[typeParamCount++] =
+          copyString(parser.previous.start, parser.previous.length);
+    } while (match(TOKEN_COMMA));
+    consume(TOKEN_GREATER, "Expect '>' after type parameters.");
+  }
+
   consume(TOKEN_LBRACE, "Expect '{' after the struct name.");
 
   ObjString **fieldNames = NULL;
@@ -1535,6 +1573,8 @@ static Node *structDeclaration(void) {
   Node *node = newStructDecl(name, fieldNames, fieldTypes, count, line);
   node->as.structDecl.methods = methods;
   node->as.structDecl.methodCount = methodCount;
+  node->as.structDecl.typeParams = typeParams;
+  node->as.structDecl.typeParamCount = typeParamCount;
   return node;
 }
 

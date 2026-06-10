@@ -77,7 +77,7 @@ declaration -> importDecl | structDecl | enumDecl | funDecl
              | varDecl | statement
 
 importDecl  -> "import" STRING ";"           // top level only
-structDecl  -> "struct" IDENT "{" field ( "," field )* method* "}"
+structDecl  -> "struct" IDENT typeParams? "{" field ( "," field )* method* "}"
 field       -> IDENT ":" type
 method      -> "fn" IDENT "(" params? ")" ( ":" type )? funBody
 enumDecl    -> "enum" IDENT "{" IDENT ( "," IDENT )* "}"
@@ -187,9 +187,14 @@ nullableType-> baseType "?"?                        // T? means T | nil
 baseType    -> "int" | "float" | "bool" | "str" | "nil" | "any"
              | "[" type "]"                         // array of T
              | "{" type ":" type "}"                // map of K to V
-             | IDENT                                // struct / enum name,
-                                                    // or a generic type variable
+             | IDENT ( "<" type ( "," type )* ">" )? // struct / enum name (with
+                                                    // optional generic arguments,
+                                                    // e.g. Box<int>), or a type
+                                                    // variable in scope
 ```
+
+A generic type argument list nests one level (`Box<[int]>` is fine;
+`Box<Box<int>>` is not, because the lexer reads `>>` as a shift — see §1.5).
 
 Annotations are optional everywhere (parameters, returns, `let`). Unannotated
 values are `any` — the gradual escape hatch — **except** a function's return

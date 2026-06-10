@@ -61,10 +61,23 @@ static bool compatible(Type *a, Type *b) {
     return compatible(a->map.key, b->map.key) &&
            compatible(a->map.value, b->map.value);
   case TY_STRUCT:
+    // Nominal typing: two struct types match iff they share a name AND their
+    // generic arguments match pairwise (so Box<int> ≠ Box<str>). A side that
+    // omits its arguments (a bare `Box`) is treated leniently — like `any` for
+    // the arguments — so unannotated generic code keeps flowing.
+    if (a->strct.name != b->strct.name)
+      return false;
+    if (a->strct.typeArgCount == 0 || b->strct.typeArgCount == 0)
+      return true;
+    if (a->strct.typeArgCount != b->strct.typeArgCount)
+      return false;
+    for (int i = 0; i < a->strct.typeArgCount; i++)
+      if (!compatible(a->strct.typeArgs[i], b->strct.typeArgs[i]))
+        return false;
+    return true;
   case TY_ENUM:
-    // Nominal typing: two struct/enum types match iff they are the SAME named
-    // type. Names are interned, so a pointer comparison suffices.
-    return a->strct.name == b->strct.name;
+    return a->strct.name == b->strct.name; // nominal, no parameters
+
   case TY_FUNCTION:
     if (a->fn.paramCount != b->fn.paramCount)
       return false;
@@ -247,8 +260,17 @@ static Type *resolve(Type *t, int line) {
     if (checker.typeParams[i] == t->strct.name)
       return typeVar(t->strct.name);
   for (int i = 0; i < structCount; i++)
-    if (structRegistry[i].name == t->strct.name)
-      return structRegistry[i].type;
+    if (structRegistry[i].name == t->strct.name) {
+      Type *base = structRegistry[i].type;
+      if (t->strct.typeArgCount == 0)
+        return base; // a bare reference (`Box`) — no instantiation
+      // `Box<int>`: resolve each argument and build the instance type.
+      Type *args[16];
+      int n = t->strct.typeArgCount < 16 ? t->strct.typeArgCount : 16;
+      for (int a = 0; a < n; a++)
+        args[a] = resolve(t->strct.typeArgs[a], line);
+      return typeStructInstance(base, args, n);
+    }
   // A `: Name` annotation can also name an enum (the parser can't tell them apart).
   if (findEnum(t->strct.name) >= 0)
     return typeEnum(t->strct.name);
@@ -400,6 +422,11 @@ static bool hasTypeVar(Type *t) {
       if (hasTypeVar(t->fn.params[i]))
         return true;
     return hasTypeVar(t->fn.returnType);
+  case TY_STRUCT: // a generic instantiation like Box<T>
+    for (int i = 0; i < t->strct.typeArgCount; i++)
+      if (hasTypeVar(t->strct.typeArgs[i]))
+        return true;
+    return false;
   default:
     return false;
   }
@@ -452,6 +479,12 @@ static void unify(Type *param, Type *arg, Subst *s) {
       unify(param->fn.returnType, arg->fn.returnType, s);
     }
     break;
+  case TY_STRUCT: // Box<T> against Box<int>: solve T from the matching arguments
+    if (arg->kind == TY_STRUCT && param->strct.name == arg->strct.name &&
+        param->strct.typeArgCount == arg->strct.typeArgCount)
+      for (int i = 0; i < param->strct.typeArgCount; i++)
+        unify(param->strct.typeArgs[i], arg->strct.typeArgs[i], s);
+    break;
   default:
     break;
   }
@@ -478,9 +511,40 @@ static Type *substitute(Type *t, Subst *s) {
       acc = typeUnite(acc, substitute(t->uni.members[i], s));
     return acc;
   }
+  case TY_STRUCT: { // substitute the type ARGUMENTS: Box<T> with {T:int} -> Box<int>
+    if (t->strct.typeArgCount == 0)
+      return t;
+    Type *args[16];
+    int n = t->strct.typeArgCount < 16 ? t->strct.typeArgCount : 16;
+    for (int i = 0; i < n; i++)
+      args[i] = substitute(t->strct.typeArgs[i], s);
+    return typeStructInstance(t, args, n);
+  }
   default:
     return t;
   }
+}
+
+// The type of field `fieldDecl` on the (possibly generic) struct instance
+// `obj`. For a non-generic struct this is just the resolved field type; for a
+// `Box<int>` it resolves the field's `T` to a type variable (the struct's
+// parameters are momentarily in scope) and substitutes the instance's
+// arguments, so `Box<int>.value` is `int`. A bare `Box` leaves the variables
+// unbound, which `substitute` renders as `any` — the gradual default.
+static Type *fieldTypeOf(Type *obj, Type *fieldDecl, int line) {
+  if (obj->strct.typeParamCount == 0)
+    return resolve(fieldDecl, line); // non-generic: nothing to substitute
+  ObjString **savedTP = checker.typeParams;
+  int savedTC = checker.typeParamCount;
+  checker.typeParams = obj->strct.typeParams;
+  checker.typeParamCount = obj->strct.typeParamCount;
+  Type *resolved = resolve(fieldDecl, line);
+  checker.typeParams = savedTP;
+  checker.typeParamCount = savedTC;
+  Subst s = {.count = 0};
+  for (int i = 0; i < obj->strct.typeParamCount && i < obj->strct.typeArgCount; i++)
+    bindVar(&s, obj->strct.typeParams[i], obj->strct.typeArgs[i]);
+  return substitute(resolved, &s);
 }
 
 static Type *checkCall(Node *node) {
@@ -782,7 +846,7 @@ static Type *checkExpr(Node *node) {
     if (obj->kind == TY_STRUCT) {
       for (int i = 0; i < obj->strct.fieldCount; i++)
         if (obj->strct.fieldNames[i] == node->as.field.field)
-          return resolve(obj->strct.fieldTypes[i], node->line);
+          return fieldTypeOf(obj, obj->strct.fieldTypes[i], node->line);
       char msg[128];
       noFieldMessage(obj, node->as.field.field, msg, sizeof(msg));
       typeError(node->line, msg);
@@ -801,7 +865,7 @@ static Type *checkExpr(Node *node) {
     if (obj->kind == TY_STRUCT) {
       for (int i = 0; i < obj->strct.fieldCount; i++)
         if (obj->strct.fieldNames[i] == node->as.field.field) {
-          Type *ft = resolve(obj->strct.fieldTypes[i], node->line);
+          Type *ft = fieldTypeOf(obj, obj->strct.fieldTypes[i], node->line);
           if (!compatible(ft, val)) {
             char msg[128];
             snprintf(msg, sizeof(msg), "cannot store %s into field '%s' of type %s",
@@ -1223,12 +1287,20 @@ static void checkStatement(Node *node) {
     break;
   case NODE_STRUCT: {
     // Registered in the pre-pass; here validate field types resolve, then check
-    // each method body with `self` bound to this struct's type.
+    // each method body with `self` bound to this struct's type. The struct's
+    // generic parameters are in scope throughout, so `T` field/method
+    // annotations resolve to type variables (step 82).
+    ObjString **savedTP = checker.typeParams;
+    int savedTC = checker.typeParamCount;
+    checker.typeParams = node->as.structDecl.typeParams;
+    checker.typeParamCount = node->as.structDecl.typeParamCount;
     for (int i = 0; i < node->as.structDecl.fieldCount; i++)
       resolve(node->as.structDecl.fieldTypes[i], node->line);
     Type *structType = resolve(typeStructRef(node->as.structDecl.name), node->line);
     for (int i = 0; i < node->as.structDecl.methodCount; i++)
       checkMethod(structType, node->as.structDecl.methods[i]);
+    checker.typeParams = savedTP;
+    checker.typeParamCount = savedTC;
     break;
   }
   case NODE_THROW:
@@ -1294,12 +1366,16 @@ bool typecheckProgram(Program *program) {
   // registered in the same pass so `: Color` annotations resolve too.
   for (int i = 0; i < program->count; i++) {
     Node *s = program->statements[i];
-    if (s->type == NODE_STRUCT)
-      registerStruct(s->as.structDecl.name,
-                     typeStruct(s->as.structDecl.name, s->as.structDecl.fieldNames,
-                                s->as.structDecl.fieldTypes,
-                                s->as.structDecl.fieldCount));
-    else if (s->type == NODE_ENUM)
+    if (s->type == NODE_STRUCT) {
+      Type *base = typeStruct(s->as.structDecl.name, s->as.structDecl.fieldNames,
+                              s->as.structDecl.fieldTypes,
+                              s->as.structDecl.fieldCount);
+      // A generic struct's base carries its `<T, U>` parameter names, so a `: T`
+      // field annotation resolves to a type variable (step 82).
+      base->strct.typeParams = s->as.structDecl.typeParams;
+      base->strct.typeParamCount = s->as.structDecl.typeParamCount;
+      registerStruct(s->as.structDecl.name, base);
+    } else if (s->type == NODE_ENUM)
       registerEnum(s);
   }
 
@@ -1327,9 +1403,28 @@ bool typecheckProgram(Program *program) {
       fprintf(stderr, "cnano: out of memory building a constructor type\n");
       exit(70);
     }
+    // The struct's type parameters are in scope while resolving the constructor,
+    // so a field typed `T` becomes a type variable (step 82).
+    ObjString **savedTP = checker.typeParams;
+    int savedTC = checker.typeParamCount;
+    checker.typeParams = s->as.structDecl.typeParams;
+    checker.typeParamCount = s->as.structDecl.typeParamCount;
     for (int f = 0; f < n; f++)
       params[f] = resolve(paramTypesArr[f], s->line);
     Type *structType = resolve(typeStructRef(s->as.structDecl.name), s->line);
+    // For a GENERIC struct, the constructor returns `Box<T, U>` (the parameters
+    // as type variables), so checkCall unifies the arguments and substitutes the
+    // result to a concrete `Box<int>`. Build that self-referential instance.
+    int tpc = s->as.structDecl.typeParamCount;
+    if (tpc > 0) {
+      Type *vars[16];
+      int nv = tpc < 16 ? tpc : 16;
+      for (int v = 0; v < nv; v++)
+        vars[v] = typeVar(s->as.structDecl.typeParams[v]);
+      structType = typeStructInstance(structType, vars, nv);
+    }
+    checker.typeParams = savedTP;
+    checker.typeParamCount = savedTC;
     declareSymbol(s->as.structDecl.name, typeFunction(params, n, structType));
   }
 

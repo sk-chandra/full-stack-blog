@@ -1894,7 +1894,7 @@ walks.
   optimisations are tractable.** (Wiring the optimised IR back to bytecode as the
   execution backend is the natural next project.)
 
-### Type inference (Arc 7, in progress)
+### Type inference & generics (Arc 7, complete)
 
 cnano was already *gradually* typed with a touch of inference (a `let` with no
 annotation takes its initialiser's type). This arc pushes inference further so
@@ -1950,8 +1950,24 @@ fewer annotations are needed without losing static checking.
   already did for `T?` and unions) — because `unify`/`substitute` were already
   written to walk those shapes. (It also makes `resolve` more correct in general:
   a struct reference nested in `[Point]` is now resolved, not left stuck.)
-- **Still ahead in this arc:** parameter-type inference from call sites, and
-  generic structs (`struct Box<T> { value: T }`).
+- ~~**Generic structs**~~ ✓ (step 82) — `struct Box<T> { value: T }`,
+  `struct Pair<K, V> { key: K, val: V }`. The struct type grew a type-parameter
+  list and, for an *instantiation*, a type-argument list, so `Box<int>` and
+  `Box<str>` are distinct types (`compatible` compares the arguments, and
+  `typeName` prints `Box<int>`). The pleasing part is how little new machinery it
+  needed: a struct's **constructor is already a function** in the symbol table, so
+  making its parameters the field types-with-variables and its return type the
+  self-referential `Box<T>` means the *existing* call-site `unify`/`substitute`
+  (steps 67–68) solve `T` from `Box(5)` and hand back `Box<int>` — generic structs
+  fell out of generic functions, with `unify`/`substitute`/`hasTypeVar` each
+  gaining one `TY_STRUCT` case. Field access substitutes the instance's arguments
+  (`Box<int>.value` is `int`), explicit `Box<int>` annotations are parsed and
+  checked (so a `Box<str>` initialiser is rejected), and a generic function can
+  take a generic struct (`fn unwrap<T>(b: Box<T>): T`). Erased like all generics:
+  the VM runs one struct for every instantiation. (Parameter-type inference from
+  call sites is the one item left open — it sits awkwardly with gradual typing,
+  where an unannotated parameter is *deliberately* dynamic, so it is recorded as a
+  future direction rather than forced.)
 
 ### A real machine-code back end (Arc 8, complete)
 
@@ -2286,10 +2302,11 @@ how a language works, end to end:
   stepping debugger backed by compiler-emitted debug info, a fuzzer, and a
   standard prelude written in cnano itself.
 
-What remains is the open-ended kind: finishing Arc 7 (parameter inference,
-generic structs), an ARM64 target when a toolchain is available, wiring the
-optimised IR back into execution, self-hosting more of the toolchain. The map
-has no more *blank* regions — only places to go deeper.
+Every planned arc (1–9) is now delivered. What remains is the open-ended kind:
+parameter-type inference from call sites (deliberately deferred — it sits
+awkwardly with gradual typing), an ARM64 target when a toolchain is available,
+wiring the optimised IR back into execution, self-hosting more of the toolchain.
+The map has no more *blank* regions — only places to go deeper.
 
 **Recommended companion reading:** *Crafting Interpreters* by Robert Nystrom
 (free online). cnano's bytecode/VM design intentionally follows the same lineage
